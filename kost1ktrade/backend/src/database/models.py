@@ -71,3 +71,26 @@ class Trade(Base):
 
     def __repr__(self):
         return f"<Trade(symbol='{self.symbol}', side='{self.side.name}', price={self.price}, quantity={self.quantity})>"
+
+
+class BacktestResult(Base):
+    __tablename__ = "backtest_results"
+
+    id = Column(Integer, primary_key=True)
+    strategy_name = Column(String, nullable=False)
+    symbol = Column(String, nullable=False)
+    timeframe = Column(String, nullable=False)
+    initial_balance = Column(Float, nullable=False)
+    final_balance = Column(Float, nullable=False)
+    pnl_usd = Column(Float, nullable=False)
+    pnl_percent = Column(Float, nullable=False)
+    win_rate = Column(Float, nullable=False)
+    max_drawdown = Column(Float, nullable=False)
+    sharpe_ratio = Column(Float, nullable=False)
+    total_trades = Column(Integer, nullable=False)
+    start_date = Column(DateTime, nullable=False)
+    end_date = Column(DateTime, nullable=False)
+    run_at = Column(DateTime, server_default=func.now())
+
+    def __repr__(self):
+        return f"<BacktestResult(strategy='{self.strategy_name}', symbol='{self.symbol}', pnl_percent={self.pnl_percent:.2f}%)>"

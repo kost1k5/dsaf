@@ -12,6 +12,7 @@ pydantic = "*"
 pydantic-settings = "*"
 ccxt = "*"
 pandas = "*"
+numpy = "*"
 
 [dev-packages]
 
