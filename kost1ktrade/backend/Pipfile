@@ -8,6 +8,10 @@ sqlalchemy = "*"
 psycopg2-binary = "*"
 fastapi = "*"
 uvicorn = "*"
+pydantic = "*"
+pydantic-settings = "*"
+ccxt = "*"
+pandas = "*"
 
 [dev-packages]
 
