@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 
@@ -83,7 +83,7 @@ class Settings(BaseSettings):
     OKX_WS_URL: str = "wss://ws.okx.com:8443/ws/v5/public"
     MAX_CANDLES: int = 5000
 
-    @validator('SYMBOLS', pre=True)
+    @field_validator('SYMBOLS', mode='before')
     def split_symbols(cls, v):
         if isinstance(v, str):
             return [item.strip() for item in v.split(',')]
