@@ -37,6 +37,12 @@
     pipenv run python scripts/create_tables.py
     ```
 
+#### Устранение неисправностей (Troubleshooting)
+
+-   **Ошибка `столбец "..." в таблице "..." не существует` (column "..." does not exist):**
+    Эта ошибка возникает, если вы уже создавали таблицы, а потом мы в коде добавили в них новые колонки. Скрипт `create_tables` не изменяет существующие таблицы.
+    **Решение:** Зайдите в вашу базу данных PostgreSQL и выполните команду `DROP TABLE backtest_results;` (или для другой таблицы, на которую ругается). После этого снова запустите `pipenv run python scripts/create_tables.py`, и таблица будет создана с правильной, новой структурой.
+
 ### Использование
 
 #### Запуск API сервера
@@ -94,11 +100,16 @@ pipenv run python scripts/run_backtest.py
 -   **Запуск:** `POST /grid-bot/start` (тело запроса: `{"mode": "demo", "symbol": "BTC/USDT", "amount_per_grid": 0.001, "grid_range_low": 50000, "grid_range_high": 60000, "num_grids": 10}`)
 -   **Остановка:** `POST /grid-bot/stop`
 
-**Пример запуска сеточного бота через `curl`:**
+**Пример запуска сеточного бота через `curl` (Linux/Mac/WSL):**
 ```bash
 curl -X POST -H "Content-Type: application/json" \
 -d '{"mode": "demo", "symbol": "BTC/USDT", "amount_per_grid": 0.001, "grid_range_low": 50000, "grid_range_high": 60000, "num_grids": 10}' \
 http://127.0.0.1:8000/grid-bot/start
+```
+
+**Пример для Windows PowerShell:**
+```powershell
+Invoke-WebRequest -Uri http://127.0.0.1:8000/grid-bot/start -Method POST -ContentType "application/json" -Body '{\"mode\": \"demo\", \"symbol\": \"BTC/USDT\", \"amount_per_grid\": 0.001, \"grid_range_low\": 50000, \"grid_range_high\": 60000, \"num_grids\": 10}'
 ```
 (Примечание: Реальная фоновая работа ботов пока не реализована до конца из-за особенностей окружения, но API для управления ими уже на месте).
 
