@@ -2,25 +2,38 @@ import ccxt
 from src.core.config import settings
 
 class TradingEngine:
-    def __init__(self, exchange_id: str = 'kraken'):
+    def __init__(self, mode: str, exchange_id: str = 'okx'):
         """
-        Initializes the TradingEngine with a specific exchange and credentials.
+        Initializes the TradingEngine in a specific mode ('real' or 'demo').
         """
-        if not settings.API_KEY or not settings.API_SECRET:
-            raise ValueError("API_KEY and API_SECRET must be set in the .env file for live trading.")
+        self.mode = mode
+
+        if self.mode == 'real':
+            keys = settings.OKX_REAL
+            if not keys:
+                raise ValueError("OKX_REAL keys are not configured in the .env file.")
+        elif self.mode == 'demo':
+            keys = settings.OKX_DEMO
+            if not keys:
+                raise ValueError("OKX_DEMO keys are not configured in the .env file.")
+        else:
+            raise ValueError(f"Invalid mode '{self.mode}'. Must be 'real' or 'demo'.")
 
         try:
             exchange_class = getattr(ccxt, exchange_id)
             self.exchange = exchange_class({
-                'apiKey': settings.API_KEY,
-                'secret': settings.API_SECRET,
+                'apiKey': keys.API_KEY,
+                'secret': keys.SECRET_KEY,
+                'password': keys.PASSPHRASE, # Passphrase for OKX
             })
-            # For some exchanges, a sandbox mode can be enabled like this:
-            # self.exchange.set_sandbox_mode(True)
+
+            if self.mode == 'demo':
+                self.exchange.set_sandbox_mode(True)
+
         except AttributeError:
             raise ValueError(f"Exchange '{exchange_id}' is not supported by ccxt.")
         except Exception as e:
-            raise ConnectionError(f"Failed to initialize exchange: {e}")
+            raise ConnectionError(f"Failed to initialize exchange '{exchange_id}' in '{self.mode}' mode: {e}")
 
     def get_balance(self, currency: str = 'USD'):
         """
@@ -80,32 +93,21 @@ class TradingEngine:
 # Example usage (for demonstration purposes, will not run without valid API keys)
 if __name__ == '__main__':
     print("--- Trading Engine Demonstration ---")
-    print("NOTE: This script requires valid API_KEY and API_SECRET in a .env file to run.")
+    print("NOTE: This script requires valid OKX_DEMO keys in a .env file to run.")
 
     try:
-        engine = TradingEngine(exchange_id='kraken')
+        # Initialize in 'demo' mode
+        engine = TradingEngine(mode='demo', exchange_id='okx')
+        print(f"Successfully initialized trading engine in '{engine.mode}' mode.")
 
         # 1. Get balance
-        balance = engine.get_balance('USD')
+        balance = engine.get_balance('USDT') # OKX demo often uses USDT
         if balance:
-            print(f"\nFetched balance for USD: {balance}")
-
-        # 2. Create a dummy limit order (this will likely fail without funds)
-        # This is a small amount to avoid issues on a live account.
-        # IMPORTANT: Do not run with large amounts on a real account without thorough testing.
-        dummy_symbol = 'BTC/USD'
-        dummy_amount = 0.0001
-        # Set a price far from the current market to ensure it's not filled instantly
-        dummy_price = 10000.0
-
-        print(f"\nAttempting to create a dummy limit order for {dummy_symbol}...")
-        order = engine.create_order(dummy_symbol, 'limit', 'buy', dummy_amount, dummy_price)
-
-        # 3. Cancel the dummy order
-        if order:
-            engine.cancel_order(order['id'], dummy_symbol)
+            print(f"\nFetched balance for USDT: {balance}")
+        else:
+            print("Could not fetch balance. The API keys might be invalid or have incorrect permissions.")
 
     except (ValueError, ConnectionError) as e:
-        print(f"\nInitialization failed: {e}")
+        print(f"\nInitialization or operation failed: {e}")
     except Exception as e:
         print(f"An unexpected error occurred: {e}")

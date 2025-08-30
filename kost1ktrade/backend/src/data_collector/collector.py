@@ -9,7 +9,7 @@ from ccxt.base.errors import NotSupported
 
 
 class DataCollector:
-    def __init__(self, exchange_id: str = 'kraken'):
+    def __init__(self, exchange_id: str = 'okx'):
         """
         Initializes the DataCollector with a specific exchange.
         :param exchange_id: The ID of the exchange to use (e.g., 'binance', 'bybit').
@@ -97,10 +97,10 @@ class DataCollector:
 
 # Example usage:
 if __name__ == '__main__':
-    collector = DataCollector(exchange_id='kraken')
-    # Fetch the last 5 candles for BTC/USD on the 1-hour timeframe
+    collector = DataCollector(exchange_id='okx')
+    # Fetch the last 5 candles for BTC/USDT on the 1-hour timeframe
     try:
-        candles_data = collector.fetch_candles('BTC/USD', timeframe='1h', limit=5)
+        candles_data = collector.fetch_candles('BTC/USDT', timeframe='1h', limit=5)
         for candle in candles_data:
             # Convert timestamp to human-readable format
             dt_object = datetime.datetime.fromtimestamp(candle[0] / 1000, tz=datetime.timezone.utc)
