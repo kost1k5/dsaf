@@ -18,6 +18,7 @@ This document provides instructions for developing the Kost1kTrade project.
   - `src/core/bot_controller.py` for signal-based strategies.
   - `src/core/grid_bot_controller.py` for grid trading logic.
 - Signal-based strategies should be created in `src/strategies` and inherit from `BaseStrategy`. Grid strategies are self-contained.
+- The `src/optimization` module contains the `Optimizer` class and the `walk_forward.py` splitter for advanced backtesting.
 
 ## Frontend
 - The frontend will be a modern JavaScript application (e.g., React, Vue).
