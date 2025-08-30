@@ -14,6 +14,7 @@ ccxt = "*"
 pandas = "*"
 numpy = "*"
 "python-telegram-bot[job-queue]" = "*"
+pandas-ta = "*"
 
 [dev-packages]
 

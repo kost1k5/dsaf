@@ -38,3 +38,32 @@ This document provides instructions for developing the Kost1kTrade project.
 4.  Run tests before submitting work. If no automated tests exist, perform manual verification of the functionality.
 5.  Request a code review before submitting the final changes.
 6.  Use descriptive branch names (e.g., `feature/add-new-strategy`) and commit messages.
+
+---
+
+## Future Roadmap
+
+This section outlines the long-term development plan for the bot. Completed phases should be removed.
+
+### **Phase 1: The "Strategic Brain" (In Progress)**
+- **Goal:** Transform the bot from a manual tool into a system that can manage a library of strategies.
+- **Key Features:**
+    - Integrate PM2 for robust process management.
+    - Implement a "Master Controller" that can autonomously switch between different strategies.
+    - Use ADX as the primary market state analyzer (trending vs. ranging).
+    - Expand the strategy library to 10+ indicator-based strategies.
+    - Enhance the frontend to visualize the autonomous mode.
+
+### **Phase 2: The "High-Frequency Nervous System"**
+- **Goal:** Re-architect the bot's data pipeline to handle high-frequency, real-time market data.
+- **Key Features:**
+    - Develop a new data collector using high-speed WebSockets to stream Level 2 (full order book) and Level 3 (trade tape) data.
+    - Refactor the core architecture to process massive streams of data with low latency.
+    - This phase is a prerequisite for implementing market microstructure strategies.
+
+### **Phase 3: The "Predator Instincts"**
+- **Goal:** Implement advanced strategies that exploit market microstructure and order flow dynamics.
+- **Key Features:**
+    - **Liquidation Hunting:** Analyze order book depth and external data (e.g., Coinglass) to predict and trade liquidation cascades.
+    - **Market Manipulation Detection:** Implement algorithms to identify and trade alongside (or against) spoofing and iceberg orders.
+    - This phase will require the high-speed data pipeline from Phase 2 to be fully operational.

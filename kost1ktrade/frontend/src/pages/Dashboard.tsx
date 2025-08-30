@@ -1,34 +1,33 @@
 import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './Dashboard.css';
-import BotControls from '../components/BotControls';
+import MasterBotControls from '../components/MasterBotControls';
 
 interface Balances {
   [key: string]: number;
 }
 
 const Dashboard = () => {
-  const [signalBotStatus, setSignalBotStatus] = useState('loading...');
   const [gridBotStatus, setGridBotStatus] = useState('loading...');
   const [balances, setBalances] = useState<Balances | null>(null);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    // This effect now only fetches grid status and balance.
+    // Signal bot and master bot status are handled within their own components.
     const fetchStatus = async () => {
       try {
-        const [signalStatus, gridStatus] = await axios.all([
-          axios.get('/api/signal-bot/status'),
-          axios.get('/api/grid-bot/status')
-        ]);
-        setSignalBotStatus(signalStatus.data.current_mode);
-        setGridBotStatus(gridStatus.data.current_mode);
+        const gridStatusRes = await axios.get('/api/grid-bot/status');
+        const gridStatus = gridStatusRes.data.current_mode;
+        setGridBotStatus(gridStatus);
 
-        // Try to fetch balance only if a bot is active
-        if (signalStatus.data.current_mode !== 'stopped' || gridStatus.data.current_mode !== 'stopped') {
+        // Fetch balance if grid bot is active.
+        // The master bot component will also trigger balance fetching if it's active.
+        if (gridStatus !== 'stopped') {
           const balanceRes = await axios.get('/api/balance');
           setBalances(balanceRes.data);
         } else {
-          setBalances(null); // No bot active, no balance to show
+          setBalances(null);
         }
 
       } catch (err: any) {
@@ -48,14 +47,14 @@ const Dashboard = () => {
       <h1>Command Bridge</h1>
       {error && <p className="error-message">{error}</p>}
 
-      <div className="status-grid">
-        <div className="status-card">
-          <h3>Signal Bot</h3>
-          <p className={`status-pill status-${signalBotStatus}`}>{signalBotStatus}</p>
-        </div>
-        <div className="status-card">
-          <h3>Grid Bot</h3>
-          <p className={`status-pill status-${gridBotStatus}`}>{gridBotStatus}</p>
+      <MasterBotControls />
+
+      <div className="other-bots-section">
+        <div className="status-grid">
+            <div className="status-card">
+            <h3>Grid Bot</h3>
+            <p className={`status-pill status-${gridBotStatus}`}>{gridBotStatus}</p>
+            </div>
         </div>
       </div>
 
@@ -74,8 +73,6 @@ const Dashboard = () => {
           <p>Start a bot to view balances.</p>
         )}
       </div>
-
-      <BotControls />
     </div>
   );
 };

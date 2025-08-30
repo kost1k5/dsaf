@@ -55,6 +55,18 @@ class IndicatorSettings(BaseModel):
     MACD_SIGNAL: int = 9
     SMA_PERIOD: int = 20
     SMA_LONG_PERIOD: int = 100
+    STOCH_K_PERIOD: int = 14
+    STOCH_D_PERIOD: int = 3
+    AO_FAST_PERIOD: int = 5
+    AO_SLOW_PERIOD: int = 34
+    PSAR_ACCELERATION: float = 0.02
+    PSAR_MAXIMUM: float = 0.2
+    KC_LENGTH: int = 20
+    KC_MULTIPLIER: float = 2.0
+    KC_ATR_LENGTH: int = 14
+    IC_TENKAN: int = 9
+    IC_KIJUN: int = 26
+    IC_SENKOU_B: int = 52
 
 # --- Main Settings Class ---
 
