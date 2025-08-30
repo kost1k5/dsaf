@@ -15,6 +15,7 @@ class BotState:
         self.signal_bot_mode: str = "stopped"  # 'stopped', 'real', 'demo'
         self.signal_bot_engine: Optional['TradingEngine'] = None
         self.signal_bot_strategy: Optional['BaseStrategy'] = None
+        self.signal_bot_strategy_name: Optional[str] = None
         self.signal_bot_thread: Optional[threading.Thread] = None
         self.signal_bot_stop_event: threading.Event = threading.Event()
 
@@ -23,6 +24,12 @@ class BotState:
         self.grid_bot_engine: Optional['TradingEngine'] = None
         self.grid_bot_thread: Optional[threading.Thread] = None
         self.grid_bot_stop_event: threading.Event = threading.Event()
+
+        # State for the master controller
+        self.master_bot_mode: str = "stopped"
+        self.master_bot_stop_event: threading.Event = threading.Event()
+        self.market_state: Optional[str] = None
+        self.adx_value: Optional[float] = None
 
 # Global instance of the bot state
 bot_state = BotState()

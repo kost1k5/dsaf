@@ -5,6 +5,7 @@ from typing import Literal, Dict, Any
 from src.core.bot_state import bot_state
 from src.core.bot_controller import start_bot_loop, stop_bot_loop, signal_trading_loop
 from src.core.grid_bot_controller import start_grid_bot, stop_grid_bot, grid_trading_loop
+from src.core.master_controller import start_master_bot, stop_master_bot, master_trading_loop
 
 app = FastAPI(title="Kost1kTrade API")
 
@@ -65,7 +66,10 @@ async def get_signal_bot_status():
     """
     Returns the current status of the signal-based bot.
     """
-    return {"current_mode": bot_state.signal_bot_mode}
+    return {
+        "mode": bot_state.signal_bot_mode,
+        "strategy_name": bot_state.signal_bot_strategy_name
+    }
 
 # --- Grid Bot Control ---
 
@@ -118,6 +122,44 @@ async def get_grid_bot_status():
     Returns the current status of the grid bot.
     """
     return {"current_mode": bot_state.grid_bot_mode}
+
+
+# --- Master Bot Control ---
+
+@app.post("/master-bot/start", tags=["Master Bot Control"])
+async def start_master_bot_endpoint(background_tasks: BackgroundTasks):
+    """
+    Starts the autonomous Master Controller.
+    It will analyze the market and manage signal bots automatically.
+    """
+    try:
+        start_master_bot()
+        background_tasks.add_task(master_trading_loop)
+        return {"message": "Master Controller started successfully."}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/master-bot/stop", tags=["Master Bot Control"])
+async def stop_master_bot_endpoint():
+    """
+    Stops the autonomous Master Controller and any active signal bot.
+    """
+    try:
+        response = stop_master_bot()
+        return {"message": response}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/master-bot/status", tags=["Master Bot Control"])
+async def get_master_bot_status():
+    """
+    Returns the current status of the Master Controller.
+    """
+    return {
+        "master_mode": getattr(bot_state, 'master_bot_mode', 'stopped'),
+        "market_state": getattr(bot_state, 'market_state', None),
+        "adx_value": getattr(bot_state, 'adx_value', None)
+    }
 
 
 # --- Health Check ---

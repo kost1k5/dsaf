@@ -92,6 +92,7 @@ def signal_trading_loop():
         bot_state.signal_bot_mode = "stopped"
         bot_state.signal_bot_engine = None
         bot_state.signal_bot_strategy = None
+        bot_state.signal_bot_strategy_name = None
 
 
 def start_bot_loop(mode: str, strategy_name: str, strategy_params: Dict[str, Any]):
@@ -113,11 +114,13 @@ def start_bot_loop(mode: str, strategy_name: str, strategy_params: Dict[str, Any
 
         # Set mode to running only after successful initialization
         bot_state.signal_bot_mode = mode
+        bot_state.signal_bot_strategy_name = strategy_name
         print(f"Signal bot state prepared for '{mode}' mode with strategy '{strategy_name}'.")
     except (ValueError, TypeError, ConnectionError) as e:
         # Reset state on failure
         bot_state.signal_bot_mode = "stopped"
         bot_state.signal_bot_strategy = None
+        bot_state.signal_bot_strategy_name = None
         bot_state.signal_bot_engine = None
         raise e
 
