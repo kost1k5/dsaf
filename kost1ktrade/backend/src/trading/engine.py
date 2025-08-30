@@ -1,5 +1,7 @@
 import ccxt
+import asyncio
 from src.core.config import settings
+from src.notifications.telegram import TelegramNotifier
 
 class TradingEngine:
     def __init__(self, mode: str, exchange_id: str = 'okx'):
@@ -7,6 +9,7 @@ class TradingEngine:
         Initializes the TradingEngine in a specific mode ('real' or 'demo').
         """
         self.mode = mode
+        self.notifier = TelegramNotifier()
 
         if self.mode == 'real':
             keys = settings.OKX_REAL
@@ -63,6 +66,19 @@ class TradingEngine:
             order = self.exchange.create_order(symbol, order_type, side, amount, price)
             print("Order created successfully:")
             print(order)
+
+            # Send notification
+            side_emoji = "📈" if side == 'buy' else "📉"
+            message = (
+                f"{side_emoji} *New Trade Executed ({self.mode.upper()})*\n\n"
+                f"**Symbol:** `{symbol}`\n"
+                f"**Side:** `{side.upper()}`\n"
+                f"**Type:** `{order_type.upper()}`\n"
+                f"**Amount:** `{order['amount']}`\n"
+                f"**Price:** `${order['price'] if order['price'] else order['average']:.2f}`"
+            )
+            asyncio.run(self.notifier.send_message(message))
+
             return order
         except ccxt.InsufficientFunds as e:
             print(f"Error: Insufficient funds to create order. {e}")
@@ -90,6 +106,45 @@ class TradingEngine:
             print(f"An exchange error occurred while cancelling order: {e}")
         return False
 
+    def fetch_open_orders(self, symbol: str) -> list:
+        """
+        Fetches all open orders for a specific symbol.
+        :param symbol: The trading symbol (e.g., 'BTC/USDT').
+        :return: A list of open order objects or an empty list if none or an error occurs.
+        """
+        try:
+            return self.exchange.fetch_open_orders(symbol)
+        except ccxt.Error as e:
+            print(f"An error occurred while fetching open orders: {e}")
+            return []
+
+    def cancel_all_orders(self, symbol: str):
+        """
+        Cancels all open orders for a specific symbol.
+        :param symbol: The trading symbol to cancel orders for.
+        :return: True if successful, False otherwise.
+        """
+        try:
+            print(f"Cancelling all open orders for {symbol}...")
+            self.exchange.cancel_all_orders(symbol)
+            print("All orders for symbol cancelled successfully.")
+            return True
+        except ccxt.ExchangeError as e:
+            print(f"An exchange error occurred while cancelling all orders: {e}")
+        return False
+
+    def fetch_ticker(self, symbol: str) -> dict:
+        """
+        Fetches the latest ticker data for a symbol.
+        :param symbol: The trading symbol.
+        :return: A dictionary with ticker information or an empty dict if an error occurs.
+        """
+        try:
+            return self.exchange.fetch_ticker(symbol)
+        except ccxt.Error as e:
+            print(f"An error occurred while fetching ticker for {symbol}: {e}")
+            return {}
+
 # Example usage (for demonstration purposes, will not run without valid API keys)
 if __name__ == '__main__':
     print("--- Trading Engine Demonstration ---")
@@ -106,6 +161,11 @@ if __name__ == '__main__':
             print(f"\nFetched balance for USDT: {balance}")
         else:
             print("Could not fetch balance. The API keys might be invalid or have incorrect permissions.")
+
+        # 2. Fetch open orders
+        print("\nFetching open orders for BTC/USDT...")
+        open_orders = engine.fetch_open_orders('BTC/USDT')
+        print(f"Found {len(open_orders)} open orders.")
 
     except (ValueError, ConnectionError) as e:
         print(f"\nInitialization or operation failed: {e}")
