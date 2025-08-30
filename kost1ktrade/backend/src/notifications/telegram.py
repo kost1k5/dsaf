@@ -33,7 +33,7 @@ async def send_telegram_notification(message: str):
 # --- Command Handlers ---
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Welcome to Kost1kTrade Bot! Use /status, /backtest, or /optimize.")
+    await update.message.reply_text("Welcome to Kost1kTrade Bot! Use /status, /backtest, /optimize, or /walkforward.")
 
 async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_text = (
@@ -64,8 +64,8 @@ async def _run_backtest_and_report(context: ContextTypes.DEFAULT_TYPE):
             slippage_pct=settings.BACKTEST_SLIPPAGE_PCT
         )
 
-        report_lines = [f"*Backtest Report for {strategy_class.__name__}*..."] # Shortened for brevity
-        if results['trades']:
+        report_lines = [f"*Backtest Report for {strategy_class.__name__}*..."]
+        if results and results['trades']:
             report_lines.append("\n*Recent Trades:*")
             for trade in results['trades'][-5:]:
                 pnl = (trade['exit_price'] - trade['entry_price']) / trade['entry_price'] * 100
@@ -111,6 +111,42 @@ async def _run_optimization_and_report(context: ContextTypes.DEFAULT_TYPE):
 async def optimize_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Starting optimization for SmaCrossoverStrategy...")
     context.job_queue.run_once(_run_optimization_and_report, 0, data=(SmaCrossoverStrategy, 'BTC/USDT', '1d'), name=f"optimize_{update.effective_chat.id}")
+
+async def _run_walk_forward_and_report(context: ContextTypes.DEFAULT_TYPE):
+    """Helper coroutine to run walk-forward analysis and send report."""
+    job = context.job
+    strategy_class, symbol, timeframe = job.data
+    try:
+        collector = DataCollector()
+        candles_list = collector.fetch_candles(symbol, timeframe, limit=500)
+        if not candles_list:
+            await context.bot.send_message(job.chat_id, "Failed to fetch data for Walk-Forward analysis.")
+            return
+
+        candles_df = pd.DataFrame(candles_list, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
+        candles_df['open_time'] = pd.to_datetime(candles_df['open_time'], unit='ms', utc=True)
+        candles_df.attrs = {'symbol': symbol, 'timeframe': timeframe}
+
+        optimizer = Optimizer(strategy_class=strategy_class, data=candles_df)
+        optimizer.set_params(short_window=range(10, 31, 10), long_window=range(40, 71, 15))
+
+        wf_results = optimizer.run_walk_forward(in_sample_len=180, out_of_sample_len=60, step_size=60)
+
+        if wf_results:
+            final_balance = 10000.0
+            for r in wf_results:
+                final_balance *= r['final_balance'] / r['initial_balance']
+            total_pnl_percent = (final_balance - 10000.0) / 10000.0 * 100
+            report = f"*Walk-Forward Analysis Report for {strategy_class.__name__}*\n...Chained P/L: *{total_pnl_percent:.2f}%*"
+        else:
+            report = "Walk-Forward analysis finished with no valid results."
+        await context.bot.send_message(job.chat_id, report, parse_mode='Markdown')
+    except Exception as e:
+        await context.bot.send_message(job.chat_id, f"An error occurred during Walk-Forward analysis: {e}")
+
+async def walkforward_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Starting Walk-Forward analysis for SmaCrossoverStrategy...")
+    context.job_queue.run_once(_run_walk_forward_and_report, 0, data=(SmaCrossoverStrategy, 'BTC/USDT', '1d'), name=f"walkforward_{update.effective_chat.id}")
 
 def run_bot():
     """Runs the Telegram bot to listen for commands."""
