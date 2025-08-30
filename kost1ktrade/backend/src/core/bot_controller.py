@@ -39,19 +39,45 @@ def signal_trading_loop():
 
     print(f"--- Background signal bot loop started in '{bot_state.signal_bot_mode}' mode for {symbol} ---")
 
-    while not bot_state.signal_bot_stop_event.is_set():
-        # ... [Full fetch-analyze-execute logic will be restored here] ...
-        print(f"({time.ctime()}) --- Signal Bot Cycle ---")
+    try:
+        while not bot_state.signal_bot_stop_event.is_set():
+            try:
+                print(f"({time.ctime()}) --- Signal Bot Cycle ---")
 
-        # Placeholder for the full logic
-        print("Fetching, analyzing, executing...")
+                # Full fetch-analyze-execute logic
+                print(f"Fetching latest {strategy.long_window} candles for {symbol}...")
+                candles_list = collector.fetch_candles(symbol, timeframe, limit=strategy.long_window)
+                if not candles_list or len(candles_list) < strategy.long_window:
+                    raise ValueError(f"Could not fetch enough candle data")
 
-        bot_state.signal_bot_stop_event.wait(timeout=sleep_duration_seconds)
+                candles_df = pd.DataFrame(candles_list, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
 
-    print(f"--- Background signal bot loop for '{bot_state.signal_bot_mode}' mode has gracefully stopped ---")
-    # Reset state after the loop finishes
-    bot_state.signal_bot_mode = "stopped"
-    bot_state.signal_bot_engine = None
+                print("Analyzing data and generating signal...")
+                result_df = strategy.generate_signals(candles_df)
+                latest_signal = result_df.iloc[-1]['signal']
+                print(f"Strategy: {strategy.__class__.__name__} | Signal: {latest_signal}")
+
+                base_currency, quote_currency = symbol.split('-')
+                if latest_signal == 'BUY':
+                    balance = engine.get_balance(quote_currency)
+                    if balance and balance['free'] > 10:
+                        amount_to_buy = balance['free'] / candles_df.iloc[-1]['close']
+                        engine.create_order(symbol, 'market', 'buy', amount_to_buy)
+                elif latest_signal == 'SELL':
+                    balance = engine.get_balance(base_currency)
+                    if balance and balance['free'] > 0.0001:
+                        engine.create_order(symbol, 'market', 'sell', balance['free'])
+
+                print(f"Cycle complete. Sleeping...")
+                bot_state.signal_bot_stop_event.wait(timeout=sleep_duration_seconds)
+
+            except Exception as e:
+                print(f"An error occurred in the trading loop: {e}")
+                bot_state.signal_bot_stop_event.wait(timeout=60)
+    finally:
+        print(f"--- Background signal bot loop for '{bot_state.signal_bot_mode}' mode has gracefully stopped ---")
+        bot_state.signal_bot_mode = "stopped"
+        bot_state.signal_bot_engine = None
 
 
 def start_bot_loop(mode: str):
@@ -61,12 +87,14 @@ def start_bot_loop(mode: str):
     if bot_state.signal_bot_mode != "stopped":
         raise ValueError("Signal bot is already running or starting.")
 
-    print(f"Preparing to start signal bot in '{mode}' mode.")
-    bot_state.signal_bot_mode = mode
     bot_state.signal_bot_stop_event.clear()
 
     try:
+        # Initialize engine first. If this fails, state is not set to running.
         bot_state.signal_bot_engine = TradingEngine(mode=mode)
+        # Only set mode to running after successful initialization
+        bot_state.signal_bot_mode = mode
+        print(f"Signal bot state prepared for '{mode}' mode.")
     except Exception as e:
         bot_state.signal_bot_mode = "stopped" # Reset on failure
         raise e

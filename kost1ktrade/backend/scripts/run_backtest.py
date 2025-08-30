@@ -31,6 +31,14 @@ def save_results_to_db(results: dict):
     """Saves the backtest results to the database."""
     db = SessionLocal()
     try:
+        # Serialize datetime objects in trades list before saving
+        if 'trades' in results and results['trades']:
+            for trade in results['trades']:
+                if 'entry_time' in trade:
+                    trade['entry_time'] = trade['entry_time'].isoformat()
+                if 'exit_time' in trade:
+                    trade['exit_time'] = trade['exit_time'].isoformat()
+
         backtest_entry = BacktestResult(**results)
         db.add(backtest_entry)
         db.commit()
