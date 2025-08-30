@@ -1,23 +1,11 @@
 import time
 import pandas as pd
-import importlib
 from typing import Dict, Any
 from src.core.bot_state import bot_state
 from src.data_collector.collector import DataCollector
 from src.trading.engine import TradingEngine
 from src.core.config import settings
-
-def _get_strategy_class(strategy_name: str):
-    """Dynamically imports and returns a strategy class."""
-    try:
-        module_name = f"src.strategies.{strategy_name.lower()}"
-        # Convention: a file like 'macd.py' contains a class named 'MacdStrategy'
-        class_name = f"{strategy_name.replace('_', ' ').title().replace(' ', '')}Strategy"
-        strategy_module = importlib.import_module(module_name)
-        return getattr(strategy_module, class_name)
-    except (ImportError, AttributeError) as e:
-        raise ValueError(f"Could not find strategy '{strategy_name}'. "
-                         f"Ensure '{module_name}.py' and class '{class_name}' exist.") from e
+from src.core.strategy_loader import get_strategy_class
 
 def signal_trading_loop():
     """
@@ -106,7 +94,7 @@ def start_bot_loop(mode: str, strategy_name: str, strategy_params: Dict[str, Any
 
     try:
         # Initialize strategy first
-        StrategyClass = _get_strategy_class(strategy_name)
+        StrategyClass = get_strategy_class(strategy_name)
         bot_state.signal_bot_strategy = StrategyClass(**strategy_params)
 
         # Initialize engine

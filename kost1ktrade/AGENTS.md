@@ -41,29 +41,62 @@ This document provides instructions for developing the Kost1kTrade project.
 
 ---
 
-## Future Roadmap
+## Future Roadmap: The "Nebula Command Bridge" Vision
 
-This section outlines the long-term development plan for the bot. Completed phases should be removed.
+This document outlines the grand strategic vision for the trading bot. It is divided into phases and sectors. Completed items should be removed or marked as complete.
 
-### **Phase 1: The "Strategic Brain" (In Progress)**
-- **Goal:** Transform the bot from a manual tool into a system that can manage a library of strategies.
+### **Phase 1: The Simulation Deck Engine (In Progress)**
+- **Goal:** Build the backend core required to power the "Simulation Deck" frontend.
 - **Key Features:**
-    - Integrate PM2 for robust process management.
-    - Implement a "Master Controller" that can autonomously switch between different strategies.
-    - Use ADX as the primary market state analyzer (trending vs. ranging).
-    - Expand the strategy library to 10+ indicator-based strategies.
-    - Enhance the frontend to visualize the autonomous mode.
+    - **1. Implement Backend for Simulation Deck:** Create a new `Backtester` module and a `POST /api/simulation/run` endpoint that can simultaneously backtest up to 10 strategies and return detailed performance reports.
+    - **2. Expand Strategy Library:** Implement 5 new strategies (Stochastic, Awesome Oscillator, Parabolic SAR, Keltner Channels, Ichimoku Cloud) to provide a diverse set of "research probes".
 
-### **Phase 2: The "High-Frequency Nervous System"**
-- **Goal:** Re-architect the bot's data pipeline to handle high-frequency, real-time market data.
-- **Key Features:**
-    - Develop a new data collector using high-speed WebSockets to stream Level 2 (full order book) and Level 3 (trade tape) data.
-    - Refactor the core architecture to process massive streams of data with low latency.
-    - This phase is a prerequisite for implementing market microstructure strategies.
+---
 
-### **Phase 3: The "Predator Instincts"**
-- **Goal:** Implement advanced strategies that exploit market microstructure and order flow dynamics.
-- **Key Features:**
-    - **Liquidation Hunting:** Analyze order book depth and external data (e.g., Coinglass) to predict and trade liquidation cascades.
-    - **Market Manipulation Detection:** Implement algorithms to identify and trade alongside (or against) spoofing and iceberg orders.
-    - This phase will require the high-speed data pipeline from Phase 2 to be fully operational.
+### **Frontend Vision: The Nebula Command Bridge**
+
+This describes the target user interface. The implementation will be phased.
+
+#### **Core Concept**
+The user is the Admiral of a fleet of 10 "research probes" (strategies). The primary interface is a "Simulation Deck" used to backtest these probes against historical data ("spacetime anomalies") to select the best one for a live mission.
+
+#### **Sector 1: Main Bridge (Dashboard)**
+- **"Engine Status":** Central animated widget for active bot status.
+- **"Asset Galaxy":** Interactive visualization of portfolio distribution.
+- **"Profitability Compass":** Circular PnL indicator.
+- **"Captain's Log":** Event feed for the active bot.
+
+#### **Sector 2: Navigation (Market Analysis)**
+- **"Star Charts":** Holographic-style price charts.
+- **"Sector Scanner":** Market-wide heatmap.
+- **"Flight Trajectory":** Trade history visualized on the price chart.
+
+#### **Sector 3: Engineering (Live Bot Management)**
+- **"Active Strategy Module":** Widget showing the live strategy's name and parameters, with pause/stop controls.
+- **"Hyperdrive Settings":** Panel for real-time adjustments to the live bot (e.g., order size, risk).
+
+#### **Sector 4: Simulation Deck (Backtesting & Optimization)**
+- **This is the primary goal of the current development phase.**
+- **Step 1: "Pre-flight Briefing" (Setup):** A UI with 10 "docking slots" for strategies. Users select a trading pair, a date range (via a "time loop" timeline), and configure the 10 strategies to be tested.
+- **Step 2: "'Quantum Leap' Simulation" (Execution):** An animated sequence showing the 10 "probes" traveling along parallel time-trajectories. Real-time metrics (PnL, Drawdown) are displayed for each probe during the simulation.
+- **Step 3: "Holographic Debrief" (Results Analysis):**
+    - **"Parallel Universes" Chart:** A primary chart showing the price history with 10 semi-transparent, colored equity curves overlaid. Interactive tooltips and the ability to toggle lines.
+    - **"Fleet Comparison" Table:** A sortable data grid comparing all 10 strategies across key metrics (Total PnL, Max Drawdown, Profit Factor, Winrate, etc.).
+    - **"Efficiency Web" Radar Chart:** A spider chart for visually comparing the strengths and weaknesses of the top strategies across multiple axes (Profitability, Reliability, Frequency).
+- **Step 4: "Select Flagship" (Deployment):** A button next to the winning strategy in the results table that sends the user to Sector 3 (Engineering) with the chosen strategy and parameters loaded, ready for live deployment.
+
+#### **Sector 5: Admiral's Hall of Fame (Gamification)**
+- A section for achievements related to backtesting and live performance.
+- **Examples:** "Theorist-Engineer" (first simulation), "Time Lord" (test >1 year), "Quantum Optimizer" (find a >50% PnL strategy).
+
+#### **Sector 6: Astrophysics Lab (AI Analysis)**
+- **"Gravity Anomaly Scanner":** 3D visualization of market volume and volatility for various assets.
+- **"'Oracle' Trajectory Prediction":** An ML model that projects a cone of future price probabilities on the main chart.
+
+#### **Sector 7: Shield Room (Risk Management)**
+- **"Ship Integrity" Widget:** A 3D model of the "Nebula" ship with shield sectors representing different risk metrics (Concentration, Drawdown, Correlation). Shields weaken and flash warnings as risk increases.
+- **"Power Distribution" Module:** An interactive UI for allocating capital between different live strategies, showing the real-time impact on the "Ship Integrity" risk profile.
+
+#### **Sector 8: Communications Hub (Social & News)**
+- **"Galaxy Echo" Widget:** A visualization of social media sentiment (e.g., a vortex of green/red particles for positive/negative sentiment).
+- **"Outpost Signals":** Integration to display trading ideas from selected TradingView authors directly on the price chart.
