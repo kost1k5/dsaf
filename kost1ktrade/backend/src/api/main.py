@@ -8,6 +8,21 @@ from src.core.grid_bot_controller import start_grid_bot, stop_grid_bot, grid_tra
 
 app = FastAPI(title="Kost1kTrade API")
 
+@app.get("/balance", tags=["Account"])
+async def get_balance():
+    """
+    Fetches the current account balance from the active engine.
+    """
+    engine = bot_state.signal_bot_engine or bot_state.grid_bot_engine
+    if not engine:
+        raise HTTPException(status_code=400, detail="No bot is currently active. Start a bot to fetch balance.")
+
+    balances = engine.get_balance()
+    if balances is None:
+        raise HTTPException(status_code=500, detail="Failed to fetch balance from the exchange.")
+
+    return balances
+
 # --- Signal Bot Control ---
 
 class SignalBotControlRequest(BaseModel):

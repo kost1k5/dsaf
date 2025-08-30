@@ -1,0 +1,92 @@
+.dashboard h1 {
+    margin-bottom: 40px;
+    text-align: center;
+}
+
+.status-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 30px;
+    margin-bottom: 40px;
+}
+
+.status-card {
+    background-color: var(--dark-bg-secondary);
+    padding: 20px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    text-align: center;
+}
+
+.status-card h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: var(--primary-glow);
+}
+
+.status-pill {
+    display: inline-block;
+    padding: 8px 20px;
+    border-radius: 20px;
+    font-weight: bold;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.status-stopped {
+    background-color: #555;
+    color: #fff;
+}
+
+.status-demo {
+    background-color: #2a7a7a;
+    color: #fff;
+    box-shadow: 0 0 8px #3ae8e8;
+}
+
+.status-real {
+    background-color: #9a2a2a;
+    color: #fff;
+    box-shadow: 0 0 8px #ff4a4a;
+}
+
+.balance-widget {
+    background-color: var(--dark-bg-secondary);
+    padding: 20px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+}
+
+.balance-widget h2 {
+    margin-top: 0;
+}
+
+.balance-widget ul {
+    list-style: none;
+    padding: 0;
+}
+
+.balance-widget li {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 0;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.balance-widget li:last-child {
+    border-bottom: none;
+}
+
+.balance-widget .currency {
+    font-weight: bold;
+    color: var(--primary-glow);
+}
+
+.error-message {
+    color: #ff4a4a;
+    background-color: rgba(255, 74, 74, 0.1);
+    padding: 10px;
+    border-radius: 5px;
+    text-align: center;
+    margin-bottom: 20px;
+}
