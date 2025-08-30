@@ -150,6 +150,57 @@ async def optimize_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         0
     )
 
+def _run_walk_forward_and_report(context: ContextTypes.DEFAULT_TYPE, strategy_class, symbol, timeframe):
+    """Helper function to run walk-forward analysis and send report."""
+    try:
+        # 1. Get Data
+        collector = DataCollector()
+        candles_list = collector.fetch_candles(symbol, timeframe, limit=500) # Need more data for WF
+        if not candles_list:
+            asyncio.run(context.bot.send_message(context.job.chat_id, "Failed to fetch data for Walk-Forward analysis."))
+            return
+
+        candles_df = pd.DataFrame(candles_list, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
+        candles_df['open_time'] = pd.to_datetime(candles_df['open_time'], unit='ms', utc=True)
+        candles_df.attrs = {'symbol': symbol, 'timeframe': timeframe}
+
+        # 2. Setup and run optimizer
+        optimizer = Optimizer(strategy_class=strategy_class, data=candles_df)
+        optimizer.set_params(short_window=range(10, 31, 10), long_window=range(40, 71, 15))
+
+        wf_results = optimizer.run_walk_forward(
+            in_sample_len=180, out_of_sample_len=60, step_size=60, optimize_for="sharpe_ratio"
+        )
+
+        # 3. Format and Send Report
+        if wf_results:
+            # Re-calculating final metrics based on the chained performance
+            final_balance = 10000.0
+            for r in wf_results:
+                final_balance *= r['final_balance'] / r['initial_balance']
+            total_pnl_percent = (final_balance - 10000.0) / 10000.0 * 100
+
+            report = (
+                f"*Walk-Forward Analysis Report for {strategy_class.__name__}*\n"
+                f"`{symbol} ({timeframe})`\n\n"
+                f"Total Out-of-Sample Periods: *{len(wf_results)}*\n"
+                f"Chained P/L: *{total_pnl_percent:.2f}%*"
+            )
+        else:
+            report = "Walk-Forward analysis finished with no valid results."
+
+        asyncio.run(context.bot.send_message(context.job.chat_id, report, parse_mode='Markdown'))
+
+    except Exception as e:
+        asyncio.run(context.bot.send_message(context.job.chat_id, f"An error occurred during Walk-Forward analysis: {e}"))
+
+
+async def walkforward_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Starting Walk-Forward analysis for SmaCrossoverStrategy... This will take a long time.")
+    context.job_queue.run_once(
+        lambda ctx: _run_walk_forward_and_report(ctx, SmaCrossoverStrategy, 'BTC/USDT', '1d'),
+        0
+    )
 
 # --- Bot Setup ---
 
@@ -167,6 +218,7 @@ def run_bot():
     application.add_handler(CommandHandler("status", status_command))
     application.add_handler(CommandHandler("backtest", backtest_command))
     application.add_handler(CommandHandler("optimize", optimize_command))
+    application.add_handler(CommandHandler("walkforward", walkforward_command))
 
     # Run the bot until the user presses Ctrl-C
     application.run_polling()
