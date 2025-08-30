@@ -25,6 +25,12 @@ This document provides instructions for developing the Kost1kTrade project.
 - All frontend code resides in the `kost1ktrade/frontend` directory.
 - The visual style should adhere to a "cosmic" or "space" theme.
 
+## Running the Application
+
+- **Backend:** From the `kost1ktrade/backend` directory, run `pipenv run uvicorn src.api.main:app --reload`.
+- **Frontend:** From the `kost1ktrade/frontend` directory, run `npm run dev`.
+- **Database initialization:** From the `kost1ktrade/backend` directory, run `pipenv run python scripts/create_tables.py`.
+
 ## Workflow
 1.  Always clarify requirements if they are ambiguous.
 2.  Propose a clear, step-by-step plan before starting work.
