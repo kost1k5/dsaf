@@ -1,6 +1,9 @@
 import threading
-from typing import Optional
-from src.trading.engine import TradingEngine
+from typing import Optional, TYPE_CHECKING
+
+# Use TYPE_CHECKING to avoid circular imports at runtime
+if TYPE_CHECKING:
+    from src.trading.engine import TradingEngine
 
 class BotState:
     """
@@ -9,13 +12,13 @@ class BotState:
     def __init__(self):
         # State for the signal-based bot
         self.signal_bot_mode: str = "stopped"  # 'stopped', 'real', 'demo'
-        self.signal_bot_engine: Optional[TradingEngine] = None
+        self.signal_bot_engine: Optional['TradingEngine'] = None
         self.signal_bot_thread: Optional[threading.Thread] = None
         self.signal_bot_stop_event: threading.Event = threading.Event()
 
         # State for the grid bot
         self.grid_bot_mode: str = "stopped"
-        self.grid_bot_engine: Optional[TradingEngine] = None
+        self.grid_bot_engine: Optional['TradingEngine'] = None
         self.grid_bot_thread: Optional[threading.Thread] = None
         self.grid_bot_stop_event: threading.Event = threading.Event()
 

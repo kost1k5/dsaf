@@ -1,7 +1,7 @@
 import ccxt
 import asyncio
 from src.core.config import settings
-from src.notifications.telegram import TelegramNotifier
+from src.notifications.telegram import send_telegram_notification
 
 class TradingEngine:
     def __init__(self, mode: str, exchange_id: str = 'okx'):
@@ -9,7 +9,6 @@ class TradingEngine:
         Initializes the TradingEngine in a specific mode ('real' or 'demo').
         """
         self.mode = mode
-        self.notifier = TelegramNotifier()
 
         if self.mode == 'real':
             keys = settings.OKX_REAL
@@ -77,7 +76,7 @@ class TradingEngine:
                 f"**Amount:** `{order['amount']}`\n"
                 f"**Price:** `${order['price'] if order['price'] else order['average']:.2f}`"
             )
-            asyncio.run(self.notifier.send_message(message))
+            asyncio.run(send_telegram_notification(message))
 
             return order
         except ccxt.InsufficientFunds as e:
