@@ -37,15 +37,19 @@ class TradingEngine:
         except Exception as e:
             raise ConnectionError(f"Failed to initialize exchange '{exchange_id}' in '{self.mode}' mode: {e}")
 
-    def get_balance(self, currency: str = 'USD'):
+    def get_balance(self):
         """
-        Fetches the balance for a specific currency.
-        :param currency: The currency symbol (e.g., 'USD', 'USDT', 'BTC').
-        :return: A dictionary with balance information or None if an error occurs.
+        Fetches the entire account balance.
+        :return: A dictionary of balances or None if an error occurs.
         """
         try:
+            # We are interested in the 'free' balances of assets with a non-zero amount
             balance = self.exchange.fetch_balance()
-            return balance.get(currency, {'free': 0, 'used': 0, 'total': 0})
+            return {
+                currency: data['free']
+                for currency, data in balance.items()
+                if data['free'] > 0
+            }
         except ccxt.Error as e:
             print(f"An error occurred while fetching balance: {e}")
             return None
@@ -155,11 +159,11 @@ if __name__ == '__main__':
         print(f"Successfully initialized trading engine in '{engine.mode}' mode.")
 
         # 1. Get balance
-        balance = engine.get_balance('USDT') # OKX demo often uses USDT
-        if balance:
-            print(f"\nFetched balance for USDT: {balance}")
+        balances = engine.get_balance()
+        if balances is not None:
+            print(f"\nFetched balances: {balances}")
         else:
-            print("Could not fetch balance. The API keys might be invalid or have incorrect permissions.")
+            print("Could not fetch balances. The API keys might be invalid or have incorrect permissions.")
 
         # 2. Fetch open orders
         print("\nFetching open orders for BTC/USDT...")

@@ -1,0 +1,26 @@
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400..900&family=Exo:wght@300;400;700&display=swap');
+
+:root {
+  --primary-glow: #a0a0ff;
+  --primary-text: #e0e0e0;
+  --dark-bg-primary: #0a0a1a;
+  --dark-bg-secondary: #1a1a2e;
+  --border-color: #2a2a4a;
+}
+
+body {
+  margin: 0;
+  font-family: 'Exo', sans-serif;
+  color: var(--primary-text);
+  background-color: var(--dark-bg-primary);
+  background-image: url('https://photojournal.jpl.nasa.gov/jpeg/PIA24571.jpg');
+  background-size: cover;
+  background-position: center;
+  background-attachment: fixed;
+  overflow: hidden; /* Prevent body scroll */
+}
+
+h1, h2, h3 {
+  font-family: 'Orbitron', sans-serif;
+  text-shadow: 0 0 5px var(--primary-glow);
+}

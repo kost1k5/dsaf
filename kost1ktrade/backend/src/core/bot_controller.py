@@ -59,14 +59,16 @@ def signal_trading_loop():
 
                 base_currency, quote_currency = symbol.split('-')
                 if latest_signal == 'BUY':
-                    balance = engine.get_balance(quote_currency)
-                    if balance and balance['free'] > 10:
-                        amount_to_buy = balance['free'] / candles_df.iloc[-1]['close']
+                    balance = engine.get_balance()
+                    quote_balance = balance.get(quote_currency, 0)
+                    if quote_balance > 10: # Min order size check
+                        amount_to_buy = quote_balance / candles_df.iloc[-1]['close']
                         engine.create_order(symbol, 'market', 'buy', amount_to_buy)
                 elif latest_signal == 'SELL':
-                    balance = engine.get_balance(base_currency)
-                    if balance and balance['free'] > 0.0001:
-                        engine.create_order(symbol, 'market', 'sell', balance['free'])
+                    balance = engine.get_balance()
+                    base_balance = balance.get(base_currency, 0)
+                    if base_balance > 0.0001:
+                        engine.create_order(symbol, 'market', 'sell', base_balance)
 
                 print(f"Cycle complete. Sleeping...")
                 bot_state.signal_bot_stop_event.wait(timeout=sleep_duration_seconds)
