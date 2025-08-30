@@ -1,6 +1,7 @@
 import asyncio
 import threading
 import pandas as pd
+import telegram
 from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
@@ -10,6 +11,27 @@ from scripts.run_backtest import run_backtest
 from src.optimization.optimizer import Optimizer
 from src.strategies.sma_crossover import SmaCrossoverStrategy # Example strategy
 from src.data_collector.collector import DataCollector
+
+# --- Standalone Notifier Function ---
+
+async def send_telegram_notification(message: str):
+    """A simple, standalone function to send a notification."""
+    if not settings.TELEGRAM_TOKEN or not settings.TELEGRAM_CHAT_ID:
+        # Silently fail if not configured, as this is a non-critical feature.
+        print(f"Telegram not configured. Message not sent: {message[:50]}...")
+        return
+
+    try:
+        bot = telegram.Bot(token=settings.TELEGRAM_TOKEN)
+        await bot.send_message(
+            chat_id=settings.TELEGRAM_CHAT_ID,
+            text=message,
+            parse_mode='Markdown'
+        )
+        print("Sent Telegram notification.")
+    except Exception as e:
+        print(f"Failed to send Telegram notification: {e}")
+
 
 # --- Command Handlers ---
 
