@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 
@@ -79,15 +79,17 @@ class Settings(BaseSettings):
     GEMINI_API_KEY: Optional[str] = None
 
     # --- General Bot Settings ---
-    SYMBOLS: List[str] = ["BTC-USDT", "ETH-USDT", "SOL-USDT", "LINK-USDT"]
+    # Raw comma-separated string for symbols from .env
+    SYMBOLS_RAW: str = "BTC-USDT,ETH-USDT,SOL-USDT,LINK-USDT"
+
+    @computed_field
+    @property
+    def SYMBOLS(self) -> List[str]:
+        """Returns a list of symbols from the raw string."""
+        return [item.strip() for item in self.SYMBOLS_RAW.split(',')]
+
     OKX_WS_URL: str = "wss://ws.okx.com:8443/ws/v5/public"
     MAX_CANDLES: int = 5000
-
-    @field_validator('SYMBOLS', mode='before')
-    def split_symbols(cls, v):
-        if isinstance(v, str):
-            return [item.strip() for item in v.split(',')]
-        return v
 
     # --- Backtest Settings ---
     BACKTEST: RiskManagementSettings = Field(default_factory=RiskManagementSettings)
