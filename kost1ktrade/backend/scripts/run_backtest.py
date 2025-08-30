@@ -42,13 +42,15 @@ def save_results_to_db(results: dict):
         db.close()
 
 
-def run_backtest(strategy, data: pd.DataFrame, initial_cash=10000.0):
-    """Runs a more detailed backtest and calculates performance metrics."""
+def run_backtest(strategy, data: pd.DataFrame, initial_cash=10000.0, commission_pct=0.001, slippage_pct=0.0005):
+    """
+    Runs a detailed backtest, including commission and slippage, and calculates performance metrics.
+    """
     if data.empty:
         print("Data is empty, cannot run backtest.")
         return
 
-    print("\nRunning backtest...")
+    print(f"\nRunning backtest... (Commission: {commission_pct*100}%, Slippage: {slippage_pct*100}%)")
     df = strategy.generate_signals(data)
 
     cash = initial_cash
@@ -60,19 +62,35 @@ def run_backtest(strategy, data: pd.DataFrame, initial_cash=10000.0):
     for i, row in df.iterrows():
         close_price = df.loc[i, 'close']
         signal = df.loc[i, 'signal']
+        trade_time = df.loc[i, 'open_time']
 
-        # Manage trades
+        # Manage trades, including costs
         if signal == 'BUY' and cash > 0:
-            position = cash / close_price
-            entry_price = close_price
+            buy_price = close_price * (1 + slippage_pct)
+            position_before_commission = cash / buy_price
+            commission = position_before_commission * commission_pct
+            position = position_before_commission - commission
+
+            entry_price = buy_price
+            entry_time = trade_time
             cash = 0
-            print(f"{df.loc[i, 'open_time'].date()} | BUY at {close_price:.2f} | Portfolio: ${initial_cash:.2f}")
+            print(f"{trade_time.date()} | BUY at ~{buy_price:.2f} | Portfolio: ${initial_cash:.2f}")
+
         elif signal == 'SELL' and position > 0:
-            cash = position * close_price
-            trades.append({'entry': entry_price, 'exit': close_price})
+            sell_price = close_price * (1 - slippage_pct)
+            cash_before_commission = position * sell_price
+            commission = cash_before_commission * commission_pct
+            cash = cash_before_commission - commission
+
+            trades.append({
+                'entry_price': entry_price,
+                'exit_price': sell_price,
+                'entry_time': entry_time,
+                'exit_time': trade_time
+            })
             position = 0
             entry_price = 0
-            print(f"{df.loc[i, 'open_time'].date()} | SELL at {close_price:.2f} | Portfolio: ${cash:.2f}")
+            print(f"{trade_time.date()} | SELL at ~{sell_price:.2f} | Portfolio: ${cash:.2f}")
 
         # Record portfolio value at each step
         current_value = cash if cash > 0 else position * close_price
@@ -84,7 +102,7 @@ def run_backtest(strategy, data: pd.DataFrame, initial_cash=10000.0):
     total_return_percent = (total_pnl / initial_cash) * 100
 
     # Win Rate
-    wins = sum(1 for trade in trades if trade['exit'] > trade['entry'])
+    wins = sum(1 for trade in trades if trade['exit_price'] > trade['entry_price'])
     win_rate = (wins / len(trades)) * 100 if trades else 0
 
     # Max Drawdown
@@ -112,6 +130,7 @@ def run_backtest(strategy, data: pd.DataFrame, initial_cash=10000.0):
         "total_trades": len(trades),
         "start_date": df.iloc[0]['open_time'].date(),
         "end_date": df.iloc[-1]['open_time'].date(),
+        "trades": trades,
     }
 
     print("\n--- Backtest Report ---")
@@ -127,8 +146,7 @@ def run_backtest(strategy, data: pd.DataFrame, initial_cash=10000.0):
     print(f"Sharpe Ratio (ann.):     {results['sharpe_ratio']:.2f}")
     print("-----------------------")
 
-    # Save results to the database
-    save_results_to_db(results)
+    return results
 
 
 if __name__ == '__main__':
@@ -161,7 +179,15 @@ if __name__ == '__main__':
 
     # 3. Initialize and run the backtest
     if not candles_df.empty:
+        from src.core.config import settings
         sma_strategy = SmaCrossoverStrategy(short_window=40, long_window=100)
-        run_backtest(sma_strategy, candles_df)
+        results = run_backtest(
+            strategy=sma_strategy,
+            data=candles_df,
+            commission_pct=settings.BACKTEST_COMMISSION_PCT,
+            slippage_pct=settings.BACKTEST_SLIPPAGE_PCT
+        )
+        if results:
+            save_results_to_db(results)
     else:
         print("No data available to run the backtest.")

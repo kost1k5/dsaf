@@ -5,6 +5,8 @@ from typing import Literal
 from src.core.bot_state import bot_state
 from src.core.bot_controller import start_bot_loop, stop_bot_loop
 from src.core.grid_bot_controller import start_grid_bot, stop_grid_bot
+from src.notifications.telegram import run_bot
+import threading
 
 app = FastAPI(title="Kost1kTrade API")
 
