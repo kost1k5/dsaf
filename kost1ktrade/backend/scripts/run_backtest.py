@@ -132,7 +132,7 @@ def run_backtest(strategy, data: pd.DataFrame, initial_cash=10000.0):
 
 
 if __name__ == '__main__':
-    SYMBOL = 'BTC/USD'
+    SYMBOL = 'BTC/USDT'
     TIMEFRAME = '1d' # Daily timeframe for a longer-term backtest
 
     # 1. Try to load data from DB
@@ -143,7 +143,7 @@ if __name__ == '__main__':
     # 2. If DB is empty, fetch from the exchange
     if candles_df.empty:
         print(f"Fetching new data for {SYMBOL} since database is empty...")
-        collector = DataCollector(exchange_id='kraken')
+        collector = DataCollector(exchange_id='okx')
         # Fetch last 365 days of data
         since = collector.exchange.parse8601('2023-01-01T00:00:00Z')
         candles_list = collector.fetch_candles(SYMBOL, timeframe=TIMEFRAME, since=since, limit=365)

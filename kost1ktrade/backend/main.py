@@ -11,18 +11,19 @@ def main_loop():
     # Initialize components
     try:
         # It's better to use the same exchange for data and trading
-        exchange_id = 'kraken'
+        exchange_id = 'okx'
         collector = DataCollector(exchange_id=exchange_id)
-        engine = TradingEngine(exchange_id=exchange_id)
-        print("Trading engine and data collector initialized.")
+        # The engine will be initialized later, based on the mode
+        # engine = TradingEngine(mode='demo', exchange_id=exchange_id)
+        print("Data collector initialized.")
     except (ValueError, ConnectionError) as e:
         print(f"FATAL: Failed to initialize components: {e}")
         return
 
     strategy = SmaCrossoverStrategy(short_window=40, long_window=100)
-    symbol = 'BTC/USD'
+    symbol = 'BTC/USDT'
     base_currency = 'BTC'
-    quote_currency = 'USD'
+    quote_currency = 'USDT'
     timeframe = '1h' # The bot will run once per hour
     sleep_duration_seconds = 3600 # 1 hour
 
