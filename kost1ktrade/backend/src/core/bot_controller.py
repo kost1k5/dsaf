@@ -1,24 +1,37 @@
 import time
 import pandas as pd
+import importlib
+from typing import Dict, Any
 from src.core.bot_state import bot_state
 from src.data_collector.collector import DataCollector
 from src.trading.engine import TradingEngine
-from src.strategies.sma_crossover import SmaCrossoverStrategy
 from src.core.config import settings
+
+def _get_strategy_class(strategy_name: str):
+    """Dynamically imports and returns a strategy class."""
+    try:
+        module_name = f"src.strategies.{strategy_name.lower()}"
+        # Convention: a file like 'macd.py' contains a class named 'MacdStrategy'
+        class_name = f"{strategy_name.replace('_', ' ').title().replace(' ', '')}Strategy"
+        strategy_module = importlib.import_module(module_name)
+        return getattr(strategy_module, class_name)
+    except (ImportError, AttributeError) as e:
+        raise ValueError(f"Could not find strategy '{strategy_name}'. "
+                         f"Ensure '{module_name}.py' and class '{class_name}' exist.") from e
 
 def signal_trading_loop():
     """
     The main loop for the signal-based trading bot.
     This function is intended to be run in a background task.
     """
-    # This check is important because the background task starts after the response is sent
     if bot_state.signal_bot_mode == "stopped":
         print("Bot was stopped before the trading loop could start.")
         return
 
     engine = bot_state.signal_bot_engine
-    if not engine:
-        print("FATAL in thread: Trading engine not available in bot_state.")
+    strategy = bot_state.signal_bot_strategy
+    if not engine or not strategy:
+        print("FATAL in thread: Trading engine or strategy not available in bot_state.")
         bot_state.signal_bot_mode = "stopped"
         return
 
@@ -29,26 +42,24 @@ def signal_trading_loop():
         bot_state.signal_bot_mode = "stopped"
         return
 
-    strategy = SmaCrossoverStrategy(
-        short_window=settings.INDICATORS.SMA_PERIOD,
-        long_window=settings.INDICATORS.SMA_LONG_PERIOD
-    )
+    # TODO: These should be parameterized and passed during bot startup
     symbol = settings.SYMBOLS[0]
     timeframe = '1h'
     sleep_duration_seconds = 3600
+    # Use a generic candle limit, as strategies have different requirements
+    candle_limit = 200
 
-    print(f"--- Background signal bot loop started in '{bot_state.signal_bot_mode}' mode for {symbol} ---")
+    print(f"--- Background signal bot loop started for {strategy.__class__.__name__} on {symbol} ---")
 
     try:
         while not bot_state.signal_bot_stop_event.is_set():
             try:
-                print(f"({time.ctime()}) --- Signal Bot Cycle ---")
+                print(f"({time.ctime()}) --- Signal Bot Cycle for {strategy.__class__.__name__} ---")
 
-                # Full fetch-analyze-execute logic
-                print(f"Fetching latest {strategy.long_window} candles for {symbol}...")
-                candles_list = collector.fetch_candles(symbol, timeframe, limit=strategy.long_window)
-                if not candles_list or len(candles_list) < strategy.long_window:
-                    raise ValueError(f"Could not fetch enough candle data")
+                print(f"Fetching latest {candle_limit} candles for {symbol}...")
+                candles_list = collector.fetch_candles(symbol, timeframe, limit=candle_limit)
+                if not candles_list or len(candles_list) < 50: # Basic check for some data
+                    raise ValueError(f"Could not fetch enough candle data (got {len(candles_list)})")
 
                 candles_df = pd.DataFrame(candles_list, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
 
@@ -80,9 +91,10 @@ def signal_trading_loop():
         print(f"--- Background signal bot loop for '{bot_state.signal_bot_mode}' mode has gracefully stopped ---")
         bot_state.signal_bot_mode = "stopped"
         bot_state.signal_bot_engine = None
+        bot_state.signal_bot_strategy = None
 
 
-def start_bot_loop(mode: str):
+def start_bot_loop(mode: str, strategy_name: str, strategy_params: Dict[str, Any]):
     """
     Prepares the state for the signal-based bot to be started in a background task.
     """
@@ -92,13 +104,21 @@ def start_bot_loop(mode: str):
     bot_state.signal_bot_stop_event.clear()
 
     try:
-        # Initialize engine first. If this fails, state is not set to running.
+        # Initialize strategy first
+        StrategyClass = _get_strategy_class(strategy_name)
+        bot_state.signal_bot_strategy = StrategyClass(**strategy_params)
+
+        # Initialize engine
         bot_state.signal_bot_engine = TradingEngine(mode=mode)
-        # Only set mode to running after successful initialization
+
+        # Set mode to running only after successful initialization
         bot_state.signal_bot_mode = mode
-        print(f"Signal bot state prepared for '{mode}' mode.")
-    except Exception as e:
-        bot_state.signal_bot_mode = "stopped" # Reset on failure
+        print(f"Signal bot state prepared for '{mode}' mode with strategy '{strategy_name}'.")
+    except (ValueError, TypeError, ConnectionError) as e:
+        # Reset state on failure
+        bot_state.signal_bot_mode = "stopped"
+        bot_state.signal_bot_strategy = None
+        bot_state.signal_bot_engine = None
         raise e
 
 def stop_bot_loop():

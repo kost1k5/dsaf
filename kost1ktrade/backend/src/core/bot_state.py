@@ -4,6 +4,7 @@ from typing import Optional, TYPE_CHECKING
 # Use TYPE_CHECKING to avoid circular imports at runtime
 if TYPE_CHECKING:
     from src.trading.engine import TradingEngine
+    from src.strategies.base import BaseStrategy
 
 class BotState:
     """
@@ -13,6 +14,7 @@ class BotState:
         # State for the signal-based bot
         self.signal_bot_mode: str = "stopped"  # 'stopped', 'real', 'demo'
         self.signal_bot_engine: Optional['TradingEngine'] = None
+        self.signal_bot_strategy: Optional['BaseStrategy'] = None
         self.signal_bot_thread: Optional[threading.Thread] = None
         self.signal_bot_stop_event: threading.Event = threading.Event()
 

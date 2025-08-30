@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from pydantic import BaseModel
-from typing import Literal
+from typing import Literal, Dict, Any
 
 from src.core.bot_state import bot_state
 from src.core.bot_controller import start_bot_loop, stop_bot_loop, signal_trading_loop
@@ -25,22 +25,28 @@ async def get_balance():
 
 # --- Signal Bot Control ---
 
-class SignalBotControlRequest(BaseModel):
+class SignalBotStartRequest(BaseModel):
     mode: Literal['real', 'demo']
+    strategy_name: str
+    strategy_params: Dict[str, Any]
 
 @app.post("/signal-bot/start", tags=["Signal Bot Control"])
-async def start_signal_bot(request: SignalBotControlRequest, background_tasks: BackgroundTasks):
+async def start_signal_bot(request: SignalBotStartRequest, background_tasks: BackgroundTasks):
     """
-    Starts the signal-based trading bot in the specified mode.
+    Starts the signal-based trading bot with a specific strategy and parameters.
     The bot will run in a background task.
     """
     try:
-        print(f"Received request to start signal bot in '{request.mode}' mode.")
-        start_bot_loop(request.mode)
+        print(f"Received request to start signal bot in '{request.mode}' mode with strategy '{request.strategy_name}'.")
+        start_bot_loop(
+            mode=request.mode,
+            strategy_name=request.strategy_name,
+            strategy_params=request.strategy_params
+        )
         # Add the main loop to background tasks
         background_tasks.add_task(signal_trading_loop)
-        return {"message": f"Signal bot start process initiated in {request.mode} mode."}
-    except (ValueError, ConnectionError) as e:
+        return {"message": f"Signal bot '{request.strategy_name}' start process initiated in {request.mode} mode."}
+    except (ValueError, ConnectionError, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
 @app.post("/signal-bot/stop", tags=["Signal Bot Control"])

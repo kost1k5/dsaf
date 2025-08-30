@@ -1,0 +1,107 @@
+.strategy-manager {
+    padding: 2rem;
+    background-color: #1f2229;
+    border-radius: 8px;
+    color: #e0e0e0;
+}
+
+.strategy-manager h2 {
+    color: #61dafb;
+    margin-top: 0;
+    margin-bottom: 0.5rem;
+}
+
+.strategy-manager p {
+    margin-bottom: 2rem;
+    color: #a0a0a0;
+}
+
+.strategy-form {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.form-group label {
+    font-weight: bold;
+    font-size: 0.9rem;
+    color: #c0c0c0;
+}
+
+.form-group input,
+.form-group select {
+    padding: 0.75rem;
+    border-radius: 4px;
+    border: 1px solid #444;
+    background-color: #2c3038;
+    color: #e0e0e0;
+    font-size: 1rem;
+}
+
+.form-group input:focus,
+.form-group select:focus {
+    outline: none;
+    border-color: #61dafb;
+    box-shadow: 0 0 0 2px rgba(97, 218, 251, 0.3);
+}
+
+fieldset {
+    border: 1px solid #444;
+    border-radius: 4px;
+    padding: 1.5rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+legend {
+    padding: 0 0.5rem;
+    color: #61dafb;
+    font-weight: bold;
+}
+
+.strategy-form button {
+    padding: 0.8rem 1.5rem;
+    border: none;
+    border-radius: 4px;
+    background-color: #61dafb;
+    color: #1a1a1a;
+    font-weight: bold;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.strategy-form button:hover:not(:disabled) {
+    background-color: #88eaff;
+}
+
+.strategy-form button:disabled {
+    background-color: #555;
+    cursor: not-allowed;
+}
+
+.feedback-message {
+    margin-top: 1.5rem;
+    padding: 1rem;
+    border-radius: 4px;
+    text-align: center;
+}
+
+.feedback-message.success {
+    background-color: rgba(46, 184, 92, 0.2);
+    color: #2eb85c;
+    border: 1px solid #2eb85c;
+}
+
+.feedback-message.error {
+    background-color: rgba(231, 76, 60, 0.2);
+    color: #e74c3c;
+    border: 1px solid #e74c3c;
+}

@@ -1,3 +1,4 @@
+import { NavLink } from 'react-router-dom';
 import './Sidebar.css';
 
 const Sidebar = () => {
@@ -9,10 +10,11 @@ const Sidebar = () => {
       </div>
       <nav>
         <ul>
-          <li className="active"><a href="#">Dashboard</a></li>
-          <li><a href="#">Strategies</a></li>
-          <li><a href="#">Backtesting</a></li>
-          <li><a href="#">Settings</a></li>
+          <li><NavLink to="/" end>Dashboard</NavLink></li>
+          <li><NavLink to="/strategies">Strategies</NavLink></li>
+          {/* These are placeholders for now */}
+          <li><a href="#" className="disabled-link">Backtesting</a></li>
+          <li><a href="#" className="disabled-link">Settings</a></li>
         </ul>
       </nav>
     </div>
