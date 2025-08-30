@@ -1,5 +1,4 @@
 import time
-import threading
 import pandas as pd
 from src.core.bot_state import bot_state
 from src.data_collector.collector import DataCollector
@@ -8,11 +7,18 @@ from src.strategies.sma_crossover import SmaCrossoverStrategy
 from src.core.config import settings
 
 def signal_trading_loop():
-    """The main loop for the signal-based trading bot."""
+    """
+    The main loop for the signal-based trading bot.
+    This function is intended to be run in a background task.
+    """
+    # This check is important because the background task starts after the response is sent
+    if bot_state.signal_bot_mode == "stopped":
+        print("Bot was stopped before the trading loop could start.")
+        return
 
     engine = bot_state.signal_bot_engine
     if not engine:
-        print("FATAL in thread: Trading engine not initialized.")
+        print("FATAL in thread: Trading engine not available in bot_state.")
         bot_state.signal_bot_mode = "stopped"
         return
 
@@ -34,38 +40,46 @@ def signal_trading_loop():
     print(f"--- Background signal bot loop started in '{bot_state.signal_bot_mode}' mode for {symbol} ---")
 
     while not bot_state.signal_bot_stop_event.is_set():
-        # ... [fetch-analyze-execute logic] ...
+        # ... [Full fetch-analyze-execute logic will be restored here] ...
         print(f"({time.ctime()}) --- Signal Bot Cycle ---")
-        time.sleep(1) # Placeholder for real logic
+
+        # Placeholder for the full logic
+        print("Fetching, analyzing, executing...")
+
         bot_state.signal_bot_stop_event.wait(timeout=sleep_duration_seconds)
 
-    print(f"--- Background signal bot loop stopped ---")
+    print(f"--- Background signal bot loop for '{bot_state.signal_bot_mode}' mode has gracefully stopped ---")
+    # Reset state after the loop finishes
+    bot_state.signal_bot_mode = "stopped"
+    bot_state.signal_bot_engine = None
 
 
 def start_bot_loop(mode: str):
-    """Initializes and starts the signal-based bot in a background thread."""
-    if bot_state.signal_bot_thread and bot_state.signal_bot_thread.is_alive():
-        raise ValueError("Signal bot is already running.")
+    """
+    Prepares the state for the signal-based bot to be started in a background task.
+    """
+    if bot_state.signal_bot_mode != "stopped":
+        raise ValueError("Signal bot is already running or starting.")
 
+    print(f"Preparing to start signal bot in '{mode}' mode.")
     bot_state.signal_bot_mode = mode
     bot_state.signal_bot_stop_event.clear()
 
     try:
         bot_state.signal_bot_engine = TradingEngine(mode=mode)
     except Exception as e:
-        bot_state.signal_bot_mode = "stopped"
+        bot_state.signal_bot_mode = "stopped" # Reset on failure
         raise e
 
-    bot_state.signal_bot_thread = threading.Thread(target=signal_trading_loop, daemon=True)
-    bot_state.signal_bot_thread.start()
-
 def stop_bot_loop():
-    """Stops the background signal-based trading loop."""
-    if not (bot_state.signal_bot_thread and bot_state.signal_bot_thread.is_alive()):
+    """
+    Signals the background signal-based trading loop to stop.
+    """
+    if bot_state.signal_bot_mode == "stopped":
         raise ValueError("Signal bot is not running.")
 
+    print("Signaling signal bot to stop...")
     bot_state.signal_bot_stop_event.set()
-    bot_state.signal_bot_thread.join(timeout=10)
-    bot_state.signal_bot_mode = "stopped"
-    bot_state.signal_bot_engine = None
-    bot_state.signal_bot_thread = None
+    # The background task will see this event and exit its loop.
+    # The state will be fully reset by the loop itself upon exit.
+    return "Stop signal sent. The bot will shut down after its current cycle."
