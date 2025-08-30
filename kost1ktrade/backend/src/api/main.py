@@ -1,52 +1,95 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import Literal
 
 from src.core.bot_state import bot_state
-# We will create this controller module next
-# from src.core.bot_controller import start_bot_loop, stop_bot_loop
+from src.core.bot_controller import start_bot_loop, stop_bot_loop
+from src.core.grid_bot_controller import start_grid_bot, stop_grid_bot
 
 app = FastAPI(title="Kost1kTrade API")
 
-class BotControlRequest(BaseModel):
+# --- Signal Bot Control ---
+
+class SignalBotControlRequest(BaseModel):
     mode: Literal['real', 'demo']
 
-@app.post("/bot/start", tags=["Bot Control"])
-async def start_bot(request: BotControlRequest, background_tasks: BackgroundTasks):
+@app.post("/signal-bot/start", tags=["Signal Bot Control"])
+async def start_signal_bot(request: SignalBotControlRequest):
     """
-    Starts the trading bot in the specified mode ('real' or 'demo').
+    Starts the signal-based trading bot in the specified mode.
     """
-    if bot_state.mode != "stopped":
-        raise HTTPException(status_code=400, detail=f"Bot is already running in '{bot_state.mode}' mode.")
+    try:
+        print(f"Received request to start signal bot in '{request.mode}' mode.")
+        start_bot_loop(request.mode)
+        return {"message": f"Signal bot start process initiated in {request.mode} mode."}
+    except (ValueError, ConnectionError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    print(f"Received request to start bot in '{request.mode}' mode.")
-    # In a real implementation, we would start a background task.
-    # For now, we just update the state.
-    # background_tasks.add_task(start_bot_loop, request.mode)
-    bot_state.mode = request.mode
-    return {"message": f"Bot started in {request.mode} mode. (Simulation)"}
-
-@app.post("/bot/stop", tags=["Bot Control"])
-async def stop_bot():
+@app.post("/signal-bot/stop", tags=["Signal Bot Control"])
+async def stop_signal_bot():
     """
-    Stops the trading bot if it is running.
+    Stops the signal-based trading bot if it is running.
     """
-    if bot_state.mode == "stopped":
-        raise HTTPException(status_code=400, detail="Bot is not running.")
+    try:
+        print(f"Received request to stop signal bot from '{bot_state.signal_bot_mode}' mode.")
+        stop_bot_loop()
+        return {"message": "Signal bot stop process initiated."}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
-    print(f"Received request to stop bot from '{bot_state.mode}' mode.")
-    # stop_bot_loop()
-    bot_state.mode = "stopped"
-    bot_state.trading_engine = None
-    return {"message": "Bot stopped. (Simulation)"}
-
-@app.get("/bot/status", tags=["Bot Control"])
-async def get_bot_status():
+@app.get("/signal-bot/status", tags=["Signal Bot Control"])
+async def get_signal_bot_status():
     """
-    Returns the current status of the bot.
+    Returns the current status of the signal-based bot.
     """
-    return {"current_mode": bot_state.mode}
+    return {"current_mode": bot_state.signal_bot_mode}
 
+# --- Grid Bot Control ---
+
+class GridBotStartRequest(BaseModel):
+    mode: Literal['real', 'demo']
+    symbol: str
+    amount_per_grid: float
+    grid_range_low: float
+    grid_range_high: float
+    num_grids: int
+
+@app.post("/grid-bot/start", tags=["Grid Bot Control"])
+async def start_grid_bot_endpoint(request: GridBotStartRequest):
+    """
+    Starts the grid trading bot with the specified configuration.
+    """
+    try:
+        grid_config = {
+            "grid_range_low": request.grid_range_low,
+            "grid_range_high": request.grid_range_high,
+            "num_grids": request.num_grids,
+        }
+        start_grid_bot(request.mode, request.symbol, grid_config, request.amount_per_grid)
+        return {"message": "Grid bot start process initiated."}
+    except (ValueError, ConnectionError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/grid-bot/stop", tags=["Grid Bot Control"])
+async def stop_grid_bot_endpoint():
+    """
+    Stops the grid trading bot.
+    """
+    try:
+        stop_grid_bot()
+        return {"message": "Grid bot stop process initiated."}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/grid-bot/status", tags=["Grid Bot Control"])
+async def get_grid_bot_status():
+    """
+    Returns the current status of the grid bot.
+    """
+    return {"current_mode": bot_state.grid_bot_mode}
+
+
+# --- Health Check ---
 
 @app.get("/health", tags=["Monitoring"])
 def health_check():

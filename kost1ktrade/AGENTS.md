@@ -13,6 +13,11 @@ This document provides instructions for developing the Kost1kTrade project.
 - To run commands within the project's virtual environment, use `pipenv run <command>`.
 - The database is PostgreSQL. All database models are defined using SQLAlchemy in `kost1ktrade/backend/src/database/models.py`.
 - The API is built with FastAPI. New endpoints should be added logically within the `kost1ktrade/backend/src/api` module.
+- Notifications are handled in the `src/notifications` module.
+- The project now supports two types of bots, managed by separate controllers:
+  - `src/core/bot_controller.py` for signal-based strategies.
+  - `src/core/grid_bot_controller.py` for grid trading logic.
+- Signal-based strategies should be created in `src/strategies` and inherit from `BaseStrategy`. Grid strategies are self-contained.
 
 ## Frontend
 - The frontend will be a modern JavaScript application (e.g., React, Vue).

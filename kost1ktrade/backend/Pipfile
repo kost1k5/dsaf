@@ -13,6 +13,7 @@ pydantic-settings = "*"
 ccxt = "*"
 pandas = "*"
 numpy = "*"
+python-telegram-bot = "*"
 
 [dev-packages]
 
