@@ -10,6 +10,7 @@ from sqlalchemy import (
     Enum,
     UniqueConstraint,
 )
+from sqlalchemy.dialects.postgresql import JSON
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 
@@ -91,6 +92,7 @@ class BacktestResult(Base):
     start_date = Column(DateTime, nullable=False)
     end_date = Column(DateTime, nullable=False)
     run_at = Column(DateTime, server_default=func.now())
+    trades = Column(JSON) # To store the list of trade dicts
 
     def __repr__(self):
         return f"<BacktestResult(strategy='{self.strategy_name}', symbol='{self.symbol}', pnl_percent={self.pnl_percent:.2f}%)>"

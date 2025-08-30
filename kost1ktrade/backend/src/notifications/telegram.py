@@ -3,7 +3,7 @@ import threading
 import pandas as pd
 import telegram
 from telegram import Update
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, ContextTypes, JobQueue
 
 from src.core.config import settings
 from src.core.bot_state import bot_state
@@ -211,7 +211,8 @@ def run_bot():
         return
 
     print("Starting Telegram bot...")
-    application = Application.builder().token(settings.TELEGRAM_TOKEN).build()
+    job_queue = JobQueue()
+    application = Application.builder().token(settings.TELEGRAM_TOKEN).job_queue(job_queue).build()
 
     # Add command handlers
     application.add_handler(CommandHandler("start", start_command))
