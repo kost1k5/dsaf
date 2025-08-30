@@ -107,9 +107,18 @@ curl -X POST -H "Content-Type: application/json" \
 http://127.0.0.1:8000/grid-bot/start
 ```
 
-**Пример для Windows PowerShell:**
+**Пример для Windows PowerShell (100% рабочий вариант):**
 ```powershell
-Invoke-WebRequest -Uri http://127.0.0.1:8000/grid-bot/start -Method POST -ContentType "application/json" -Body '{\"mode\": \"demo\", \"symbol\": \"BTC/USDT\", \"amount_per_grid\": 0.001, \"grid_range_low\": 50000, \"grid_range_high\": 60000, \"num_grids\": 10}'
+$body = @{
+    mode = "demo";
+    symbol = "BTC/USDT";
+    amount_per_grid = 0.001;
+    grid_range_low = 50000;
+    grid_range_high = 60000;
+    num_grids = 10
+} | ConvertTo-Json
+
+Invoke-WebRequest -Uri http://127.0.0.1:8000/grid-bot/start -Method POST -ContentType "application/json" -Body $body
 ```
 (Примечание: Реальная фоновая работа ботов пока не реализована до конца из-за особенностей окружения, но API для управления ими уже на месте).
 
