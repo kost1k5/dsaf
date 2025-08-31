@@ -27,10 +27,6 @@ class TradingEngine:
                 'apiKey': keys.API_KEY,
                 'secret': keys.SECRET_KEY,
                 'password': keys.PASSPHRASE,
-                'options': {
-                    'defaultType': 'spot',
-                    'tdMode': 'cash',  # Set trade mode for spot
-                },
             })
 
             if self.mode == 'demo':
@@ -88,7 +84,8 @@ class TradingEngine:
         """
         try:
             print(f"Creating {side} {order_type} order for {amount} {symbol}...")
-            order = self.exchange.create_order(symbol, order_type, side, amount, price)
+            params = {'tdMode': 'cash'}
+            order = self.exchange.create_order(symbol, order_type, side, amount, price, params)
             print("Order created successfully:")
             print(order)
 
