@@ -2,52 +2,86 @@ import joblib
 import pandas as pd
 import os
 import json
+from typing import Dict, List, Any
+
+MODEL_DIR = "src/ml/models"
+
+def sanitize_symbol(symbol: str) -> str:
+    """Converts a symbol like 'BTC/USDT' to 'BTC_USDT' for filenames."""
+    return symbol.replace('/', '_')
 
 class Predictor:
     """
-    A class to load a trained model and make predictions.
+    A class to load and manage trained models for multiple symbols
+    and make predictions. Models are loaded on-demand and cached in memory.
     """
-    def __init__(self, model_path="src/ml/models/lgbm_classifier.joblib", features_path="src/ml/models/features.json"):
-        self.model = None
-        self.features = None
+    def __init__(self):
+        self.models: Dict[str, Any] = {}
+        self.features: Dict[str, List[str]] = {}
+        print("Predictor initialized. Models will be loaded on demand.")
+
+    def _load_model(self, symbol: str) -> bool:
+        """
+        Loads the model and feature list for a specific symbol into the cache.
+        Returns True if successful, False otherwise.
+        """
+        sanitized_symbol = sanitize_symbol(symbol)
+        model_path = os.path.join(MODEL_DIR, f"lgbm_classifier_{sanitized_symbol}.joblib")
+        features_path = os.path.join(MODEL_DIR, f"features_{sanitized_symbol}.json")
 
         if os.path.exists(model_path) and os.path.exists(features_path):
-            print("Loading trained model and feature list...")
-            self.model = joblib.load(model_path)
-            with open(features_path, 'r') as f:
-                self.features = json.load(f)
-            print("Model and features loaded successfully.")
+            print(f"Loading model for symbol '{symbol}' from disk...")
+            try:
+                self.models[symbol] = joblib.load(model_path)
+                with open(features_path, 'r') as f:
+                    self.features[symbol] = json.load(f)
+                print(f"Model and features for '{symbol}' loaded successfully.")
+                return True
+            except Exception as e:
+                print(f"Error loading model for '{symbol}': {e}")
+                return False
         else:
-            print("WARNING: Model file or features file not found. Predictor will not be able to make predictions.")
+            # This is not an error, just means a model for this symbol hasn't been trained.
+            # print(f"Model file for symbol '{symbol}' not found. Cannot make predictions for this symbol.")
+            return False
 
-    def is_ready(self) -> bool:
+    def is_ready(self, symbol: str) -> bool:
         """
-        Checks if the model and features are loaded.
+        Checks if a model for the given symbol is either already loaded in cache
+        or is available to be loaded from disk.
         """
-        return self.model is not None and self.features is not None
+        if symbol in self.models:
+            return True
 
-    def predict(self, features_df: pd.DataFrame) -> int:
-        """
-        Makes a prediction on a single row of features.
+        # Check if files exist on disk without loading them
+        sanitized_symbol = sanitize_symbol(symbol)
+        model_path = os.path.join(MODEL_DIR, f"lgbm_classifier_{sanitized_symbol}.joblib")
+        return os.path.exists(model_path)
 
-        :param features_df: A DataFrame containing the features for a single time step.
-                            Must include all columns that the model was trained on.
-        :return: The predicted class (-1 for Down, 0 for Sideways, 1 for Up).
+
+    def predict(self, features_df: pd.DataFrame, symbol: str) -> int:
         """
-        if not self.is_ready():
-            print("ERROR: Predictor is not ready. Cannot make a prediction.")
-            return 0 # Default to a neutral prediction
+        Makes a prediction for a given symbol.
+        It will load the symbol-specific model if it's not already cached.
+        """
+        # Load model if not already in cache
+        if symbol not in self.models:
+            if not self._load_model(symbol):
+                return 0 # Return neutral prediction if model can't be loaded
 
         try:
+            model = self.models[symbol]
+            model_features = self.features[symbol]
+
             # Ensure the DataFrame has the correct columns in the correct order
-            features_df = features_df[self.features]
+            features_df_ordered = features_df[model_features]
 
-            # Predict
-            prediction = self.model.predict(features_df)
-
-            # predict() returns an array, get the first element
+            prediction = model.predict(features_df_ordered)
             return int(prediction[0])
 
+        except KeyError as e:
+            print(f"A required feature is missing from the input data for {symbol}: {e}")
+            return 0
         except Exception as e:
-            print(f"An error occurred during prediction: {e}")
-            return 0 # Return neutral prediction on error
+            print(f"An error occurred during prediction for {symbol}: {e}")
+            return 0
