@@ -33,7 +33,12 @@ const ResultsTable = ({ results }: { results: SimulationResult[] }) => {
         return <p>No results to display.</p>;
     }
 
-    const headers = Object.keys(results[0].metrics);
+    // Find the first result that has metrics to determine the headers
+    const firstResultWithMetrics = results.find(r => r.metrics);
+    if (!firstResultWithMetrics) {
+        return <p>Simulation ran, but no valid results were returned. Check the error messages below.</p>;
+    }
+    const headers = Object.keys(firstResultWithMetrics.metrics);
 
     return (
         <table className="results-table">
@@ -243,7 +248,7 @@ const SimulationDeck = () => {
                 </div>
             )}
 
-            {results && (
+            {results && results.length > 0 && (
                 <div className="results-container">
                     <h3>Simulation Results</h3>
                     <ResultsTable results={results} />

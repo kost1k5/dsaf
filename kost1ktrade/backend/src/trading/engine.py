@@ -39,17 +39,35 @@ class TradingEngine:
 
     def get_balance(self):
         """
-        Fetches the entire account balance.
+        Fetches the entire account balance, structured with free, used, and total for each currency.
         :return: A dictionary of balances or None if an error occurs.
         """
         try:
-            # We are interested in the 'free' balances of assets with a non-zero amount
-            balance = self.exchange.fetch_balance()
-            return {
-                currency: data['free']
-                for currency, data in balance.items()
-                if isinstance(data, dict) and 'free' in data and data['free'] > 0
-            }
+            balance_data = self.exchange.fetch_balance()
+
+            # Restructure the balance information
+            structured_balance = {}
+
+            # Get all unique currency symbols from free, used, and total balances
+            all_currencies = set(balance_data.get('free', {}).keys()) | \
+                             set(balance_data.get('used', {}).keys()) | \
+                             set(balance_data.get('total', {}).keys())
+
+            for currency in all_currencies:
+                free = balance_data.get('free', {}).get(currency, 0.0)
+                used = balance_data.get('used', {}).get(currency, 0.0)
+                total = balance_data.get('total', {}).get(currency, 0.0)
+
+                # Only include currencies with a non-zero total balance
+                if total > 0:
+                    structured_balance[currency] = {
+                        'free': free,
+                        'used': used,
+                        'total': total
+                    }
+
+            return structured_balance
+
         except ccxt.errors.BaseError as e:
             print(f"An error occurred while fetching balance: {e}")
             return None
