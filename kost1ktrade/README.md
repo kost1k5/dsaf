@@ -45,11 +45,11 @@
 
 -   **Установка зависимостей бэкенда**:
     ```bash
-    cd kost1ktrade/backend && pipenv install && cd ../..
+    cd kost1ktrade/backend;  pipenv install;  cd ../..
     ```
 -   **Установка зависимостей фронтенда**:
     ```bash
-    cd kost1ktrade/frontend && npm install && cd ../..
+    cd kost1ktrade/frontend;  npm install;  cd ../..
     ```
 
 ### Шаг 4: Инициализация базы данных
