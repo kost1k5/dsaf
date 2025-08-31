@@ -1,27 +1,28 @@
 .dashboard h1 {
-    margin-bottom: 40px;
+    margin-bottom: 2rem;
     text-align: center;
 }
 
-.status-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 30px;
-    margin-bottom: 40px;
+.bot-controls-container {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 2rem;
+  align-items: flex-start;
+  margin-bottom: 2rem;
 }
 
 .status-card {
-    background-color: var(--dark-bg-secondary);
-    padding: 20px;
-    border-radius: 10px;
-    border: 1px solid var(--border-color);
+    background-color: #1a202c;
+    padding: 1.5rem;
+    border-radius: 8px;
+    border: 1px solid #2d3748;
     text-align: center;
 }
 
 .status-card h3 {
     margin-top: 0;
     margin-bottom: 15px;
-    color: var(--primary-glow);
+    color: #00aeff;
 }
 
 .status-pill {
@@ -33,28 +34,28 @@
     letter-spacing: 1px;
 }
 
-.status-stopped {
+.status-stopped, .status-loading {
     background-color: #555;
     color: #fff;
 }
 
-.status-demo {
+.status-demo, .status-running {
     background-color: #2a7a7a;
     color: #fff;
     box-shadow: 0 0 8px #3ae8e8;
 }
 
-.status-real {
+.status-real, .status-error {
     background-color: #9a2a2a;
     color: #fff;
     box-shadow: 0 0 8px #ff4a4a;
 }
 
 .balance-widget {
-    background-color: var(--dark-bg-secondary);
+    background-color: #1a202c;
     padding: 20px;
     border-radius: 10px;
-    border: 1px solid var(--border-color);
+    border: 1px solid #2d3748;
 }
 
 .balance-widget h2 {
@@ -70,7 +71,7 @@
     display: flex;
     justify-content: space-between;
     padding: 10px 0;
-    border-bottom: 1px solid var(--border-color);
+    border-bottom: 1px solid #2d3748;
 }
 
 .balance-widget li:last-child {
@@ -79,7 +80,7 @@
 
 .balance-widget .currency {
     font-weight: bold;
-    color: var(--primary-glow);
+    color: #00aeff;
 }
 
 .error-message {

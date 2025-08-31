@@ -1,6 +1,7 @@
 import time
 import pandas as pd
 import random
+import json
 from src.core.bot_state import bot_state
 from src.core.market_analyzer import get_market_state
 from src.core.bot_controller import start_bot_loop, stop_bot_loop
@@ -10,78 +11,25 @@ from src.ml.predictor import Predictor
 from src.ml.feature_generator import create_features
 from src.core.sentiment_analyzer import SentimentAnalyzer
 
-# --- Strategy Mapping ---
-# Each market state maps to a list of suitable strategies.
+# --- Strategy Mapping & Parameter Loading ---
+STRATEGY_PARAMS_FILE = 'strategy_params.json'
+
+# Each market state maps to a list of suitable strategy names.
+# The parameters are now loaded from a separate JSON file.
 STRATEGY_MAP = {
-    "Trending": [
-        {
-            "name": "macd",
-            "params": {
-                "fast_period": settings.INDICATORS.MACD_FAST,
-                "slow_period": settings.INDICATORS.MACD_SLOW,
-                "signal_period": settings.INDICATORS.MACD_SIGNAL,
-            }
-        },
-        {
-            "name": "parabolic_sar",
-            "params": {
-                "acceleration": settings.INDICATORS.PSAR_ACCELERATION,
-                "maximum": settings.INDICATORS.PSAR_MAXIMUM,
-            }
-        },
-        {
-            "name": "ichimoku",
-            "params": {
-                "tenkan_period": settings.INDICATORS.IC_TENKAN,
-                "kijun_period": settings.INDICATORS.IC_KIJUN,
-                "senkou_b_period": settings.INDICATORS.IC_SENKOU_B,
-            }
-        }
-    ],
-    "Ranging": [
-        {
-            "name": "rsi",
-            "params": {
-                "rsi_period": settings.INDICATORS.RSI_PERIOD,
-                "oversold_threshold": 30,
-                "overbought_threshold": 70,
-            }
-        },
-        {
-            "name": "stochastic",
-            "params": {
-                "k_period": settings.INDICATORS.STOCH_K_PERIOD,
-                "d_period": settings.INDICATORS.STOCH_D_PERIOD,
-                "oversold_threshold": 20,
-                "overbought_threshold": 80,
-            }
-        }
-    ],
-    "Weak Trend": [
-        {
-            "name": "sma_crossover",
-            "params": {
-                "short_window": settings.INDICATORS.SMA_PERIOD,
-                "long_window": settings.INDICATORS.SMA_LONG_PERIOD,
-            }
-        },
-        {
-            "name": "awesome_oscillator",
-            "params": {
-                "fast_period": settings.INDICATORS.AO_FAST_PERIOD,
-                "slow_period": settings.INDICATORS.AO_SLOW_PERIOD,
-            }
-        },
-        {
-            "name": "keltner_channels",
-            "params": {
-                "length": settings.INDICATORS.KC_LENGTH,
-                "multiplier": settings.INDICATORS.KC_MULTIPLIER,
-                "atr_length": settings.INDICATORS.KC_ATR_LENGTH,
-            }
-        }
-    ]
+    "Trending": ["macd", "parabolic_sar", "ichimoku"],
+    "Ranging": ["rsi", "stochastic", "bollinger_bands"],
+    "Weak Trend": ["sma_crossover", "awesome_oscillator", "keltner_channels"]
 }
+
+def load_strategy_params():
+    """Loads strategy parameters from the JSON file."""
+    try:
+        with open(STRATEGY_PARAMS_FILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"Error loading strategy params: {e}. Returning empty dict.")
+        return {}
 
 def master_trading_loop():
     """
@@ -108,8 +56,19 @@ def master_trading_loop():
         try:
             print(f"({time.ctime()}) --- Master Controller Cycle ---")
 
+            # Load the latest strategy parameters at the start of each cycle
+            strategy_params = load_strategy_params()
+
+            # Randomly select a symbol to analyze for this cycle
+            if not settings.SYMBOLS:
+                print("No symbols configured. Skipping cycle.")
+                bot_state.master_bot_stop_event.wait(timeout=check_interval_seconds)
+                continue
+
+            symbol = random.choice(settings.SYMBOLS)
+            print(f"--- Analyzing selected symbol: {symbol} ---")
+
             # 1. Fetch Data
-            symbol = settings.SYMBOLS[0]
             timeframe = '1h'
             candles_list = collector.fetch_candles(symbol, timeframe, limit=500) # Fetch more data for feature generation
             if not candles_list or len(candles_list) < 50:
@@ -139,37 +98,43 @@ def master_trading_loop():
                 if bot_state.signal_bot_mode != "stopped": stop_bot_loop()
                 continue
 
-            preferred_strategies = STRATEGY_MAP.get(market_state, [])
-            if not preferred_strategies:
+            preferred_strategy_names = STRATEGY_MAP.get(market_state, [])
+            if not preferred_strategy_names:
                 if bot_state.signal_bot_mode != "stopped": stop_bot_loop()
                 continue
 
             # Filter strategies based on their active status
-            runnable_strategies = [s for s in preferred_strategies if bot_state.active_strategies.get(s['name'], False)]
-            print(f"Found {len(preferred_strategies)} preferred strategies for {market_state}. After filtering, {len(runnable_strategies)} are active.")
+            runnable_strategy_names = [name for name in preferred_strategy_names if bot_state.active_strategies.get(name, False)]
+            print(f"Found {len(preferred_strategy_names)} preferred strategies for {market_state}. After filtering, {len(runnable_strategy_names)} are active.")
 
-            if not runnable_strategies:
+            if not runnable_strategy_names:
                 print("No active strategies available for the current market state. Stopping bot if running.")
                 if bot_state.signal_bot_mode != "stopped": stop_bot_loop()
                 continue
 
             # 4. Check Current Bot and Switch if Necessary
             current_strategy_name = getattr(bot_state, 'signal_bot_strategy_name', None)
-            is_current_strategy_suitable = any(s['name'] == current_strategy_name for s in runnable_strategies)
+            is_current_strategy_suitable = current_strategy_name in runnable_strategy_names
 
             if not is_current_strategy_suitable:
-                new_strategy = random.choice(runnable_strategies)
-                print(f"Switching strategy! Current: '{current_strategy_name}', New Choice: '{new_strategy['name']}'")
+                new_strategy_name = random.choice(runnable_strategy_names)
+                new_strategy_params = strategy_params.get(new_strategy_name)
+
+                if not new_strategy_params:
+                    print(f"Warning: Parameters for '{new_strategy_name}' not found in JSON file. Skipping.")
+                    continue
+
+                print(f"Switching strategy! Current: '{current_strategy_name}', New Choice: '{new_strategy_name}'")
 
                 if bot_state.signal_bot_mode != "stopped":
                     stop_bot_loop()
                     time.sleep(10)
 
-                print(f"Starting new signal bot with strategy: {new_strategy['name']}...")
+                print(f"Starting new signal bot with strategy: {new_strategy_name}...")
                 start_bot_loop(
                     mode='demo',
-                    strategy_name=new_strategy["name"],
-                    strategy_params=new_strategy["params"]
+                    strategy_name=new_strategy_name,
+                    strategy_params=new_strategy_params
                 )
             else:
                 print(f"Current strategy '{current_strategy_name}' is suitable for {market_state}. No change needed.")
