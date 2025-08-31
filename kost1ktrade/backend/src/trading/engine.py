@@ -53,7 +53,7 @@ class TradingEngine:
         except ccxt.errors.BaseError as e:
             print(f"An error occurred while fetching balance: {e}")
             return None
-
+            
     def create_order(self, symbol: str, order_type: str, side: str, amount: float, price: float = None):
         """
         Creates a new order on the exchange.
@@ -89,6 +89,7 @@ class TradingEngine:
              print(f"Error: Order not found after creation (may have been filled instantly). {e}")
         except ccxt.ExchangeError as e:
             print(f"An exchange error occurred while creating order: {e}")
+        
         return None
 
     def cancel_order(self, order_id: str, symbol: str):
@@ -107,6 +108,7 @@ class TradingEngine:
             print(f"Error: Order {order_id} not found, it may have already been filled or cancelled.")
         except ccxt.ExchangeError as e:
             print(f"An exchange error occurred while cancelling order: {e}")
+        
         return False
 
     def fetch_open_orders(self, symbol: str) -> list:
@@ -134,7 +136,7 @@ class TradingEngine:
             return True
         except ccxt.ExchangeError as e:
             print(f"An exchange error occurred while cancelling all orders: {e}")
-        return False
+            return False
 
     def fetch_ticker(self, symbol: str) -> dict:
         """
