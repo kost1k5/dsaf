@@ -29,7 +29,7 @@ class TradingEngine:
                 'password': keys.PASSPHRASE,
                 'options': {
                     'defaultType': 'spot',
-                    'tdMode': 'cash',
+                    'tdMode': 'cross',
                 },
             })
 
@@ -88,7 +88,7 @@ class TradingEngine:
         """
         try:
             print(f"Creating {side} {order_type} order for {amount} {symbol}...")
-            params = {'tdMode': 'cash'}
+            params = {'tdMode': 'cross'}
             order = self.exchange.create_order(symbol, order_type, side, amount, price, params)
             print("Order created successfully:")
             print(order)
