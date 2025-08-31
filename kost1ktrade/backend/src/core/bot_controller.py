@@ -55,7 +55,7 @@ def signal_trading_loop():
                 latest_signal = result_df.iloc[-1]['signal']
                 print(f"Strategy: {strategy.__class__.__name__} | Signal: {latest_signal}")
 
-                base_currency, quote_currency = symbol.split('/')
+                base_currency, quote_currency = symbol.split('-')
                 if latest_signal == 'BUY':
                     balance = engine.get_balance()
                     quote_balance = balance.get(quote_currency, 0)

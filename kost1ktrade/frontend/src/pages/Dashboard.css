@@ -83,6 +83,39 @@
     color: #00aeff;
 }
 
+.optimizer-widget {
+    background-color: #2a2a3e;
+    padding: 20px;
+    border-radius: 8px;
+    margin-top: 20px;
+}
+
+.optimizer-widget h3 {
+    margin-top: 0;
+    color: #f0f0f0;
+}
+
+.optimizer-widget form {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.optimizer-widget textarea {
+    min-height: 80px;
+    background-color: #1c1c2b;
+    color: #f0f0f0;
+    border: 1px solid #444;
+    border-radius: 4px;
+}
+
+.optimizer-results {
+    margin-top: 20px;
+    background-color: #1c1c2b;
+    padding: 15px;
+    border-radius: 4px;
+}
+
 .error-message {
     color: #ff4a4a;
     background-color: rgba(255, 74, 74, 0.1);
