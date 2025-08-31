@@ -1,5 +1,6 @@
 import ccxt
 import datetime
+import time
 from typing import List
 
 from sqlalchemy.orm import Session
@@ -44,8 +45,53 @@ class DataCollector:
         print(f"Fetching {limit} candles for {symbol} on timeframe {timeframe}...")
         # CCXT returns data in a list of lists format: [timestamp, open, high, low, close, volume]
         ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, since, limit)
-        print(f"Fetched {len(ohlcv)} candles.")
+        # print(f"Fetched {len(ohlcv)} candles.") # This becomes too verbose in a loop
         return ohlcv
+
+    def fetch_candles_in_range(self, symbol: str, timeframe: str, since: int, end: int) -> List[list]:
+        """
+        Fetches all historical OHLCV data for a given symbol in a specific date range.
+        It handles pagination by repeatedly calling fetch_candles.
+        :param symbol: The trading symbol.
+        :param timeframe: The timeframe for the candles.
+        :param since: The starting time in milliseconds since the epoch.
+        :param end: The ending time in milliseconds since the epoch.
+        :return: A list of all OHLCV candles in the range.
+        """
+        all_candles = []
+        current_since = since
+        timeframe_duration_ms = self.exchange.parse_timeframe(timeframe) * 1000
+        print(f"Fetching all candles for {symbol} from {datetime.datetime.fromtimestamp(since/1000)} to {datetime.datetime.fromtimestamp(end/1000)}")
+
+        while current_since < end:
+            try:
+                candles = self.fetch_candles(symbol, timeframe, current_since, limit=1000)
+                if not candles:
+                    print("No more candles returned from exchange. Stopping.")
+                    break
+
+                all_candles.extend(candles)
+                last_timestamp = candles[-1][0]
+                print(f"  Fetched {len(candles)} candles, up to {datetime.datetime.fromtimestamp(last_timestamp/1000)}")
+
+                # Check if we are stuck in a loop
+                if last_timestamp >= current_since:
+                    current_since = last_timestamp + timeframe_duration_ms
+                else:
+                    print("Timestamp did not advance. Breaking loop.")
+                    break
+
+                # Be polite to the API
+                time.sleep(self.exchange.rateLimit / 1000)
+
+            except Exception as e:
+                print(f"An error occurred while fetching a chunk of data: {e}")
+                break
+
+        # Filter out any candles that might be outside the end date
+        final_candles = [c for c in all_candles if c[0] <= end]
+        print(f"Total candles fetched: {len(final_candles)}")
+        return final_candles
 
     def save_candles_to_db(self, candles: List[list], symbol: str, interval: str):
         """

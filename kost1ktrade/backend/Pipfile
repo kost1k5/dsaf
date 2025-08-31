@@ -17,7 +17,7 @@ lightgbm = "*"
 scikit-learn = "*"
 textblob = "*"
 numpy = "*"
-pandas-ta = "*"
+pandas-ta-openbb = "*"
 requests = "*"
 
 [dev-packages]
