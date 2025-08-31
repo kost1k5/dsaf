@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, APIRouter
 from pydantic import BaseModel
 from typing import Literal, Dict, Any
 
@@ -14,8 +14,9 @@ from src.data_collector.collector import DataCollector
 import pandas as pd
 
 app = FastAPI(title="Kost1kTrade API")
+router = APIRouter()
 
-@app.get("/balance", tags=["Account"])
+@router.get("/balance", tags=["Account"])
 async def get_balance():
     """
     Fetches the current account balance from the active engine.
@@ -37,7 +38,7 @@ class SignalBotStartRequest(BaseModel):
     strategy_name: str
     strategy_params: Dict[str, Any]
 
-@app.post("/signal-bot/start", tags=["Signal Bot Control"])
+@router.post("/signal-bot/start", tags=["Signal Bot Control"])
 async def start_signal_bot(request: SignalBotStartRequest, background_tasks: BackgroundTasks):
     """
     Starts the signal-based trading bot with a specific strategy and parameters.
@@ -56,7 +57,7 @@ async def start_signal_bot(request: SignalBotStartRequest, background_tasks: Bac
     except (ValueError, ConnectionError, TypeError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/signal-bot/stop", tags=["Signal Bot Control"])
+@router.post("/signal-bot/stop", tags=["Signal Bot Control"])
 async def stop_signal_bot():
     """
     Stops the signal-based trading bot if it is running.
@@ -67,7 +68,7 @@ async def stop_signal_bot():
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/signal-bot/status", tags=["Signal Bot Control"])
+@router.get("/signal-bot/status", tags=["Signal Bot Control"])
 async def get_signal_bot_status():
     """
     Returns the current status of the signal-based bot.
@@ -87,7 +88,7 @@ class GridBotStartRequest(BaseModel):
     grid_range_high: float
     num_grids: int
 
-@app.post("/grid-bot/start", tags=["Grid Bot Control"])
+@router.post("/grid-bot/start", tags=["Grid Bot Control"])
 async def start_grid_bot_endpoint(request: GridBotStartRequest, background_tasks: BackgroundTasks):
     """
     Starts the grid trading bot with the specified configuration.
@@ -111,7 +112,7 @@ async def start_grid_bot_endpoint(request: GridBotStartRequest, background_tasks
     except (ValueError, ConnectionError) as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/grid-bot/stop", tags=["Grid Bot Control"])
+@router.post("/grid-bot/stop", tags=["Grid Bot Control"])
 async def stop_grid_bot_endpoint():
     """
     Stops the grid trading bot.
@@ -122,7 +123,7 @@ async def stop_grid_bot_endpoint():
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/grid-bot/status", tags=["Grid Bot Control"])
+@router.get("/grid-bot/status", tags=["Grid Bot Control"])
 async def get_grid_bot_status():
     """
     Returns the current status of the grid bot.
@@ -132,7 +133,7 @@ async def get_grid_bot_status():
 
 # --- Master Bot Control ---
 
-@app.post("/master-bot/start", tags=["Master Bot Control"])
+@router.post("/master-bot/start", tags=["Master Bot Control"])
 async def start_master_bot_endpoint(background_tasks: BackgroundTasks):
     """
     Starts the autonomous Master Controller.
@@ -145,7 +146,7 @@ async def start_master_bot_endpoint(background_tasks: BackgroundTasks):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.post("/master-bot/stop", tags=["Master Bot Control"])
+@router.post("/master-bot/stop", tags=["Master Bot Control"])
 async def stop_master_bot_endpoint():
     """
     Stops the autonomous Master Controller and any active signal bot.
@@ -156,7 +157,7 @@ async def stop_master_bot_endpoint():
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@app.get("/master-bot/status", tags=["Master Bot Control"])
+@router.get("/master-bot/status", tags=["Master Bot Control"])
 async def get_master_bot_status():
     """
     Returns the current status of the Master Controller.
@@ -170,14 +171,14 @@ async def get_master_bot_status():
 
 # --- Health Check ---
 
-@app.get("/health", tags=["Monitoring"])
+@router.get("/health", tags=["Monitoring"])
 def health_check():
     """Check if the API is running."""
     return {"status": "ok"}
 
 # --- Strategies ---
 
-@app.get("/strategies", tags=["Strategies"])
+@router.get("/strategies", tags=["Strategies"])
 async def get_available_strategies():
     """
     Returns a list of available signal-based strategies and their default parameters.
@@ -210,7 +211,7 @@ class SimulationRunRequest(BaseModel):
     end_date: str
     strategies: List[StrategyConfigRequest]
 
-@app.post("/simulation/run", tags=["Simulation"])
+@router.post("/simulation/run", tags=["Simulation"])
 async def run_simulation(request: SimulationRunRequest):
     """
     Runs a backtest simulation for a list of strategies.
@@ -272,3 +273,5 @@ async def run_simulation(request: SimulationRunRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"An error occurred during simulation: {str(e)}")
+
+app.include_router(router, prefix="/api")
