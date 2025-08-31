@@ -1,11 +1,44 @@
 {
-    "rsi": {"rsi_period": 14, "oversold_threshold": 30, "overbought_threshold": 70},
-    "sma_crossover": {"short_window": 20, "long_window": 100},
-    "macd": {"fast_period": 12, "slow_period": 26, "signal_period": 9},
-    "stochastic": {"k_period": 14, "d_period": 3, "oversold_threshold": 20, "overbought_threshold": 80},
-    "awesome_oscillator": {"fast_period": 5, "slow_period": 34},
-    "parabolic_sar": {"acceleration": 0.02, "maximum": 0.2},
-    "keltner_channels": {"length": 20, "multiplier": 2.0, "atr_length": 14},
-    "ichimoku": {"tenkan_period": 9, "kijun_period": 26, "senkou_b_period": 52},
-    "bollinger_bands": {"bb_period": 20, "bb_std_dev": 2}
+    "rsi": {
+        "rsi_period": 14,
+        "oversold_threshold": 30,
+        "overbought_threshold": 70
+    },
+    "sma_crossover": {
+        "short_window": 20,
+        "long_window": 100
+    },
+    "macd": {
+        "fast_period": 12,
+        "slow_period": 26,
+        "signal_period": 9
+    },
+    "stochastic": {
+        "k_period": 14,
+        "d_period": 3,
+        "oversold_threshold": 20,
+        "overbought_threshold": 80
+    },
+    "awesome_oscillator": {
+        "fast_period": 5,
+        "slow_period": 34
+    },
+    "parabolic_sar": {
+        "acceleration": 0.02,
+        "maximum": 0.2
+    },
+    "keltner_channels": {
+        "length": 20,
+        "multiplier": 2,
+        "atr_length": 14
+    },
+    "ichimoku": {
+        "tenkan_period": 9,
+        "kijun_period": 26,
+        "senkou_b_period": 52
+    },
+    "bollinger_bands": {
+        "bb_period": 20,
+        "bb_std_dev": 2
+    }
 }
