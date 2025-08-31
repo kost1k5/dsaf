@@ -25,8 +25,22 @@ const MasterBotControls = () => {
                 axios.get('/api/master-bot/status'),
                 axios.get('/api/signal-bot/status')
             ]);
-            setMasterStatus(masterRes.data);
-            setSignalStatus(signalRes.data);
+
+            // Add defensive checks to ensure API response is valid before setting state
+            if (masterRes.data && typeof masterRes.data.master_mode !== 'undefined') {
+                setMasterStatus(masterRes.data);
+            } else {
+                console.error("Invalid master bot status response:", masterRes.data);
+                throw new Error("Invalid master bot status response from API.");
+            }
+
+            if (signalRes.data && typeof signalRes.data.mode !== 'undefined') {
+                setSignalStatus(signalRes.data);
+            } else {
+                console.error("Invalid signal bot status response:", signalRes.data);
+                throw new Error("Invalid signal bot status response from API.");
+            }
+
         } catch (error) {
             console.error("Failed to fetch bot statuses", error);
             setMasterStatus({ master_mode: 'error' });
