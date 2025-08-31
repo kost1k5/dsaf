@@ -18,16 +18,16 @@ class Backtester:
         # Ensure signal column exists and fill NaNs
         if 'signal' not in df.columns:
             raise ValueError("The 'signal' column is missing from the strategy output.")
-        df['signal'].fillna('HOLD', inplace=True)
+        df['signal'] = df['signal'].fillna('HOLD')
 
         balance = self.initial_balance
         position = 0.0  # Represents the amount of the base asset held
         equity_curve = [self.initial_balance]
         trades = []
 
-        for i in range(1, len(df)):
-            signal = df.at[i, 'signal']
-            close_price = df.at[i, 'close']
+        for i, row in df.iterrows():
+            signal = row['signal']
+            close_price = row['close']
 
             # --- Trade Execution Logic ---
             if signal == 'BUY' and balance > 10: # If we have quote currency to buy

@@ -111,6 +111,9 @@ class TradingEngine:
              print(f"Error: Order not found after creation (may have been filled instantly). {e}")
         except ccxt.ExchangeError as e:
             print(f"An exchange error occurred while creating order: {e}")
+            # Log the full error response from the exchange if available
+            if hasattr(e, 'info'):
+                print(f"Exchange response: {e.info}")
         
         return None
 
