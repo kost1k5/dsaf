@@ -10,8 +10,8 @@ module.exports = {
     },
     {
       name: 'kost1ktrade-frontend',
-      script: 'npm',
-      args: 'run dev',
+      script: 'npx',
+      args: 'vite',
       cwd: './kost1ktrade/frontend',
       watch: false,
       interpreter: 'none',

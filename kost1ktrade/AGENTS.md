@@ -51,6 +51,19 @@ This document outlines the grand strategic vision for the trading bot. It is div
     - **1. Implement Backend for Simulation Deck:** Create a new `Backtester` module and a `POST /api/simulation/run` endpoint that can simultaneously backtest up to 10 strategies and return detailed performance reports.
     - **2. Expand Strategy Library:** Implement 5 new strategies (Stochastic, Awesome Oscillator, Parabolic SAR, Keltner Channels, Ichimoku Cloud) to provide a diverse set of "research probes".
 
+### **Phase 2: The "Advanced Arsenal" - AI & News Integration**
+- **Goal:** Enhance the bot's intelligence by integrating Machine Learning predictions and real-time news sentiment.
+- **Key Features:**
+    - **1. Implement ML Backend:**
+        - Add `lightgbm` and `scikit-learn` as dependencies.
+        - Create a feature engineering module to prepare data.
+        - Create a script to train a LightGBM model to predict short-term price movements and save the artifact.
+        - Build a prediction service to serve forecasts from the trained model.
+    - **2. Implement News Sentiment Analysis:**
+        - Add `textblob` as a dependency.
+        - Create a module to fetch news via the News API and calculate a sentiment score.
+    - **3. Integrate into Master Controller:** Upgrade the Master Controller's logic to use the ML forecast and news sentiment as additional filters for making trading decisions.
+
 ---
 
 ### **Frontend Vision: The Nebula Command Bridge**

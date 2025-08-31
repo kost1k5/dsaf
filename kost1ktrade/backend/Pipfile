@@ -12,9 +12,11 @@ pydantic = "*"
 pydantic-settings = "*"
 ccxt = "*"
 pandas = "*"
-numpy = "*"
 "python-telegram-bot[job-queue]" = "*"
-pandas-ta = "*"
+lightgbm = "*"
+scikit-learn = "*"
+textblob = "*"
+numpy = "*"
 
 [dev-packages]
 
