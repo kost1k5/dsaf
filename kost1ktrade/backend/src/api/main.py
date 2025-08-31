@@ -169,6 +169,30 @@ async def get_master_bot_status():
         "adx_value": getattr(bot_state, 'adx_value', None)
     }
 
+# --- Master Bot Settings ---
+
+class MasterBotSettings(BaseModel):
+    target_mode: Literal['demo', 'real']
+
+@router.get("/master-bot/settings", tags=["Master Bot Control"])
+async def get_master_bot_settings():
+    """
+    Returns the current target mode for the Master Controller.
+    """
+    return {"target_mode": bot_state.master_bot_target_mode}
+
+@router.post("/master-bot/settings", tags=["Master Bot Control"])
+async def set_master_bot_settings(settings: MasterBotSettings):
+    """
+    Sets the target mode for the Master Controller.
+    This can only be done when the bot is stopped.
+    """
+    if bot_state.master_bot_mode != 'stopped':
+        raise HTTPException(status_code=400, detail="Cannot change settings while the Master Bot is running.")
+
+    bot_state.master_bot_target_mode = settings.target_mode
+    return {"message": f"Master Bot target mode set to {settings.target_mode}"}
+
 
 # --- Health Check ---
 
