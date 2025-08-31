@@ -6,7 +6,8 @@ module.exports = {
       args: 'run uvicorn src.api.main:app --host 0.0.0.0 --port 8000',
       cwd: './kost1ktrade/backend',
       watch: false,
-      interpreter: 'none', // Important for running non-node scripts
+      interpreter: 'none',
+      windowsHide: true,
     },
     {
       name: 'kost1ktrade-frontend',
@@ -15,6 +16,7 @@ module.exports = {
       cwd: './kost1ktrade/frontend',
       watch: false,
       interpreter: 'node',
+      windowsHide: true,
     },
   ],
 };
