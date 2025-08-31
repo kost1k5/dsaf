@@ -27,6 +27,10 @@ class TradingEngine:
                 'apiKey': keys.API_KEY,
                 'secret': keys.SECRET_KEY,
                 'password': keys.PASSPHRASE,
+                'options': {
+                    'defaultType': 'spot',
+                    'tdMode': 'cash',
+                },
             })
 
             if self.mode == 'demo':

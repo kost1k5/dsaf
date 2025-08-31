@@ -92,7 +92,7 @@ class Backtester:
                             gross_loss += abs(profit)
                         break # Move to the next BUY trade
 
-        profit_factor = gross_profit / gross_loss if gross_loss > 0 else float('inf')
+        profit_factor = gross_profit / gross_loss if gross_loss > 0 else 9999.0 # Use a large number for infinity
         total_buy_trades = len([t for t in trades if t['type'] == 'BUY'])
         win_rate_pct = (wins / total_buy_trades) * 100 if total_buy_trades > 0 else 0
 
