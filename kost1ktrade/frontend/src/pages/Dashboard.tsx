@@ -25,7 +25,13 @@ const Dashboard = () => {
         // The master bot component will also trigger balance fetching if it's active.
         if (gridStatus !== 'stopped') {
           const balanceRes = await axios.get('/api/balance');
-          setBalances(balanceRes.data);
+          // The balance response is a complex object. We want the 'total' part.
+          if (balanceRes.data && balanceRes.data.total) {
+            setBalances(balanceRes.data.total);
+          } else {
+            console.error("Invalid balance response structure:", balanceRes.data);
+            setBalances(null);
+          }
         } else {
           setBalances(null);
         }
