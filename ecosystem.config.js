@@ -10,11 +10,11 @@ module.exports = {
     },
     {
       name: 'kost1ktrade-frontend',
-      script: 'npx',
-      args: 'vite',
+      script: './node_modules/vite/bin/vite.js',
+      args: 'dev',
       cwd: './kost1ktrade/frontend',
       watch: false,
-      interpreter: 'none',
+      interpreter: 'node',
     },
   ],
 };
