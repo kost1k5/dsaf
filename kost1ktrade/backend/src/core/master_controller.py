@@ -68,11 +68,17 @@ def master_trading_loop():
             symbol = random.choice(settings.SYMBOLS)
             print(f"--- Analyzing selected symbol: {symbol} ---")
 
-            # 1. Fetch Data
-            timeframe = '1h'
-            candles_list = collector.fetch_candles(symbol, timeframe, limit=500) # Fetch more data for feature generation
-            if not candles_list or len(candles_list) < 50:
-                raise ValueError("Not enough data fetched for analysis.")
+            try:
+                # 1. Fetch Data
+                timeframe = '1h'
+                candles_list = collector.fetch_candles(symbol, timeframe, limit=500) # Fetch more data for feature generation
+                if not candles_list or len(candles_list) < 50:
+                    raise ValueError("Not enough data fetched for analysis.")
+            except Exception as e:
+                print(f"ERROR: Could not fetch or process data for symbol '{symbol}'. Reason: {e}")
+                print("Skipping to the next cycle.")
+                bot_state.master_bot_stop_event.wait(timeout=10) # Short wait before next cycle
+                continue
 
             candles_df = pd.DataFrame(candles_list, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
             candles_df['open_time'] = pd.to_datetime(candles_df['open_time'], unit='ms')
