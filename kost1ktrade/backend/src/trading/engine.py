@@ -95,13 +95,17 @@ class TradingEngine:
 
             # Send notification
             side_emoji = "📈" if side == 'buy' else "📉"
+            price_info = order.get('price') or order.get('average')
+            price_str = f"${price_info:.2f}" if price_info is not None else "N/A"
+            amount_str = f"{order.get('amount', 'N/A')}"
+
             message = (
                 f"{side_emoji} *New Trade Executed ({self.mode.upper()})*\n\n"
                 f"**Symbol:** `{symbol}`\n"
                 f"**Side:** `{side.upper()}`\n"
                 f"**Type:** `{order_type.upper()}`\n"
-                f"**Amount:** `{order['amount']}`\n"
-                f"**Price:** `${order['price'] if order['price'] else order['average']:.2f}`"
+                f"**Amount:** `{amount_str}`\n"
+                f"**Price:** `{price_str}`"
             )
             asyncio.run(send_telegram_notification(message))
 

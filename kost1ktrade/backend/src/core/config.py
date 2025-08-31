@@ -102,6 +102,7 @@ class Settings(BaseSettings):
 
     OKX_WS_URL: str = "wss://ws.okx.com:8443/ws/v5/public"
     MAX_CANDLES: int = 5000
+    TIMEFRAME: str = "1h"
 
     # --- Backtest Settings ---
     BACKTEST: RiskManagementSettings = Field(default_factory=RiskManagementSettings)

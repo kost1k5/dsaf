@@ -137,7 +137,7 @@ const StrategyManager = () => {
                     <div className="params-form">
                       {Object.entries(info.params).map(([param, value]) => (
                         <div className="param-input-group" key={param}>
-                          <label>{toTitleCase(param)}</label>
+                          <label>{param === 'amount_per_grid' ? 'Amount per Grid (USDT)' : toTitleCase(param)}</label>
                           <input
                             type={typeof value === 'string' ? 'text' : 'number'}
                             value={value}

@@ -70,8 +70,7 @@ def master_trading_loop():
             
             try:
                 # 1. Fetch Data
-                timeframe = '1h'
-                candles_list = collector.fetch_candles(symbol, timeframe, limit=500) # Fetch more data for feature generation
+                candles_list = collector.fetch_candles(symbol, settings.TIMEFRAME, limit=500) # Fetch more data for feature generation
                 if not candles_list or len(candles_list) < 50:
                     raise ValueError("Not enough data fetched for analysis.")
             except Exception as e:

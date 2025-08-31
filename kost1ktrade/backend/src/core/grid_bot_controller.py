@@ -58,11 +58,18 @@ def grid_trading_loop():
                 # Place missing orders
                 for price in required_buy_prices:
                     if price not in open_order_prices:
-                        engine.create_order(symbol, 'limit', 'buy', amount_per_grid, price)
+                        # Calculate amount in base currency from the quote currency amount
+                        amount_to_buy = amount_per_grid / price
+                        engine.create_order(symbol, 'limit', 'buy', amount_to_buy, price)
 
                 for price in required_sell_prices:
                     if price not in open_order_prices:
-                        engine.create_order(symbol, 'limit', 'sell', amount_per_grid, price)
+                        # For selling, the amount is in the base currency, which we don't track per-grid level.
+                        # This assumes we sell a fixed amount of base currency, which needs re-evaluation.
+                        # For now, we will assume amount_per_grid for selling is also in quote currency for simplicity,
+                        # which means we need to calculate the base amount to sell.
+                        amount_to_sell = amount_per_grid / price
+                        engine.create_order(symbol, 'limit', 'sell', amount_to_sell, price)
 
                 print("Grid reconciliation cycle complete.")
                 bot_state.grid_bot_stop_event.wait(timeout=30)
