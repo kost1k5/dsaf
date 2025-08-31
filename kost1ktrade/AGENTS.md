@@ -41,6 +41,45 @@ This document provides instructions for developing the Kost1kTrade project.
 
 ---
 
+## Recent Architectural Updates (August 2025)
+
+This section details significant changes and improvements made to the backend architecture. Future agents should be aware of these systems.
+
+### 1. Strategy Activation Bug Fix
+- **Problem:** The `MasterController` was not activating signal-based strategies because of a bug in the `/api/strategies/status` endpoint. The endpoint only updated the status of strategies already present in the `bot_state.active_strategies` dictionary, which was empty on startup.
+- **Solution:**
+    - The check in the API endpoint was removed.
+    - The `BotState` class was refactored to dynamically load all strategies from `strategy_params.json` on startup, making the system more robust.
+
+### 2. Machine Learning Pipeline Overhaul
+The entire ML pipeline has been upgraded for flexibility, power, and efficiency.
+
+#### **Data Caching System**
+- **File:** `src/data_collector/data_cacher.py`
+- **Functionality:** A `DataCacher` class now manages historical data. It uses a local SQLite database (`data/historical_data.db`) to cache candle data.
+- **Workflow:** When data is requested (e.g., by the training script), the cacher first pulls available data from the local database and then fetches only the newer, missing data from the exchange. This makes fetching large datasets (e.g., 2 years) very efficient after the initial download.
+- **Key Method:** `fetch_and_cache_data()` orchestrates this process.
+
+#### **Flexible and Advanced Model Training**
+- **File:** `scripts/train_model.py`
+- **Usage:** The script is now highly configurable via command-line arguments:
+  ```bash
+  # Run training with default 2 years of BTC/USDT data
+  pipenv run python scripts/train_model.py
+
+  # Run training for ETH/USDT for a specific period
+  pipenv run python scripts/train_model.py --symbol "ETH/USDT" --start_date "2024-01-01" --end_date "2024-08-31"
+  ```
+- **Features:** The `src/ml/feature_generator.py` module now uses the `pandas-ta-openbb` library to generate a rich set of technical indicators. The manual calculations have been removed.
+- **Validation:** The script uses `TimeSeriesSplit` for cross-validation, which is the correct approach for time-series data.
+- **Tuning:** `RandomizedSearchCV` is used to automatically find the best hyperparameters for the model, improving its accuracy.
+
+### 3. Dependency Update
+- **Package:** `pandas-ta` was found to be incompatible with the current `numpy` version.
+- **Resolution:** It has been replaced with the community-maintained fork `pandas-ta-openbb` in the `Pipfile`. This fork is actively maintained and resolves the dependency issues. The code was updated to use `import pandas_ta as ta` as the fork maintains the original import name.
+
+---
+
 ## Future Roadmap: The "Nebula Command Bridge" Vision
 
 This document outlines the grand strategic vision for the trading bot. It is divided into phases and sectors. Completed items should be removed or marked as complete.
