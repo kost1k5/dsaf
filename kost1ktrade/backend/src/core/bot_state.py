@@ -39,18 +39,12 @@ class BotState:
         self.signal_bot_thread: Optional[threading.Thread] = None
         self.signal_bot_stop_event: threading.Event = threading.Event()
 
-        # State for the grid bot
-        self.grid_bot_mode: str = "stopped"
-        self.grid_bot_engine: Optional['TradingEngine'] = None
-        self.grid_bot_thread: Optional[threading.Thread] = None
-        self.grid_bot_stop_event: threading.Event = threading.Event()
-        self.grid_bot_config: Dict[str, Any] = {
-            "symbol": "ETH/USDT",
-            "grid_range_low": 1800,
-            "grid_range_high": 2200,
-            "num_grids": 10,
-            "amount_per_grid": 50, # This is in quote currency (e.g., USDT)
-        }
+        # State for MULTIPLE grid bots, keyed by symbol
+        self.grid_bot_configs: Dict[str, Dict[str, Any]] = {}
+        self.grid_bot_states: Dict[str, str] = {}  # 'running', 'stopped'
+        self.grid_bot_engines: Dict[str, Optional['TradingEngine']] = {}
+        self.grid_bot_threads: Dict[str, Optional[threading.Thread]] = {}
+        self.grid_bot_stop_events: Dict[str, threading.Event] = {}
 
         # State for the master controller
         self.master_bot_mode: str = "stopped"
