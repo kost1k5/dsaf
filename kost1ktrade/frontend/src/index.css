@@ -14,7 +14,6 @@ body {
   color: var(--primary-text);
   background: radial-gradient(ellipse at bottom, #1b2735 0%, #090a0f 100%);
   background-attachment: fixed;
-  overflow: hidden; /* Prevent body scroll */
 }
 
 h1, h2, h3 {
