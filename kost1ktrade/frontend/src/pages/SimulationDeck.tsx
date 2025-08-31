@@ -12,6 +12,11 @@ type SimulationResult = {
     error?: string;
 };
 
+// Helper function to format snake_case to Title Case
+const toTitleCase = (str: string) => {
+    return str.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+};
+
 // Results Table Component
 const ResultsTable = ({ results }: { results: SimulationResult[] }) => {
     if (!results || results.length === 0) {
@@ -26,13 +31,13 @@ const ResultsTable = ({ results }: { results: SimulationResult[] }) => {
             <thead>
                 <tr>
                     <th>Strategy</th>
-                    {headers.map(header => <th key={header}>{header}</th>)}
+                    {headers.map(header => <th key={header}>{toTitleCase(header)}</th>)}
                 </tr>
             </thead>
             <tbody>
                 {results.map((result, index) => (
                     <tr key={index}>
-                        <td>{result.strategy_name}</td>
+                        <td>{toTitleCase(result.strategy_name)}</td>
                         {headers.map(header => (
                             <td key={header}>
                                 {typeof result.metrics[header] === 'number'
@@ -143,7 +148,7 @@ const SimulationDeck = () => {
         if (!selectedStrategy) return null;
         return Object.entries(strategyParams).map(([paramName, paramValue]) => (
             <div className="form-group" key={paramName}>
-                <label htmlFor={paramName}>{paramName.replace(/_/g, ' ')}</label>
+                <label htmlFor={paramName}>{toTitleCase(paramName)}</label>
                 <input
                     type="number"
                     id={paramName}
@@ -186,7 +191,7 @@ const SimulationDeck = () => {
                         <label htmlFor="strategy-select">Strategy</label>
                         <select id="strategy-select" value={selectedStrategy} onChange={handleStrategyChange}>
                             {Object.keys(availableStrategies).map(name => (
-                                <option key={name} value={name}>{name}</option>
+                                <option key={name} value={name}>{toTitleCase(name)}</option>
                             ))}
                         </select>
                     </div>
