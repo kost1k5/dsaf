@@ -50,7 +50,7 @@ class TradingEngine:
                 for currency, data in balance.items()
                 if data['free'] > 0
             }
-        except ccxt.Error as e:
+        except ccxt.errors.BaseError as e:
             print(f"An error occurred while fetching balance: {e}")
             return None
 
@@ -117,7 +117,7 @@ class TradingEngine:
         """
         try:
             return self.exchange.fetch_open_orders(symbol)
-        except ccxt.Error as e:
+        except ccxt.errors.BaseError as e:
             print(f"An error occurred while fetching open orders: {e}")
             return []
 
@@ -144,7 +144,7 @@ class TradingEngine:
         """
         try:
             return self.exchange.fetch_ticker(symbol)
-        except ccxt.Error as e:
+        except ccxt.errors.BaseError as e:
             print(f"An error occurred while fetching ticker for {symbol}: {e}")
             return {}
 
