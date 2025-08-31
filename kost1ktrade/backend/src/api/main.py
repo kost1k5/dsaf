@@ -335,7 +335,12 @@ async def run_simulation(request: SimulationRunRequest):
         for strategy_config in request.strategies:
             try:
                 StrategyClass = get_strategy_class(strategy_config.name)
-                strategy_instance = StrategyClass(**strategy_config.params)
+                params = strategy_config.params.copy()
+                if strategy_config.name == 'grid':
+                    # GridStrategy doesn't take a symbol in its constructor, so remove it if it exists
+                    params.pop('symbol', None)
+
+                strategy_instance = StrategyClass(**params)
 
                 backtester = Backtester(strategy=strategy_instance, candles_df=candles_df.copy())
                 result = backtester.run()
