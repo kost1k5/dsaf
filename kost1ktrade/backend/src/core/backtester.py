@@ -15,6 +15,11 @@ class Backtester:
         """
         df = self.strategy.generate_signals(self.candles_df)
 
+        # Ensure signal column exists and fill NaNs
+        if 'signal' not in df.columns:
+            raise ValueError("The 'signal' column is missing from the strategy output.")
+        df['signal'].fillna('HOLD', inplace=True)
+
         balance = self.initial_balance
         position = 0.0  # Represents the amount of the base asset held
         equity_curve = [self.initial_balance]

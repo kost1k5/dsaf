@@ -18,8 +18,9 @@ def signal_trading_loop():
 
     engine = bot_state.signal_bot_engine
     strategy = bot_state.signal_bot_strategy
-    if not engine or not strategy:
-        print("FATAL in thread: Trading engine or strategy not available in bot_state.")
+    symbol = bot_state.signal_bot_symbol
+    if not engine or not strategy or not symbol:
+        print("FATAL in thread: Trading engine, strategy, or symbol not available in bot_state.")
         bot_state.signal_bot_mode = "stopped"
         return
 
@@ -30,9 +31,7 @@ def signal_trading_loop():
         bot_state.signal_bot_mode = "stopped"
         return
 
-    # TODO: These should be parameterized and passed during bot startup
-    symbol = settings.SYMBOLS[0]
-    timeframe = '1h'
+    timeframe = '1h' # This could also be part of the state if needed
     sleep_duration_seconds = 3600
     # Use a generic candle limit, as strategies have different requirements
     candle_limit = 200
@@ -56,7 +55,7 @@ def signal_trading_loop():
                 latest_signal = result_df.iloc[-1]['signal']
                 print(f"Strategy: {strategy.__class__.__name__} | Signal: {latest_signal}")
 
-                base_currency, quote_currency = symbol.split('-')
+                base_currency, quote_currency = symbol.split('/')
                 if latest_signal == 'BUY':
                     balance = engine.get_balance()
                     quote_balance = balance.get(quote_currency, 0)
@@ -83,7 +82,7 @@ def signal_trading_loop():
         bot_state.signal_bot_strategy_name = None
 
 
-def start_bot_loop(mode: str, strategy_name: str, strategy_params: Dict[str, Any]):
+def start_bot_loop(mode: str, symbol: str, strategy_name: str, strategy_params: Dict[str, Any]):
     """
     Prepares the state for the signal-based bot to be started in a background task.
     """
@@ -103,13 +102,15 @@ def start_bot_loop(mode: str, strategy_name: str, strategy_params: Dict[str, Any
         # Set mode to running only after successful initialization
         bot_state.signal_bot_mode = mode
         bot_state.signal_bot_strategy_name = strategy_name
-        print(f"Signal bot state prepared for '{mode}' mode with strategy '{strategy_name}'.")
+        bot_state.signal_bot_symbol = symbol
+        print(f"Signal bot state prepared for '{mode}' mode with strategy '{strategy_name}' on symbol '{symbol}'.")
     except (ValueError, TypeError, ConnectionError) as e:
         # Reset state on failure
         bot_state.signal_bot_mode = "stopped"
         bot_state.signal_bot_strategy = None
         bot_state.signal_bot_strategy_name = None
         bot_state.signal_bot_engine = None
+        bot_state.signal_bot_symbol = None
         raise e
 
 def stop_bot_loop():

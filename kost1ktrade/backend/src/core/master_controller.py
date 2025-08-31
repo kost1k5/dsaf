@@ -139,6 +139,7 @@ def master_trading_loop():
                 print(f"Starting new signal bot with strategy: {new_strategy_name}...")
                 start_bot_loop(
                     mode=bot_state.master_bot_target_mode,
+                    symbol=symbol,
                     strategy_name=new_strategy_name,
                     strategy_params=new_strategy_params
                 )

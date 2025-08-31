@@ -16,6 +16,7 @@ class BotState:
         self.signal_bot_engine: Optional['TradingEngine'] = None
         self.signal_bot_strategy: Optional['BaseStrategy'] = None
         self.signal_bot_strategy_name: Optional[str] = None
+        self.signal_bot_symbol: Optional[str] = None
         self.signal_bot_thread: Optional[threading.Thread] = None
         self.signal_bot_stop_event: threading.Event = threading.Event()
 
@@ -24,6 +25,13 @@ class BotState:
         self.grid_bot_engine: Optional['TradingEngine'] = None
         self.grid_bot_thread: Optional[threading.Thread] = None
         self.grid_bot_stop_event: threading.Event = threading.Event()
+        self.grid_bot_config: Dict[str, Any] = {
+            "symbol": "ETH/USDT",
+            "grid_range_low": 1800,
+            "grid_range_high": 2200,
+            "num_grids": 10,
+            "amount_per_grid": 50, # This is in quote currency (e.g., USDT)
+        }
 
         # State for the master controller
         self.master_bot_mode: str = "stopped"
