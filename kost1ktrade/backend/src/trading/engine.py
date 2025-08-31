@@ -26,7 +26,11 @@ class TradingEngine:
             self.exchange = exchange_class({
                 'apiKey': keys.API_KEY,
                 'secret': keys.SECRET_KEY,
-                'password': keys.PASSPHRASE, # Passphrase for OKX
+                'password': keys.PASSPHRASE,
+                'options': {
+                    'defaultType': 'spot',
+                    'tdMode': 'cash',  # Set trade mode for spot
+                },
             })
 
             if self.mode == 'demo':
@@ -84,9 +88,7 @@ class TradingEngine:
         """
         try:
             print(f"Creating {side} {order_type} order for {amount} {symbol}...")
-            # OKX requires the tdMode parameter for spot trading
-            params = {'tdMode': 'cash'}
-            order = self.exchange.create_order(symbol, order_type, side, amount, price, params)
+            order = self.exchange.create_order(symbol, order_type, side, amount, price)
             print("Order created successfully:")
             print(order)
 
