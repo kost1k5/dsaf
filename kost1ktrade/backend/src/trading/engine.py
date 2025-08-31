@@ -27,10 +27,6 @@ class TradingEngine:
                 'apiKey': keys.API_KEY,
                 'secret': keys.SECRET_KEY,
                 'password': keys.PASSPHRASE,
-                'options': {
-                    'defaultType': 'spot',
-                    'tdMode': 'cross',
-                },
             })
 
             if self.mode == 'demo':
@@ -87,7 +83,7 @@ class TradingEngine:
         :return: The order object from the exchange or None if an error occurs.
         """
         try:
-            print(f"Creating {side} {order_type} order for {amount} {symbol}...")
+            print(f"Creating {side} {order_type} order for {amount} {symbol} with price {price}...")
             params = {'tdMode': 'cross'}
             order = self.exchange.create_order(symbol, order_type, side, amount, price, params)
             print("Order created successfully:")
@@ -97,7 +93,7 @@ class TradingEngine:
             side_emoji = "📈" if side == 'buy' else "📉"
             price_info = order.get('price') or order.get('average')
             price_str = f"${price_info:.2f}" if price_info is not None else "N/A"
-            amount_str = f"{order.get('amount', 'N/A')}"
+            amount_str = f"{order.get('amount', 'N/A')}" if order.get('amount') is not None else "N/A"
 
             message = (
                 f"{side_emoji} *New Trade Executed ({self.mode.upper()})*\n\n"

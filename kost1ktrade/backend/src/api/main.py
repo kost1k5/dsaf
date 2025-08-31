@@ -12,6 +12,7 @@ from src.core.master_controller import start_master_bot, stop_master_bot, master
 from src.core.backtester import Backtester
 from src.core.strategy_loader import get_strategy_class
 from src.data_collector.collector import DataCollector
+from src.api.optimization import router as optimization_router
 import pandas as pd
 
 app = FastAPI(title="Kost1kTrade API")
@@ -367,3 +368,4 @@ async def run_simulation(request: SimulationRunRequest):
         raise HTTPException(status_code=500, detail=f"An error occurred during simulation: {str(e)}")
 
 app.include_router(router, prefix="/api")
+app.include_router(optimization_router, prefix="/api/optimization")

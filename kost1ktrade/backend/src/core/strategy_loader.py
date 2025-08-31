@@ -4,7 +4,7 @@ import numpy as np
 # Monkey-patch numpy to fix pandas-ta import issue.
 # Some versions of pandas-ta (which is not pinned) use the deprecated np.NaN
 # attribute instead of np.nan. This causes an ImportError on newer numpy versions.
-# Pinning all dependencies to a compatible state is complex, so this
+# Pinning all dependencies to a compatible state has proven difficult, so this
 # patch ensures the bot can run even if pandas-ta is updated to a version
 # with this issue.
 if not hasattr(np, 'NaN'):
