@@ -1,66 +1,103 @@
 .master-bot-controls {
-    margin-top: 2rem;
-    padding: 1.5rem;
-    background-color: #282c34;
+    background-color: #1a202c;
+    padding: 1.5rem 2rem;
     border-radius: 8px;
-    border: 1px solid #61dafb;
+    border: 1px solid #2d3748;
 }
 
-.master-bot-controls h3 {
-    margin-top: 0;
-    color: #61dafb;
-    border-bottom: 1px solid #444;
-    padding-bottom: 0.75rem;
-    margin-bottom: 1rem;
+.controls-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
 }
+
+.controls-header h3 {
+    margin: 0;
+    color: #00aeff;
+    font-size: 1.5rem;
+}
+
+.mode-selector {
+    display: flex;
+    border: 1px solid #4a5568;
+    border-radius: 6px;
+    overflow: hidden;
+}
+
+.mode-selector button {
+    background-color: transparent;
+    border: none;
+    color: #a0aec0;
+    padding: 0.5rem 1rem;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background-color 0.2s, color 0.2s;
+}
+
+.mode-selector button.active {
+    background-color: #00aeff;
+    color: white;
+    font-weight: bold;
+}
+
+.mode-selector button:not(.active):hover {
+    background-color: #2d3748;
+}
+
+.mode-selector.disabled {
+    opacity: 0.5;
+}
+.mode-selector.disabled button {
+    cursor: not-allowed;
+}
+
 
 .status-container {
+    margin-bottom: 1.5rem;
     display: flex;
     flex-direction: column;
     gap: 0.75rem;
-    margin-bottom: 1.5rem;
 }
 
 .status-item {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    font-size: 0.95rem;
+    font-size: 1rem;
 }
 
 .status-item span:first-child {
-    color: #a0a0a0;
-    font-weight: bold;
+    color: #a0aec0;
 }
 
 .status-value {
-    color: #e0e0e0;
+    color: #e2e8f0;
+    font-weight: bold;
 }
 
 .status-pill {
-    padding: 0.25rem 0.75rem;
+    display: inline-block;
+    padding: 4px 12px;
     border-radius: 12px;
-    font-size: 0.85rem;
     font-weight: bold;
+    font-size: 0.8rem;
     text-transform: uppercase;
 }
 
-.status-pill.status-running,
-.status-pill.status-demo,
-.status-pill.status-real {
-    background-color: rgba(46, 184, 92, 0.3);
-    color: #2eb85c;
+.status-stopped, .status-loading, .status-error {
+    background-color: #555;
+    color: #fff;
 }
 
-.status-pill.status-stopped {
-    background-color: rgba(231, 76, 60, 0.3);
-    color: #e74c3c;
+.status-running, .status-demo {
+    background-color: #2a7a7a;
+    color: #fff;
 }
 
-.status-pill.status-loading,
-.status-pill.status-error {
-    background-color: rgba(248, 190, 50, 0.3);
-    color: #f8be32;
+.status-real {
+    background-color: #9a2a2a;
+    color: #fff;
 }
 
 .button-group {
@@ -70,28 +107,49 @@
 
 .button-group button {
     flex-grow: 1;
-    padding: 0.8rem 1rem;
-    border: none;
-    border-radius: 4px;
-    background-color: #61dafb;
-    color: #1a1a1a;
-    font-weight: bold;
+    padding: 0.75rem;
     font-size: 1rem;
+    font-weight: bold;
+    border-radius: 4px;
+    border: none;
     cursor: pointer;
-    transition: background-color 0.2s ease, opacity 0.2s ease;
+    transition: background-color 0.2s, opacity 0.2s;
 }
 
 .button-group button:disabled {
-    background-color: #555;
+    opacity: 0.5;
     cursor: not-allowed;
-    opacity: 0.6;
 }
 
-.button-group button.stop-button {
-    background-color: #e74c3c;
+.button-group button:not(:disabled):first-child {
+    background-color: #38a169;
     color: white;
 }
+.button-group button:not(:disabled):first-child:hover {
+    background-color: #48bb78;
+}
 
-.button-group button.stop-button:hover:not(:disabled) {
-    background-color: #ff6b5a;
+.button-group .stop-button:not(:disabled) {
+    background-color: #c53030;
+    color: white;
+}
+.button-group .stop-button:not(:disabled):hover {
+    background-color: #e53e3e;
+}
+
+.feedback-message {
+  margin-top: 1.5rem;
+  padding: 1rem;
+  border-radius: 4px;
+  text-align: center;
+}
+
+.feedback-message.error {
+  background-color: #e53e3e;
+  color: white;
+}
+
+.feedback-message.success {
+  background-color: #38a169;
+  color: white;
 }

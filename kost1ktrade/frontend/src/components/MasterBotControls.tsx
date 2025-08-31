@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 import './MasterBotControls.css';
 
@@ -16,29 +16,34 @@ interface SignalStatus {
 const MasterBotControls = () => {
     const [masterStatus, setMasterStatus] = useState<MasterStatus>({ master_mode: 'loading...' });
     const [signalStatus, setSignalStatus] = useState<SignalStatus>({ mode: 'loading...', strategy_name: null });
+    const [targetMode, setTargetMode] = useState('demo');
     const [isLoading, setIsLoading] = useState(false);
     const [feedback, setFeedback] = useState({ type: '', message: '' });
 
-    const fetchStatus = async () => {
+    const fetchStatus = useCallback(async () => {
         try {
-            const [masterRes, signalRes] = await axios.all([
+            const [masterRes, signalRes, settingsRes] = await axios.all([
                 axios.get('/api/master-bot/status'),
-                axios.get('/api/signal-bot/status')
+                axios.get('/api/signal-bot/status'),
+                axios.get('/api/master-bot/settings'),
             ]);
 
-            // Add defensive checks to ensure API response is valid before setting state
             if (masterRes.data && typeof masterRes.data.master_mode !== 'undefined') {
                 setMasterStatus(masterRes.data);
             } else {
                 console.error("Invalid master bot status response:", masterRes.data);
-                throw new Error("Invalid master bot status response from API.");
             }
 
             if (signalRes.data && typeof signalRes.data.mode !== 'undefined') {
                 setSignalStatus(signalRes.data);
             } else {
                 console.error("Invalid signal bot status response:", signalRes.data);
-                throw new Error("Invalid signal bot status response from API.");
+            }
+
+            if (settingsRes.data && typeof settingsRes.data.target_mode !== 'undefined') {
+                setTargetMode(settingsRes.data.target_mode);
+            } else {
+                console.error("Invalid master bot settings response:", settingsRes.data);
             }
 
         } catch (error) {
@@ -46,23 +51,48 @@ const MasterBotControls = () => {
             setMasterStatus({ master_mode: 'error' });
             setSignalStatus({ mode: 'error', strategy_name: 'Unknown' });
         }
-    };
+    }, []);
 
     useEffect(() => {
         fetchStatus();
-        const interval = setInterval(fetchStatus, 5000); // Poll every 5 seconds
+        const interval = setInterval(fetchStatus, 5000);
         return () => clearInterval(interval);
-    }, []);
+    }, [fetchStatus]);
+
+    const showFeedback = (type: string, message: string) => {
+        setFeedback({ type, message });
+        setTimeout(() => setFeedback({ type: '', message: '' }), 4000);
+    };
+
+    const handleModeChange = async (newMode: 'demo' | 'real') => {
+        if (newMode === 'real') {
+            const confirmation = window.confirm(
+                "You are about to switch to REAL TRADING mode.\n\n" +
+                "Please confirm that you understand the risks and have configured your API keys correctly.\n\n" +
+                "The bot will use REAL aFUNDS."
+            );
+            if (!confirmation) {
+                return; // User cancelled the action
+            }
+        }
+
+        try {
+            await axios.post('/api/master-bot/settings', { target_mode: newMode });
+            setTargetMode(newMode);
+            showFeedback('success', `Target mode switched to ${newMode.toUpperCase()}.`);
+        } catch (err: any) {
+            showFeedback('error', err.response?.data?.detail || 'Failed to switch mode.');
+        }
+    };
 
     const handleStart = async () => {
         setIsLoading(true);
-        setFeedback({ type: '', message: '' });
         try {
             const res = await axios.post('/api/master-bot/start');
-            setFeedback({ type: 'success', message: res.data.message });
-            fetchStatus(); // Refresh status immediately
+            showFeedback('success', res.data.message);
+            fetchStatus();
         } catch (err: any) {
-            setFeedback({ type: 'error', message: err.response?.data?.detail || 'Failed to start master bot.' });
+            showFeedback('error', err.response?.data?.detail || 'Failed to start master bot.');
         } finally {
             setIsLoading(false);
         }
@@ -70,21 +100,41 @@ const MasterBotControls = () => {
 
     const handleStop = async () => {
         setIsLoading(true);
-        setFeedback({ type: '', message: '' });
         try {
             const res = await axios.post('/api/master-bot/stop');
-            setFeedback({ type: 'success', message: res.data.message });
-            fetchStatus(); // Refresh status immediately
+            showFeedback('success', res.data.message);
+            fetchStatus();
         } catch (err: any) {
-            setFeedback({ type: 'error', message: err.response?.data?.detail || 'Failed to stop master bot.' });
+            showFeedback('error', err.response?.data?.detail || 'Failed to stop master bot.');
         } finally {
             setIsLoading(false);
         }
     };
 
+    const isBotStopped = masterStatus.master_mode === 'stopped';
+
     return (
         <div className="master-bot-controls">
-            <h3>Autonomous Mode</h3>
+            <div className="controls-header">
+                <h3>Autonomous Mode</h3>
+                <div className={`mode-selector ${!isBotStopped ? 'disabled' : ''}`}>
+                    <button
+                        className={targetMode === 'demo' ? 'active' : ''}
+                        onClick={() => handleModeChange('demo')}
+                        disabled={!isBotStopped}
+                    >
+                        Demo
+                    </button>
+                    <button
+                        className={targetMode === 'real' ? 'active' : ''}
+                        onClick={() => handleModeChange('real')}
+                        disabled={!isBotStopped}
+                    >
+                        Real
+                    </button>
+                </div>
+            </div>
+
             <div className="status-container">
                 <div className="status-item">
                     <span>Master Controller:</span>
@@ -94,20 +144,20 @@ const MasterBotControls = () => {
                     <>
                         <div className="status-item">
                             <span>Market State:</span>
-                            <span className="status-value">{masterStatus.market_state || 'N/A'} (ADX: {masterStatus.adx_value || 'N/A'})</span>
+                            <span className="status-value">{masterStatus.market_state || 'N/A'} (ADX: {masterStatus.adx_value?.toFixed(2) || 'N/A'})</span>
                         </div>
                         <div className="status-item">
-                            <span>Active Strategy:</span>
-                            <span className="status-value">{signalStatus.strategy_name || 'None'}</span>
+                            <span>Active Signal Bot:</span>
+                            <span className="status-value">{signalStatus.strategy_name || 'None'} ({signalStatus.mode})</span>
                         </div>
                     </>
                 )}
             </div>
             <div className="button-group">
-                <button onClick={handleStart} disabled={isLoading || masterStatus.master_mode !== 'stopped'}>
+                <button onClick={handleStart} disabled={isLoading || !isBotStopped}>
                     ▶ Start Autonomous Mode
                 </button>
-                <button onClick={handleStop} disabled={isLoading || masterStatus.master_mode === 'stopped'} className="stop-button">
+                <button onClick={handleStop} disabled={isLoading || isBotStopped} className="stop-button">
                     ■ Stop Autonomous Mode
                 </button>
             </div>

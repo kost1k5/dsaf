@@ -27,6 +27,7 @@ class BotState:
 
         # State for the master controller
         self.master_bot_mode: str = "stopped"
+        self.master_bot_target_mode: str = "demo" # 'demo' or 'real'
         self.master_bot_stop_event: threading.Event = threading.Event()
         self.market_state: Optional[str] = None
         self.adx_value: Optional[float] = None
