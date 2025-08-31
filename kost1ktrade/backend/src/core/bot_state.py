@@ -1,15 +1,34 @@
 import threading
-from typing import Optional, TYPE_CHECKING, Dict
+import json
+from typing import Optional, TYPE_CHECKING, Dict, Any
 
 # Use TYPE_CHECKING to avoid circular imports at runtime
 if TYPE_CHECKING:
     from src.trading.engine import TradingEngine
     from src.strategies.base import BaseStrategy
 
+STRATEGY_PARAMS_FILE = 'strategy_params.json'
+
 class BotState:
     """
-    A simple singleton-like class to hold the global state of the bot.
+    A singleton-like class to hold the global state of the bot.
+    It now dynamically loads available strategies from a JSON file.
     """
+    def _load_strategies(self) -> Dict[str, bool]:
+        """
+        Loads strategy names from the params file and initializes them as inactive.
+        """
+        try:
+            # Note: The strategy_params.json is in the `backend` directory,
+            # one level up from `src/core`.
+            with open(STRATEGY_PARAMS_FILE, 'r') as f:
+                params = json.load(f)
+                # Initialize all found strategies to False (inactive)
+                return {name: False for name in params.keys()}
+        except (FileNotFoundError, json.JSONDecodeError) as e:
+            print(f"Warning: Could not load '{STRATEGY_PARAMS_FILE}': {e}. No strategies will be available for activation.")
+            return {}
+
     def __init__(self):
         # State for the signal-based bot
         self.signal_bot_mode: str = "stopped"  # 'stopped', 'real', 'demo'
@@ -41,18 +60,8 @@ class BotState:
         self.adx_value: Optional[float] = None
 
         # State for strategy activation
-        # Initialize all known strategies as active by default.
-        self.active_strategies: Dict[str, bool] = {
-            "rsi": True,
-            "sma_crossover": True,
-            "macd": True,
-            "stochastic": True,
-            "awesome_oscillator": True,
-            "parabolic_sar": True,
-            "keltner_channels": True,
-            "ichimoku": True,
-            "bollinger_bands": True,
-        }
+        # Dynamically load strategies from the JSON file.
+        self.active_strategies: Dict[str, bool] = self._load_strategies()
 
 # Global instance of the bot state
 bot_state = BotState()

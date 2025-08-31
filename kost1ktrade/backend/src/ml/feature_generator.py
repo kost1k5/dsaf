@@ -1,53 +1,64 @@
 import pandas as pd
 import numpy as np
-
-# --- Manual Indicator Implementations ---
-
-def manual_rsi(close: pd.Series, period: int = 14) -> pd.Series:
-    """Calculate RSI manually."""
-    delta = close.diff(1)
-    gain = delta.where(delta > 0, 0)
-    loss = -delta.where(delta < 0, 0)
-
-    avg_gain = gain.ewm(com=period - 1, adjust=False).mean()
-    avg_loss = loss.ewm(com=period - 1, adjust=False).mean()
-
-    rs = avg_gain / avg_loss
-    rsi = 100 - (100 / (1 + rs))
-    return rsi
-
-def manual_macd(close: pd.Series, fast: int = 12, slow: int = 26, signal: int = 9):
-    """Calculate MACD, Signal Line, and Histogram manually."""
-    ema_fast = close.ewm(span=fast, adjust=False).mean()
-    ema_slow = close.ewm(span=slow, adjust=False).mean()
-
-    macd_line = ema_fast - ema_slow
-    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
-    histogram = macd_line - signal_line
-
-    return macd_line, signal_line, histogram
+import pandas_ta as ta
 
 def create_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Enriches the candle DataFrame with a variety of technical indicator features.
+    Enriches the candle DataFrame with a variety of technical indicator features
+    using the pandas_ta library.
     """
-    # Calculate indicators manually
-    df['rsi'] = manual_rsi(df['close'])
-    df['macd'], df['macd_signal'], df['macd_hist'] = manual_macd(df['close'])
+    print("Generating a rich set of TA features...")
 
-    # Add some custom features
-    df['hour'] = df['open_time'].dt.hour
-    df['day_of_week'] = df['open_time'].dt.dayofweek
+    # Create a copy to avoid modifying the original DataFrame
+    df_feat = df.copy()
 
-    # Calculate returns and volatility
+    # Use pandas_ta to calculate a wide range of indicators
+    # This list covers Momentum, Trend, Volatility, and Volume indicators.
+    custom_strategy = ta.Strategy(
+        name="RichFeatureSet",
+        description="A comprehensive set of indicators for ML",
+        ta=[
+            # Momentum
+            {"kind": "rsi"},
+            {"kind": "macd"},
+            {"kind": "ppo"},
+            {"kind": "roc"},
+            {"kind": "stoch"},
+            {"kind": "ao"},
+            # Trend
+            {"kind": "adx"},
+            {"kind": "aroon"},
+            {"kind": "psar"},
+            {"kind": "sma", "length": 20},
+            {"kind": "sma", "length": 50},
+            {"kind": "sma", "length": 200},
+            # Volatility
+            {"kind": "atr"},
+            {"kind": "bbands"},
+            {"kind": "kc"},
+            # Volume
+            {"kind": "obv"},
+            {"kind": "cmf"},
+        ]
+    )
+
+    # Apply the study to the DataFrame
+    df_feat.ta.study(custom_strategy)
+
+    # Add custom time-based and return features
+    df_feat['hour'] = df_feat['open_time'].dt.hour
+    df_feat['day_of_week'] = df_feat['open_time'].dt.dayofweek
+
     for n in [1, 2, 4, 8, 16]:
-        df[f'return_{n}h'] = df['close'].pct_change(n)
+        df_feat[f'return_{n}h'] = df_feat['close'].pct_change(n)
 
-    df['volatility_4h'] = df['close'].rolling(window=4).std()
+    # Note: We do not drop NaNs here anymore. This will be handled in the main training
+    # script after labels are also generated, ensuring we only drop rows that are
+    # truly unusable for training.
 
-    df = df.dropna()
+    print(f"Feature generation complete. New shape: {df_feat.shape}")
 
-    return df
+    return df_feat
 
 def create_labels(df: pd.DataFrame, look_forward_periods: int = 4, threshold: float = 0.005) -> pd.DataFrame:
     """
@@ -56,6 +67,7 @@ def create_labels(df: pd.DataFrame, look_forward_periods: int = 4, threshold: fl
     Label '-1' (DOWN) if the price decreases by the threshold.
     Label '0' (SIDEWAYS) otherwise.
     """
+    # Make sure to use the original close prices for label generation
     df['future_return'] = df['close'].pct_change(look_forward_periods).shift(-look_forward_periods)
 
     df['target'] = 0
@@ -70,19 +82,20 @@ def create_labels(df: pd.DataFrame, look_forward_periods: int = 4, threshold: fl
 if __name__ == '__main__':
     # Example Usage
     data = {
-        'open_time': pd.to_datetime(pd.date_range(start='2023-01-01', periods=100, freq='H')),
-        'open': np.random.uniform(100, 102, 100),
-        'high': np.random.uniform(102, 104, 100),
-        'low': np.random.uniform(98, 100, 100),
-        'close': np.random.uniform(100, 102, 100),
-        'volume': np.random.uniform(1000, 2000, 100)
+        'open_time': pd.to_datetime(pd.date_range(start='2023-01-01', periods=300, freq='H')),
+        'open': np.random.uniform(100, 102, 300),
+        'high': np.random.uniform(102, 104, 300),
+        'low': np.random.uniform(98, 100, 300),
+        'close': np.random.uniform(100, 102, 300),
+        'volume': np.random.uniform(1000, 2000, 300)
     }
     sample_df = pd.DataFrame(data)
 
     featured_df = create_features(sample_df.copy())
-    print("--- Features Created (Manual) ---")
+    print("\n--- Features Created (pandas_ta) ---")
     print(featured_df.head())
+    print("\nColumns:", featured_df.columns.tolist())
 
     labeled_df = create_labels(featured_df.copy())
     print("\n--- Labels Created ---")
-    print(labeled_df[['close', 'target']].head())
+    print(labeled_df[['open_time', 'close', 'target']].head())

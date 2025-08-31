@@ -265,8 +265,11 @@ async def set_strategies_status(request: StrategyStatusRequest):
     """
     print(f"Received request to update strategy statuses: {request.statuses}")
     for name, status in request.statuses.items():
-        if name in bot_state.active_strategies:
-            bot_state.active_strategies[name] = status
+        # BUG FIX: The original code only updated the status if the strategy name
+        # already existed as a key in the `active_strategies` dict.
+        # On a fresh start, this dict is empty, so no statuses were ever updated.
+        # The fix is to remove the conditional check and directly set the status.
+        bot_state.active_strategies[name] = status
     return {"message": "Strategy statuses updated successfully.", "new_statuses": bot_state.active_strategies}
 
 @router.post("/strategies/params", tags=["Strategies"])
