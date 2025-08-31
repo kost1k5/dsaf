@@ -86,13 +86,13 @@ const SimulationDeck = () => {
     useEffect(() => {
         const fetchStrategies = async () => {
             try {
-                const response = await axios.get('/api/strategies');
-                const availableStrategies: { [key: string]: StrategyParams } = response.data;
+                const response = await axios.get('/api/strategies/status');
+                const availableStrategies: { [key: string]: { params: StrategyParams } } = response.data;
                 const initialStrategiesState: StrategiesState = {};
                 for (const name in availableStrategies) {
                     initialStrategiesState[name] = {
                         selected: false, // Start with all strategies deselected
-                        params: availableStrategies[name],
+                        params: availableStrategies[name].params,
                     };
                 }
                 setStrategies(initialStrategiesState);

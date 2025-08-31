@@ -1,6 +1,7 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks, APIRouter
 from pydantic import BaseModel
 from typing import Literal, Dict, Any
+import json
 
 from datetime import datetime
 from typing import List
@@ -177,29 +178,34 @@ def health_check():
     return {"status": "ok"}
 
 # --- Strategy Management ---
+STRATEGY_PARAMS_FILE = 'strategy_params.json'
 
 class StrategyStatusRequest(BaseModel):
     statuses: Dict[str, bool]
 
+class StrategyParamsRequest(BaseModel):
+    name: str
+    params: Dict[str, Any]
+
+def load_strategy_params():
+    try:
+        with open(STRATEGY_PARAMS_FILE, 'r') as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        # In a real-world app, might fallback to defaults or raise an error
+        return {}
+
+def save_strategy_params(params: dict):
+    with open(STRATEGY_PARAMS_FILE, 'w') as f:
+        json.dump(params, f, indent=4)
+
 @router.get("/strategies/status", tags=["Strategies"])
 async def get_strategies_status():
     """
-    Returns a list of all available strategies, their default parameters,
+    Returns a list of all available strategies, their current parameters from file,
     and their current activation status.
     """
-    # This list of params is manually maintained for now.
-    strategy_params = {
-        "rsi": {"rsi_period": 14, "oversold_threshold": 30, "overbought_threshold": 70},
-        "sma_crossover": {"short_window": 20, "long_window": 100},
-        "macd": {"fast_period": 12, "slow_period": 26, "signal_period": 9},
-        "stochastic": {"k_period": 14, "d_period": 3, "oversold_threshold": 20, "overbought_threshold": 80},
-        "awesome_oscillator": {"fast_period": 5, "slow_period": 34},
-        "parabolic_sar": {"acceleration": 0.02, "maximum": 0.2},
-        "keltner_channels": {"length": 20, "multiplier": 2.0, "atr_length": 14},
-        "ichimoku": {"tenkan_period": 9, "kijun_period": 26, "senkou_b_period": 52},
-        "bollinger_bands": {"bb_period": 20, "bb_std_dev": 2},
-    }
-
+    strategy_params = load_strategy_params()
     response = {}
     for name, params in strategy_params.items():
         response[name] = {
@@ -218,6 +224,21 @@ async def set_strategies_status(request: StrategyStatusRequest):
         if name in bot_state.active_strategies:
             bot_state.active_strategies[name] = status
     return {"message": "Strategy statuses updated successfully.", "new_statuses": bot_state.active_strategies}
+
+@router.post("/strategies/params", tags=["Strategies"])
+async def set_strategy_params(request: StrategyParamsRequest):
+    """
+    Updates the parameters for a specific strategy and saves them to file.
+    """
+    strategy_params = load_strategy_params()
+    if request.name not in strategy_params:
+        raise HTTPException(status_code=404, detail="Strategy not found")
+
+    print(f"Updating params for {request.name}: {request.params}")
+    strategy_params[request.name] = request.params
+    save_strategy_params(strategy_params)
+
+    return {"message": f"Parameters for {request.name} updated successfully."}
 
 # --- Simulation / Backtesting ---
 
