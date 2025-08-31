@@ -87,10 +87,13 @@ def master_trading_loop():
             news_sentiment = sentiment_analyzer.get_sentiment(symbol.split('/')[0])
 
             ml_prediction = 0
-            if predictor.is_ready():
+            # Check if a model is available for the current symbol
+            if predictor.is_ready(symbol):
                 features_df = create_features(candles_df.copy())
-                latest_features = features_df.tail(1)
-                ml_prediction = predictor.predict(latest_features)
+                if not features_df.empty:
+                    latest_features = features_df.tail(1)
+                    # Pass the symbol to predict to load the correct model
+                    ml_prediction = predictor.predict(latest_features, symbol)
 
             bot_state.market_state = f"{market_state} (Sentiment: {news_sentiment:.2f}, ML: {ml_prediction})"
             bot_state.adx_value = adx_value
