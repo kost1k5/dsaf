@@ -67,6 +67,7 @@ def master_trading_loop():
 
             symbol = random.choice(settings.SYMBOLS)
             print(f"--- Analyzing selected symbol: {symbol} ---")
+            
             try:
                 # 1. Fetch Data
                 timeframe = '1h'
@@ -78,7 +79,7 @@ def master_trading_loop():
                 print("Skipping to the next cycle.")
                 bot_state.master_bot_stop_event.wait(timeout=10) # Short wait before next cycle
                 continue
-        
+
             candles_df = pd.DataFrame(candles_list, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
             candles_df['open_time'] = pd.to_datetime(candles_df['open_time'], unit='ms')
 

@@ -18,6 +18,7 @@ scikit-learn = "*"
 textblob = "*"
 numpy = "*"
 pandas-ta = "*"
+requests = "*"
 
 [dev-packages]
 

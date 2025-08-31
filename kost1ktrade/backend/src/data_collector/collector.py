@@ -16,7 +16,11 @@ class DataCollector:
         """
         try:
             exchange_class = getattr(ccxt, exchange_id)
-            self.exchange = exchange_class()
+            self.exchange = exchange_class({
+                'options': {
+                    'defaultType': 'spot',
+                },
+            })
         except AttributeError:
             raise ValueError(f"Exchange '{exchange_id}' is not supported by ccxt.")
 
