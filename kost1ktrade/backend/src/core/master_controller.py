@@ -6,6 +6,9 @@ from src.core.market_analyzer import get_market_state
 from src.core.bot_controller import start_bot_loop, stop_bot_loop
 from src.data_collector.collector import DataCollector
 from src.core.config import settings
+from src.ml.predictor import Predictor
+from src.ml.feature_generator import create_features
+from src.core.sentiment_analyzer import SentimentAnalyzer
 
 # --- Strategy Mapping ---
 # Each market state maps to a list of suitable strategies.
@@ -92,8 +95,10 @@ def master_trading_loop():
 
     try:
         collector = DataCollector(exchange_id='okx')
+        predictor = Predictor()
+        sentiment_analyzer = SentimentAnalyzer()
     except Exception as e:
-        print(f"FATAL in Master Controller: Failed to initialize DataCollector: {e}")
+        print(f"FATAL in Master Controller: Failed to initialize components: {e}")
         bot_state.master_bot_mode = "stopped"
         return
 
@@ -103,40 +108,51 @@ def master_trading_loop():
         try:
             print(f"({time.ctime()}) --- Master Controller Cycle ---")
 
-            # 1. Analyze Market State
-            print("Analyzing market state...")
+            # 1. Fetch Data
             symbol = settings.SYMBOLS[0]
             timeframe = '1h'
-            candles_list = collector.fetch_candles(symbol, timeframe, limit=200)
+            candles_list = collector.fetch_candles(symbol, timeframe, limit=500) # Fetch more data for feature generation
+            if not candles_list or len(candles_list) < 50:
+                raise ValueError("Not enough data fetched for analysis.")
+
             candles_df = pd.DataFrame(candles_list, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
+            candles_df['open_time'] = pd.to_datetime(candles_df['open_time'], unit='ms')
 
+            # 2. Analyze Market State, Sentiment, and ML Prediction
             market_state, adx_value = get_market_state(candles_df)
-            bot_state.market_state = market_state
-            bot_state.adx_value = adx_value
-            print(f"Current Market State for {symbol}: {market_state} (ADX: {adx_value})")
+            news_sentiment = sentiment_analyzer.get_sentiment(symbol.split('/')[0])
 
-            # 2. Decide on Strategy
-            preferred_strategies = STRATEGY_MAP.get(market_state, [])
-            if not preferred_strategies:
-                print(f"No strategies defined for market state '{market_state}'. Holding.")
-                if bot_state.signal_bot_mode != "stopped":
-                    print("Stopping current bot due to undefined market state.")
-                    stop_bot_loop()
+            ml_prediction = 0
+            if predictor.is_ready():
+                features_df = create_features(candles_df.copy())
+                latest_features = features_df.tail(1)
+                ml_prediction = predictor.predict(latest_features)
+
+            bot_state.market_state = f"{market_state} (Sentiment: {news_sentiment:.2f}, ML: {ml_prediction})"
+            bot_state.adx_value = adx_value
+            print(f"Analysis for {symbol}: Market State={market_state}, ADX={adx_value}, News Sentiment={news_sentiment}, ML Prediction={ml_prediction}")
+
+            # 3. Decide on Strategy
+            # Enhanced logic: Check for strong negative signals first
+            if ml_prediction == -1 or news_sentiment < -0.4:
+                print("Bearish signal from ML or News. Stopping all bots for safety.")
+                if bot_state.signal_bot_mode != "stopped": stop_bot_loop()
                 continue
 
-            # 3. Check Current Bot and Switch if Necessary
-            current_strategy_name = getattr(bot_state, 'signal_bot_strategy_name', None)
+            preferred_strategies = STRATEGY_MAP.get(market_state, [])
+            if not preferred_strategies:
+                if bot_state.signal_bot_mode != "stopped": stop_bot_loop()
+                continue
 
+            # 4. Check Current Bot and Switch if Necessary
+            current_strategy_name = getattr(bot_state, 'signal_bot_strategy_name', None)
             is_current_strategy_suitable = any(s['name'] == current_strategy_name for s in preferred_strategies)
 
             if not is_current_strategy_suitable:
-                # Randomly select a new strategy from the suitable list
                 new_strategy = random.choice(preferred_strategies)
-
-                print(f"Switching strategy! Current: '{current_strategy_name}', New Choice: '{new_strategy['name']}' from candidates.")
+                print(f"Switching strategy! Current: '{current_strategy_name}', New Choice: '{new_strategy['name']}'")
 
                 if bot_state.signal_bot_mode != "stopped":
-                    print("Stopping the current signal bot...")
                     stop_bot_loop()
                     time.sleep(10)
 
@@ -146,8 +162,6 @@ def master_trading_loop():
                     strategy_name=new_strategy["name"],
                     strategy_params=new_strategy["params"]
                 )
-                # The actual background task for the signal bot is started by the API that calls start_bot_loop.
-                # This controller's job is just to set the state and let the user/API start the loop.
             else:
                 print(f"Current strategy '{current_strategy_name}' is suitable for {market_state}. No change needed.")
 

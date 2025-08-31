@@ -26,11 +26,11 @@ def train_model():
     # 1. Fetch Data
     print("Fetching historical data...")
     collector = DataCollector(exchange_id='okx')
-    # Fetch a good amount of data for training, e.g., last year of hourly data
-    # For this example, we'll fetch a limited amount to keep it fast
-    from src.core.config import settings
-    target_symbol = settings.SYMBOLS[0] # Use the first symbol from the config
+
+    # HARDCODED SYMBOL as a final attempt to bypass configuration loading issues.
+    target_symbol = "BTC/USDT"
     print(f"Fetching data for symbol: {target_symbol}")
+
     candles_list = collector.fetch_candles(symbol=target_symbol, timeframe="1h", limit=5000)
     if not candles_list:
         print(f"Could not fetch data for {target_symbol}. Aborting.")
@@ -53,7 +53,6 @@ def train_model():
     X = labeled_df.drop(columns=['open_time', 'open', 'high', 'low', 'close', 'volume', 'target'])
     y = labeled_df['target']
 
-    # Ensure all feature names are strings
     X.columns = [str(col) for col in X.columns]
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42, shuffle=False)
@@ -75,7 +74,6 @@ def train_model():
     os.makedirs(MODEL_DIR, exist_ok=True)
     joblib.dump(lgbm, MODEL_FILE)
 
-    # Save the list of columns used for training
     feature_list = list(X.columns)
     with open(FEATURES_FILE, 'w') as f:
         import json
