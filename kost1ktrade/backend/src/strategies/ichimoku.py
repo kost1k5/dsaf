@@ -28,29 +28,38 @@ class IchimokuStrategy(BaseStrategy):
         df = candles_df.copy()
 
         # Calculate Ichimoku Cloud using pandas-ta
-        ichimoku_df = df.ta.ichimoku(tenkan=self.tenkan_period, kijun=self.kijun_period, senkou=self.senkou_b_period)
+        # It returns a tuple of DataFrames, so we handle them accordingly
+        ichimoku_data, _ = df.ta.ichimoku(tenkan=self.tenkan_period, kijun=self.kijun_period, senkou=self.senkou_b_period)
 
-        # Extract the relevant columns
-        df['tenkan'] = ichimoku_df[f'ITS_{self.tenkan_period}']
-        df['kijun'] = ichimoku_df[f'IKS_{self.kijun_period}']
-        df['senkou_a'] = ichimoku_df[f'ISA_{self.tenkan_period}']
-        df['senkou_b'] = ichimoku_df[f'ISB_{self.kijun_period}']
+        # Concatenate the results back to the main DataFrame
+        df = pd.concat([df, ichimoku_data], axis=1)
+
+        # Define column names based on pandas-ta output
+        tenkan_col = f'ITS_{self.tenkan_period}'
+        kijun_col = f'IKS_{self.kijun_period}'
+        senkou_a_col = f'ISA_{self.tenkan_period}'
+        senkou_b_col = f'ISB_{self.kijun_period}'
+
+        # Ensure all required columns exist before proceeding
+        required_cols = [tenkan_col, kijun_col, senkou_a_col, senkou_b_col]
+        if not all(col in df.columns for col in required_cols):
+            raise ValueError(f"Ichimoku calculation failed. Missing columns: {[c for c in required_cols if c not in df.columns]}")
 
         df['signal'] = 'HOLD'
 
         # Previous state for crossover detection
-        previous_tenkan = df['tenkan'].shift(1)
-        previous_kijun = df['kijun'].shift(1)
+        previous_tenkan = df[tenkan_col].shift(1)
+        previous_kijun = df[kijun_col].shift(1)
 
         # Conditions for bullish crossover (TK Cross)
-        tk_cross_up = (df['tenkan'] > df['kijun']) & (previous_tenkan <= previous_kijun)
+        tk_cross_up = (df[tenkan_col] > df[kijun_col]) & (previous_tenkan <= previous_kijun)
 
         # Conditions for bearish crossover
-        tk_cross_down = (df['tenkan'] < df['kijun']) & (previous_tenkan >= previous_kijun)
+        tk_cross_down = (df[tenkan_col] < df[kijun_col]) & (previous_tenkan >= previous_kijun)
 
         # Cloud conditions
-        price_above_cloud = (df['close'] > df['senkou_a']) & (df['close'] > df['senkou_b'])
-        price_below_cloud = (df['close'] < df['senkou_a']) & (df['close'] < df['senkou_b'])
+        price_above_cloud = (df['close'] > df[senkou_a_col]) & (df['close'] > df[senkou_b_col])
+        price_below_cloud = (df['close'] < df[senkou_a_col]) & (df['close'] < df[senkou_b_col])
 
         # Final signal logic
         buy_conditions = tk_cross_up & price_above_cloud

@@ -92,7 +92,7 @@ class Settings(BaseSettings):
 
     # --- General Bot Settings ---
     # Raw comma-separated string for symbols from .env
-    SYMBOLS_RAW: str = "BTC-USDT,ETH-USDT,SOL-USDT,LINK-USDT"
+    SYMBOLS_RAW: str = "BTC/USDT,ETH/USDT,SOL/USDT,LINK/USDT"
 
     @computed_field
     @property

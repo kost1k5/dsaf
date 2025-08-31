@@ -81,34 +81,45 @@ async def get_signal_bot_status():
 
 # --- Grid Bot Control ---
 
-class GridBotStartRequest(BaseModel):
-    mode: Literal['real', 'demo']
+class GridBotSettings(BaseModel):
     symbol: str
-    amount_per_grid: float
     grid_range_low: float
     grid_range_high: float
     num_grids: int
+    amount_per_grid: float
+
+class GridBotModeRequest(BaseModel):
+    mode: Literal['real', 'demo']
+
+@router.get("/grid-bot/settings", tags=["Grid Bot Control"])
+async def get_grid_bot_settings():
+    """
+    Returns the current settings for the Grid Bot.
+    """
+    return bot_state.grid_bot_config
+
+@router.post("/grid-bot/settings", tags=["Grid Bot Control"])
+async def set_grid_bot_settings(settings: GridBotSettings):
+    """
+    Updates the settings for the Grid Bot.
+    """
+    if bot_state.grid_bot_mode != 'stopped':
+        raise HTTPException(status_code=400, detail="Cannot change settings while the Grid Bot is running.")
+    bot_state.grid_bot_config = settings.dict()
+    return {"message": "Grid Bot settings updated successfully."}
+
 
 @router.post("/grid-bot/start", tags=["Grid Bot Control"])
-async def start_grid_bot_endpoint(request: GridBotStartRequest, background_tasks: BackgroundTasks):
+async def start_grid_bot_endpoint(request: GridBotModeRequest, background_tasks: BackgroundTasks):
     """
-    Starts the grid trading bot with the specified configuration.
+    Starts the grid trading bot with the currently saved configuration.
     The bot will run in a background task.
     """
     try:
-        grid_config = {
-            "grid_range_low": request.grid_range_low,
-            "grid_range_high": request.grid_range_high,
-            "num_grids": request.num_grids,
-        }
-        start_grid_bot(request.mode, request.symbol, grid_config, request.amount_per_grid)
-        # Add the main loop to background tasks with its arguments
-        background_tasks.add_task(
-            grid_trading_loop,
-            request.symbol,
-            grid_config,
-            request.amount_per_grid
-        )
+        config = bot_state.grid_bot_config
+        start_grid_bot(mode=request.mode)
+        # Add the main loop to background tasks
+        background_tasks.add_task(grid_trading_loop)
         return {"message": "Grid bot start process initiated."}
     except (ValueError, ConnectionError) as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -227,15 +238,23 @@ def save_strategy_params(params: dict):
 async def get_strategies_status():
     """
     Returns a list of all available strategies, their current parameters from file,
-    and their current activation status.
+    and their current activation status. This now includes the Grid Bot.
     """
     strategy_params = load_strategy_params()
     response = {}
     for name, params in strategy_params.items():
         response[name] = {
             "params": params,
-            "active": bot_state.active_strategies.get(name, False)
+            "active": bot_state.active_strategies.get(name, False),
+            "type": "signal"
         }
+
+    # Add the Grid Bot as a special strategy type
+    response['grid'] = {
+        "params": bot_state.grid_bot_config,
+        "active": bot_state.grid_bot_mode != 'stopped',
+        "type": "grid"
+    }
     return response
 
 @router.post("/strategies/status", tags=["Strategies"])
@@ -327,8 +346,10 @@ async def run_simulation(request: SimulationRunRequest):
                     "metrics": result
                 })
             except Exception as e:
+                import traceback
                 # Log error for a specific strategy but continue with others
-                print(f"Error backtesting strategy {strategy_config.name}: {e}")
+                print(f"Error backtesting strategy {strategy_config.name}:")
+                traceback.print_exc() # Print the full traceback
                 all_results.append({
                     "strategy_name": strategy_config.name,
                     "params": strategy_config.params,

@@ -4,7 +4,7 @@ from src.core.bot_state import bot_state
 from src.trading.engine import TradingEngine
 from src.strategies.grid import GridStrategy
 
-def grid_trading_loop(symbol: str, grid_config: dict, amount_per_grid: float):
+def grid_trading_loop():
     """
     The main loop for the grid trading bot.
     This function is intended to be run in a background task.
@@ -13,6 +13,15 @@ def grid_trading_loop(symbol: str, grid_config: dict, amount_per_grid: float):
         return
 
     engine = bot_state.grid_bot_engine
+    config = bot_state.grid_bot_config
+
+    symbol = config['symbol']
+    amount_per_grid = config['amount_per_grid']
+    grid_config = {
+        "grid_range_low": config['grid_range_low'],
+        "grid_range_high": config['grid_range_high'],
+        "num_grids": config['num_grids'],
+    }
     strategy = GridStrategy(**grid_config)
 
     print(f"--- Background grid bot loop started for {symbol} ---")
@@ -71,7 +80,7 @@ def grid_trading_loop(symbol: str, grid_config: dict, amount_per_grid: float):
         bot_state.grid_bot_engine = None
 
 
-def start_grid_bot(mode: str, symbol: str, grid_config: dict, amount_per_grid: float):
+def start_grid_bot(mode: str):
     """Prepares the state for the grid bot to be started in a background task."""
     if bot_state.grid_bot_mode != "stopped":
         raise ValueError("Grid bot is already running.")
