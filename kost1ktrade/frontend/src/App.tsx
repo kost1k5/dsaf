@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import Sidebar from './components/Sidebar';
 import Dashboard from './pages/Dashboard';
 import StrategyManager from './pages/StrategyManager';
+import SimulationDeck from './pages/SimulationDeck';
 import './App.css';
 
 function App() {
@@ -13,6 +14,7 @@ function App() {
           <Routes>
             <Route path="/" element={<Dashboard />} />
             <Route path="/strategies" element={<StrategyManager />} />
+            <Route path="/simulations" element={<SimulationDeck />} />
           </Routes>
         </main>
       </div>

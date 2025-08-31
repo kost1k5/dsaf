@@ -12,8 +12,8 @@ const Sidebar = () => {
         <ul>
           <li><NavLink to="/" end>Dashboard</NavLink></li>
           <li><NavLink to="/strategies">Strategies</NavLink></li>
-          {/* These are placeholders for now */}
-          <li><a href="#" className="disabled-link">Backtesting</a></li>
+          <li><NavLink to="/simulations">Simulation Deck</NavLink></li>
+          {/* This is a placeholder for now */}
           <li><a href="#" className="disabled-link">Settings</a></li>
         </ul>
       </nav>
