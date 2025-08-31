@@ -84,7 +84,9 @@ class TradingEngine:
         """
         try:
             print(f"Creating {side} {order_type} order for {amount} {symbol}...")
-            order = self.exchange.create_order(symbol, order_type, side, amount, price)
+            # OKX requires the tdMode parameter for spot trading
+            params = {'tdMode': 'cash'}
+            order = self.exchange.create_order(symbol, order_type, side, amount, price, params)
             print("Order created successfully:")
             print(order)
 

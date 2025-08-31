@@ -1,8 +1,12 @@
 import importlib
 import numpy as np
 
-# Monkey-patch numpy to fix pandas-ta import issue
-# Some versions of pandas-ta might still use the deprecated np.NaN
+# Monkey-patch numpy to fix pandas-ta import issue.
+# Some versions of pandas-ta (which is not pinned) use the deprecated np.NaN
+# attribute instead of np.nan. This causes an ImportError on newer numpy versions.
+# Pinning all dependencies to a compatible state is complex, so this
+# patch ensures the bot can run even if pandas-ta is updated to a version
+# with this issue.
 if not hasattr(np, 'NaN'):
     np.NaN = np.nan
 
@@ -21,4 +25,3 @@ def get_strategy_class(strategy_name: str):
         print(f"Original error loading strategy '{strategy_name}': {e}")
         raise ValueError(f"Could not find strategy '{strategy_name}'. "
                          f"Ensure module '{module_name}.py' and class '{class_name}' exist.") from e
-

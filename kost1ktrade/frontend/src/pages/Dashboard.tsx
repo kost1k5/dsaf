@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import axios from 'axios';
 import './Dashboard.css';
 import MasterBotControls from '../components/MasterBotControls';
+import Optimizer from '../components/Optimizer';
 
 interface Balances {
   [key: string]: {
@@ -102,6 +103,8 @@ const Dashboard = () => {
         <h2>Asset Balances</h2>
         {renderBalances()}
       </div>
+
+      <Optimizer />
     </div>
   );
 };
