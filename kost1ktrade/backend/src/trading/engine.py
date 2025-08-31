@@ -48,7 +48,7 @@ class TradingEngine:
             return {
                 currency: data['free']
                 for currency, data in balance.items()
-                if data['free'] > 0
+                if isinstance(data, dict) and 'free' in data and data['free'] > 0
             }
         except ccxt.errors.BaseError as e:
             print(f"An error occurred while fetching balance: {e}")
