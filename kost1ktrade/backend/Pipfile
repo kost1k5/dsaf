@@ -17,6 +17,7 @@ lightgbm = "*"
 scikit-learn = "*"
 textblob = "*"
 numpy = "*"
+pandas-ta = "*"
 
 [dev-packages]
 
