@@ -31,7 +31,7 @@ def signal_trading_loop():
         bot_state.signal_bot_mode = "stopped"
         return
 
-    timeframe = '1h' # This could also be part of the state if needed
+    timeframe = settings.TIMEFRAME
     sleep_duration_seconds = 3600
     # Use a generic candle limit, as strategies have different requirements
     candle_limit = 200
