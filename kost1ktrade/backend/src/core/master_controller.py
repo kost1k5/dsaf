@@ -144,12 +144,21 @@ def master_trading_loop():
                 if bot_state.signal_bot_mode != "stopped": stop_bot_loop()
                 continue
 
+            # Filter strategies based on their active status
+            runnable_strategies = [s for s in preferred_strategies if bot_state.active_strategies.get(s['name'], False)]
+            print(f"Found {len(preferred_strategies)} preferred strategies for {market_state}. After filtering, {len(runnable_strategies)} are active.")
+
+            if not runnable_strategies:
+                print("No active strategies available for the current market state. Stopping bot if running.")
+                if bot_state.signal_bot_mode != "stopped": stop_bot_loop()
+                continue
+
             # 4. Check Current Bot and Switch if Necessary
             current_strategy_name = getattr(bot_state, 'signal_bot_strategy_name', None)
-            is_current_strategy_suitable = any(s['name'] == current_strategy_name for s in preferred_strategies)
+            is_current_strategy_suitable = any(s['name'] == current_strategy_name for s in runnable_strategies)
 
             if not is_current_strategy_suitable:
-                new_strategy = random.choice(preferred_strategies)
+                new_strategy = random.choice(runnable_strategies)
                 print(f"Switching strategy! Current: '{current_strategy_name}', New Choice: '{new_strategy['name']}'")
 
                 if bot_state.signal_bot_mode != "stopped":
