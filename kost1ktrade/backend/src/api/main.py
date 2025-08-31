@@ -176,16 +176,19 @@ def health_check():
     """Check if the API is running."""
     return {"status": "ok"}
 
-# --- Strategies ---
+# --- Strategy Management ---
 
-@router.get("/strategies", tags=["Strategies"])
-async def get_available_strategies():
+class StrategyStatusRequest(BaseModel):
+    statuses: Dict[str, bool]
+
+@router.get("/strategies/status", tags=["Strategies"])
+async def get_strategies_status():
     """
-    Returns a list of available signal-based strategies and their default parameters.
+    Returns a list of all available strategies, their default parameters,
+    and their current activation status.
     """
-    # This list is manually maintained for now.
-    # In a more advanced system, this could be discovered automatically.
-    strategies = {
+    # This list of params is manually maintained for now.
+    strategy_params = {
         "rsi": {"rsi_period": 14, "oversold_threshold": 30, "overbought_threshold": 70},
         "sma_crossover": {"short_window": 20, "long_window": 100},
         "macd": {"fast_period": 12, "slow_period": 26, "signal_period": 9},
@@ -196,7 +199,25 @@ async def get_available_strategies():
         "ichimoku": {"tenkan_period": 9, "kijun_period": 26, "senkou_b_period": 52},
         "bollinger_bands": {"bb_period": 20, "bb_std_dev": 2},
     }
-    return strategies
+
+    response = {}
+    for name, params in strategy_params.items():
+        response[name] = {
+            "params": params,
+            "active": bot_state.active_strategies.get(name, False)
+        }
+    return response
+
+@router.post("/strategies/status", tags=["Strategies"])
+async def set_strategies_status(request: StrategyStatusRequest):
+    """
+    Updates the activation status for multiple strategies.
+    """
+    print(f"Received request to update strategy statuses: {request.statuses}")
+    for name, status in request.statuses.items():
+        if name in bot_state.active_strategies:
+            bot_state.active_strategies[name] = status
+    return {"message": "Strategy statuses updated successfully.", "new_statuses": bot_state.active_strategies}
 
 # --- Simulation / Backtesting ---
 

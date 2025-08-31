@@ -1,5 +1,5 @@
 import threading
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Dict
 
 # Use TYPE_CHECKING to avoid circular imports at runtime
 if TYPE_CHECKING:
@@ -30,6 +30,20 @@ class BotState:
         self.master_bot_stop_event: threading.Event = threading.Event()
         self.market_state: Optional[str] = None
         self.adx_value: Optional[float] = None
+
+        # State for strategy activation
+        # Initialize all known strategies as active by default.
+        self.active_strategies: Dict[str, bool] = {
+            "rsi": True,
+            "sma_crossover": True,
+            "macd": True,
+            "stochastic": True,
+            "awesome_oscillator": True,
+            "parabolic_sar": True,
+            "keltner_channels": True,
+            "ichimoku": True,
+            "bollinger_bands": True,
+        }
 
 # Global instance of the bot state
 bot_state = BotState()
