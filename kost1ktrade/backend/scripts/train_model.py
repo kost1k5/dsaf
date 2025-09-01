@@ -20,7 +20,7 @@ from statsmodels.tsa.stattools import adfuller
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.data_collector.data_cacher import DataCacher
-from src.data_collector.external_data import get_fear_and_greed_index, get_news_sentiment, get_onchain_metrics
+from src.data_collector.external_data import get_fear_and_greed_index, get_onchain_metrics
 from src.ml.feature_generator import create_features, create_labels
 
 # --- Configuration ---
@@ -99,10 +99,9 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
     print(f"Successfully fetched {len(df)} candles for {symbol}.")
 
     # 2. Fetch and Merge External Data
-    print("Fetching external data (Fear & Greed, News, On-chain)...")
+    print("Fetching external data (Fear & Greed, On-chain)...")
     days_in_data = (end_dt - start_dt).days
     fng_df = get_fear_and_greed_index(limit=days_in_data)
-    news_df = get_news_sentiment(days_back=days_in_data)
     onchain_df = get_onchain_metrics(days_back=days_in_data)
 
 
@@ -115,10 +114,6 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
         fng_df['date'] = fng_df['date'] + timedelta(days=1)
         df = pd.merge(df, fng_df, on='date', how='left')
         df['fng_value'] = df['fng_value'].fillna(method='ffill')
-    if not news_df.empty:
-        news_df['date'] = news_df['date'] + timedelta(days=1)
-        df = pd.merge(df, news_df, on='date', how='left')
-        df['sentiment_score'] = df['sentiment_score'].fillna(0)
     if not onchain_df.empty:
         onchain_df['date'] = onchain_df['date'] + timedelta(days=1)
         df = pd.merge(df, onchain_df, on='date', how='left')

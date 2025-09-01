@@ -67,14 +67,12 @@ The model now incorporates a much richer set of features:
 -   **Technical Indicators:** A comprehensive set of indicators from `pandas-ta-openbb`, including VWAP.
 -   **Market Sentiment:**
     -   **Fear & Greed Index:** Daily historical F&G index values are merged into the dataset.
-    -   **News Sentiment:** Daily sentiment is calculated from crypto news headlines via the CryptoPanic API.
 -   **On-Chain Metrics (Placeholder):** The pipeline includes a placeholder framework to integrate on-chain data (e.g., Net Exchange Flow, SOPR). A real implementation requires an API key from a provider like Glassnode.
 
 #### **Dependencies**
 
 The new pipeline requires several new libraries. Ensure they are in your `Pipfile` and installed (`pipenv install`):
 -   `statsmodels`: For the ADF stationarity test.
--   `cryptopanic-api`: To fetch news data.
 -   `fear-greed-index`: To fetch the Fear & Greed index.
 -   `optuna`: For Bayesian hyperparameter optimization.
 -   `shap`: For model interpretation.
@@ -82,7 +80,6 @@ The new pipeline requires several new libraries. Ensure they are in your `Pipfil
 #### **Configuration**
 
 To use the external data features, you must set the following environment variable in your `.env` file:
--   `CRYPTOPANIC_API_KEY`: Your API key from [CryptoPanic](https://cryptopanic.com/developers/api/).
 -   `ONCHAIN_API_KEY`: (For future use) Your API key from a provider like Glassnode.
 
 #### **Advanced Usage**
