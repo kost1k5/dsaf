@@ -67,6 +67,37 @@ def get_news_sentiment(days_back: int = 30) -> pd.DataFrame:
         print(f"Could not fetch news sentiment data from CryptoPanic: {e}")
         return pd.DataFrame(columns=['date', 'sentiment_score'])
 
+def get_onchain_metrics(days_back: int = 365 * 2) -> pd.DataFrame:
+    """
+    Placeholder function to fetch on-chain metrics.
+    A real implementation would require an API key from a provider like Glassnode,
+    CryptoQuant, or Santiment.
+
+    Args:
+        days_back (int): How many days of on-chain data to fetch.
+
+    Returns:
+        pd.DataFrame: DataFrame with 'date' and on-chain metric columns.
+    """
+    api_key = os.getenv('ONCHAIN_API_KEY') # Example: GLASSNODE_API_KEY
+    if not api_key:
+        print("Warning: ONCHAIN_API_KEY not found. Skipping on-chain metrics. "
+              "This is a placeholder function. You need to implement it with your own data provider.")
+        return pd.DataFrame(columns=['date', 'net_exchange_flow', 'sopr', 'mvrv'])
+
+    #
+    # --- Placeholder for actual API call ---
+    # Example:
+    # client = OnChainProviderClient(api_key)
+    # data = client.get_metrics(['net_exchange_flow', 'sopr', 'mvrv'], days=days_back)
+    # df = pd.DataFrame(data)
+    # df['date'] = pd.to_datetime(df['timestamp']).dt.date
+    # return df
+    #
+    print("Note: `get_onchain_metrics` is a placeholder and returned no data.")
+    return pd.DataFrame(columns=['date', 'net_exchange_flow', 'sopr', 'mvrv'])
+
+
 if __name__ == '__main__':
     # Example usage:
     fng_df = get_fear_and_greed_index(limit=30)
@@ -76,3 +107,7 @@ if __name__ == '__main__':
     news_df = get_news_sentiment(days_back=7)
     print("\nNews Sentiment Data:")
     print(news_df.head())
+
+    onchain_df = get_onchain_metrics()
+    print("\nOn-chain Data (Placeholder):")
+    print(onchain_df.head())

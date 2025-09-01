@@ -111,7 +111,7 @@ def create_labels(df: pd.DataFrame, look_forward_periods: int = 4, atr_multiplie
     # Assign labels based on thresholds
     df['target'] = np.nan
     df.loc[df['future_return'] > df['up_threshold'], 'target'] = 1  # 1 for Up
-    df.loc[df['future_return'] < df['down_threshold'], 'target'] = 0 # 0 for Down
+    df.loc[df['future_return'] < df['down_threshold'], 'target'] = -1 # -1 for Down
 
     # Drop rows that don't meet the significance threshold (sideways movement)
     labeled_df = df.dropna(subset=['target']).copy()
