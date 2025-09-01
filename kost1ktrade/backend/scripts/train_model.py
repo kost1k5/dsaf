@@ -20,7 +20,7 @@ from statsmodels.tsa.stattools import adfuller
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.data_collector.data_cacher import DataCacher
-from src.data_collector.external_data import get_fear_and_greed_index, get_news_sentiment
+from src.data_collector.external_data import get_fear_and_greed_index, get_news_sentiment, get_onchain_metrics
 from src.ml.feature_generator import create_features, create_labels
 
 # --- Configuration ---
@@ -99,19 +99,33 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
     print(f"Successfully fetched {len(df)} candles for {symbol}.")
 
     # 2. Fetch and Merge External Data
-    print("Fetching external data (Fear & Greed, News)...")
+    print("Fetching external data (Fear & Greed, News, On-chain)...")
     days_in_data = (end_dt - start_dt).days
     fng_df = get_fear_and_greed_index(limit=days_in_data)
     news_df = get_news_sentiment(days_back=days_in_data)
+    onchain_df = get_onchain_metrics(days_back=days_in_data)
+
 
     # Merge external data into the main dataframe
     df['date'] = df['open_time'].dt.date
+
+    # To prevent lookahead bias, we shift the daily data by 1 day,
+    # so each candle only uses data from the previous day.
     if not fng_df.empty:
+        fng_df['date'] = fng_df['date'] + timedelta(days=1)
         df = pd.merge(df, fng_df, on='date', how='left')
         df['fng_value'] = df['fng_value'].fillna(method='ffill')
     if not news_df.empty:
+        news_df['date'] = news_df['date'] + timedelta(days=1)
         df = pd.merge(df, news_df, on='date', how='left')
-        df['sentiment_score'] = df['sentiment_score'].fillna(0) # Fill missing sentiment with neutral
+        df['sentiment_score'] = df['sentiment_score'].fillna(0)
+    if not onchain_df.empty:
+        onchain_df['date'] = onchain_df['date'] + timedelta(days=1)
+        df = pd.merge(df, onchain_df, on='date', how='left')
+        for col in ['net_exchange_flow', 'sopr', 'mvrv']:
+             if col in df.columns:
+                df[col] = df[col].fillna(method='ffill')
+
     df.drop(columns=['date'], inplace=True)
 
 
@@ -133,10 +147,12 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
     # 4. Verify Stationarity of key features
     print("\n--- Verifying Feature Stationarity (ADF Test) ---")
     def run_adf_test(series, name):
-        result = adfuller(series)
+        result = adfuller(series.dropna()) # Drop NaNs for the test
         p_value = result[1]
-        verdict = "Stationary" if p_value <= 0.05 else "Non-Stationary"
-        print(f"'{name}': p-value = {p_value:.4f} ({verdict})")
+        if p_value > 0.05:
+            print(f"WARNING: Feature '{name}' may be non-stationary (p-value: {p_value:.4f})")
+        else:
+            print(f"Feature '{name}' appears stationary (p-value: {p_value:.4f})")
 
     # Test a few representative transformed features
     key_features_to_test = [col for col in labeled_df.columns if 'SMA_50_normalized' in col or 'OBV_pct_change' in col or 'RSI' in col]
@@ -150,48 +166,74 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
         return
 
     X = labeled_df.drop(columns=['open_time', 'open', 'high', 'low', 'close', 'volume', 'target'])
-    y = labeled_df['target']
+    y = labeled_df['target'].copy() # Use copy to avoid SettingWithCopyWarning
+
+    # Map labels from {-1, 1} to {0, 1} for LGBM binary classification
+    y_mapped = y.copy()
+    y_mapped[y_mapped == -1] = 0
+
     X.columns = [str(col) for col in X.columns]
 
+    # 5. Feature Selection
+    print("\n--- Feature Selection ---")
+    # First, train a baseline model to get feature importances
+    baseline_model = lgb.LGBMClassifier(objective='binary', random_state=42)
+    baseline_model.fit(X, y_mapped)
+
+    feature_importances = pd.DataFrame({
+        'feature': X.columns,
+        'importance': baseline_model.feature_importances_
+    }).set_index('feature')
+
+    print("Top 15 Most Important Features (before selection):")
+    print(feature_importances.sort_values('importance', ascending=False).head(15))
+
+    # Correlation Analysis and Pruning
+    print("\nPruning highly correlated features (threshold > 0.9)...")
+    corr_matrix = X.corr().abs()
+    upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+
+    cols_to_drop = set()
+    for column in upper_tri.columns:
+        highly_correlated_with = upper_tri[column][upper_tri[column] > 0.9].index.tolist()
+        if highly_correlated_with:
+            for correlated_feature in highly_correlated_with:
+                # Compare importances and decide which one to drop
+                if feature_importances.loc[column, 'importance'] >= feature_importances.loc[correlated_feature, 'importance']:
+                    cols_to_drop.add(correlated_feature)
+                else:
+                    cols_to_drop.add(column)
+
+    if cols_to_drop:
+        print(f"Dropping {len(cols_to_drop)} highly correlated features: {list(cols_to_drop)}")
+        X = X.drop(columns=list(cols_to_drop))
+    else:
+        print("No feature pairs found with correlation > 0.9 to prune.")
+
+    print("--- Feature Selection Complete ---\n")
+
+    # 6. Train/Test Split (after feature selection)
     train_size = int(len(X) * 0.9)
     X_train, X_test = X[:train_size], X[train_size:]
-    y_train, y_test = y[:train_size], y[train_size:]
+    y_train, y_test = y_mapped[:train_size], y_mapped[train_size:]
 
-    print(f"Training/tuning data shape for {symbol}: {X_train.shape}")
+    print(f"Training data shape after feature selection: {X_train.shape}")
 
-    # 4. Model Training & Hyperparameter Tuning
-    # The user can uncomment the following lines to run Bayesian Optimization with Optuna.
+    # 7. Model Training & Hyperparameter Tuning
+    # The user can uncomment the following block to run Bayesian Optimization with Optuna.
+    # The default path (below this block) uses standard parameters for a baseline.
+    # ---
     # print("--- Hyperparameter Tuning (Optuna) ---")
     # best_params = optimize_hyperparameters(X_train, y_train)
+    # print("\n--- Training Final Model with Best Parameters ---")
     # best_model = lgb.LGBMClassifier(objective='binary', random_state=42, **best_params)
-    # best_model.fit(X_train, y_train) # Fit final model on the whole training data
+    # best_model.fit(X_train, y_train)
+    # ---
 
-    # Train with default parameters for baseline (current active path)
+    # Active path: Train with default parameters for baseline
     print("--- Model Training (default parameters) ---")
     best_model = lgb.LGBMClassifier(objective='binary', random_state=42)
     best_model.fit(X_train, y_train)
-
-    # 5. Feature Selection Analysis
-    print("\n--- Feature Selection Analysis ---")
-    # Feature Importance
-    feature_importances = pd.DataFrame({
-        'feature': X_train.columns,
-        'importance': best_model.feature_importances_
-    }).sort_values('importance', ascending=False)
-    print("Top 15 Most Important Features:")
-    print(feature_importances.head(15))
-
-    # Correlation Analysis
-    print("\nIdentifying highly correlated features (threshold > 0.9)...")
-    corr_matrix = X_train.corr().abs()
-    upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-    highly_correlated = [column for column in upper_tri.columns if any(upper_tri[column] > 0.9)]
-    if highly_correlated:
-        for col in highly_correlated:
-            correlated_with = upper_tri[col][upper_tri[col] > 0.9].index.tolist()
-            print(f"- '{col}' is highly correlated with: {correlated_with}")
-    else:
-        print("No feature pairs found with correlation > 0.9.")
 
     # SHAP Analysis
     print("\n--- SHAP Analysis ---")
@@ -199,9 +241,9 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
     shap_values = explainer.shap_values(X_test)
 
     # We can't plot, so we'll log the mean absolute SHAP values
-    shap_sum = np.abs(shap_values).mean(axis=0)
-    if isinstance(shap_sum, list) and len(shap_sum) > 1: # For binary classification, shap_values can be a list of two arrays
-        shap_sum = shap_sum[1]
+    # For binary classification, shap_values is a list of two arrays.
+    # We're interested in the explanations for the positive class (1).
+    shap_sum = np.abs(shap_values[1]).mean(axis=0)
 
     shap_importance_df = pd.DataFrame([X_train.columns.tolist(), shap_sum.tolist()]).T
     shap_importance_df.columns = ['feature', 'mean_abs_shap_value']
@@ -209,13 +251,29 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
 
     print("Top 15 Features by Mean Absolute SHAP Value:")
     print(shap_importance_df.head(15))
+
+    # --- Example of Local SHAP analysis for a single prediction ---
+    # This code can be uncommented and used locally for debugging specific predictions.
+    #
+    # sample_idx = 0 # Index of the sample in the test set to explain
+    # shap_values_single = explainer.shap_values(X_test.iloc[sample_idx])
+    # # For binary classification, shap_values is a list of two arrays (for class 0 and 1)
+    # # We are interested in the explanation for the positive class (Up)
+    # shap_values_for_class_1 = shap_values[1]
+    #
+    # print(f"\n--- Local SHAP Explanation for Test Sample {sample_idx} ---")
+    # print("To visualize this, use a force plot in a Jupyter environment:")
+    # print("shap.initjs()")
+    # print("shap.force_plot(explainer.expected_value[1], shap_values_for_class_1, X_test.iloc[sample_idx])")
+    #
+
     print("--- Feature Analysis Complete ---\n")
 
 
     # 6. Final Evaluation
     print(f"--- Final Evaluation for {symbol} ---")
     y_pred = best_model.predict(X_test)
-    print(classification_report(y_test, y_pred, target_names=['Down (0)', 'Up (1)']))
+    print(classification_report(y_test, y_pred, target_names=['Down (-1)', 'Up (1)']))
 
     # 6. Save Model and Features with symbol-specific names
     sanitized_symbol = sanitize_symbol(symbol)
