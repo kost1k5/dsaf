@@ -39,11 +39,35 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
             # Volume
             {"kind": "obv"},
             {"kind": "cmf"},
+            {"kind": "vwap"},
         ]
     )
 
     # Apply the study to the DataFrame
     df_feat.ta.study(custom_strategy)
+
+    # --- Feature Stationarity Transformations ---
+    print("Transforming features to be stationary...")
+    close_price = df_feat['close']
+
+    # Normalize price-based indicators
+    for col in df_feat.columns:
+        # SMAs, PSAR, VWAP, and the moving average lines of BBands/KC
+        if col.startswith(('SMA_', 'PSAR', 'BBM_', 'KCM_', 'VWAP_')) and not col.endswith(('_pct', '_normalized')):
+            df_feat[f'{col}_normalized'] = (close_price / df_feat[col]) - 1
+            df_feat.drop(columns=[col], inplace=True)
+
+    # Normalize MACD lines (histogram is already stationary)
+    for col in df_feat.columns:
+        if col.startswith('MACD_') and not col.startswith('MACDh_') and not col.endswith('_normalized'):
+            df_feat[f'{col}_normalized'] = df_feat[col] / close_price
+            df_feat.drop(columns=[col], inplace=True)
+
+    # Transform OBV from cumulative to period-over-period change
+    obv_col = next((col for col in df_feat.columns if col.startswith('OBV')), None)
+    if obv_col:
+        df_feat[f'{obv_col}_pct_change'] = df_feat[obv_col].pct_change(periods=14) # Using a 14-period change
+        df_feat.drop(columns=[obv_col], inplace=True)
 
     # Add custom time-based and return features
     df_feat['hour'] = df_feat['open_time'].dt.hour
@@ -60,24 +84,43 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
 
     return df_feat
 
-def create_labels(df: pd.DataFrame, look_forward_periods: int = 4, threshold: float = 0.005) -> pd.DataFrame:
+def create_labels(df: pd.DataFrame, look_forward_periods: int = 4, atr_multiplier: float = 0.5) -> pd.DataFrame:
     """
-    Creates the target variable (label) for the classification model.
-    Label '1' (UP) if the price increases by the threshold within the look_forward period.
-    Label '-1' (DOWN) if the price decreases by the threshold.
-    Label '0' (SIDEWAYS) otherwise.
+    Creates a binary target variable (label) for the classification model,
+    filtering out noisy, sideways movements.
+
+    The label is determined by comparing future returns to a dynamic threshold
+    based on the Average True Range (ATR).
+
+    - Label 1 (Up): If the future return is significantly positive.
+    - Label 0 (Down): If the future return is significantly negative.
+    - Sideways movements are dropped from the dataset.
     """
-    # Make sure to use the original close prices for label generation
+    # Ensure the ATR column from feature generation exists
+    atr_col = next((col for col in df.columns if 'ATRr' in col), None)
+    if not atr_col:
+        raise ValueError("ATR column not found in DataFrame. Please ensure it's generated in `create_features`.")
+
+    # Calculate future returns
     df['future_return'] = df['close'].pct_change(look_forward_periods).shift(-look_forward_periods)
 
-    df['target'] = 0
-    df.loc[df['future_return'] > threshold, 'target'] = 1
-    df.loc[df['future_return'] < -threshold, 'target'] = -1
+    # Define dynamic thresholds based on volatility
+    df['up_threshold'] = atr_multiplier * df[atr_col] / 100 # ATR is in %, so divide by 100
+    df['down_threshold'] = -atr_multiplier * df[atr_col] / 100
 
-    df = df.drop(columns=['future_return'])
-    df = df.dropna(subset=['target'])
+    # Assign labels based on thresholds
+    df['target'] = np.nan
+    df.loc[df['future_return'] > df['up_threshold'], 'target'] = 1  # 1 for Up
+    df.loc[df['future_return'] < df['down_threshold'], 'target'] = 0 # 0 for Down
 
-    return df
+    # Drop rows that don't meet the significance threshold (sideways movement)
+    labeled_df = df.dropna(subset=['target']).copy()
+    labeled_df['target'] = labeled_df['target'].astype(int)
+
+    # Clean up temporary columns
+    labeled_df.drop(columns=['future_return', 'up_threshold', 'down_threshold'], inplace=True)
+
+    return labeled_df
 
 if __name__ == '__main__':
     # Example Usage
