@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import List
 from src.core.bot_state import bot_state
 from src.core.bot_controller import start_bot_loop, stop_bot_loop, signal_trading_loop
-from src.core.grid_bot_controller import start_grid_bot, stop_grid_bot, stop_all_grid_bots
+from src.core.grid_bot_controller import start_grid_bot, stop_grid_bot, grid_trading_loop
 from src.core.master_controller import start_master_bot, stop_master_bot, master_trading_loop
 from src.core.backtester import Backtester
 from src.core.strategy_loader import get_strategy_class
@@ -82,72 +82,66 @@ async def get_signal_bot_status():
 
 # --- Grid Bot Control ---
 
-class GridBotConfig(BaseModel):
+class GridBotSettings(BaseModel):
     symbol: str
     grid_range_low: float
     grid_range_high: float
     num_grids: int
     amount_per_grid: float
 
-class GridBotStartRequest(BaseModel):
+class GridBotModeRequest(BaseModel):
     mode: Literal['real', 'demo']
-    configs: List[GridBotConfig]
 
-class GridBotStopRequest(BaseModel):
-    symbol: str
+@router.get("/grid-bot/settings", tags=["Grid Bot Control"])
+async def get_grid_bot_settings():
+    """
+    Returns the current settings for the Grid Bot.
+    """
+    return bot_state.grid_bot_config
+
+@router.post("/grid-bot/settings", tags=["Grid Bot Control"])
+async def set_grid_bot_settings(settings: GridBotSettings):
+    """
+    Updates the settings for the Grid Bot.
+    """
+    if bot_state.grid_bot_mode != 'stopped':
+        raise HTTPException(status_code=400, detail="Cannot change settings while the Grid Bot is running.")
+    bot_state.grid_bot_config = settings.dict()
+    return {"message": "Grid Bot settings updated successfully."}
+
 
 @router.post("/grid-bot/start", tags=["Grid Bot Control"])
-async def start_grid_bots_endpoint(request: GridBotStartRequest):
+async def start_grid_bot_endpoint(request: GridBotModeRequest, background_tasks: BackgroundTasks):
     """
-    Starts one or more grid trading bots based on the provided configurations.
-    Each bot will run in its own background thread.
-    """
-    started_bots = []
-    errors = {}
-    for config in request.configs:
-        try:
-            start_grid_bot(symbol=config.symbol, mode=request.mode, config=config.dict())
-            started_bots.append(config.symbol)
-        except (ValueError, ConnectionError) as e:
-            errors[config.symbol] = str(e)
-
-    if not started_bots:
-        raise HTTPException(status_code=400, detail={"message": "No bots could be started.", "errors": errors})
-
-    return {
-        "message": f"Successfully initiated start for {len(started_bots)} bot(s).",
-        "started": started_bots,
-        "errors": errors
-    }
-
-@router.post("/grid-bot/stop", tags=["Grid Bot Control"])
-async def stop_grid_bot_endpoint(request: GridBotStopRequest):
-    """
-    Stops a specific grid trading bot by its symbol.
+    Starts the grid trading bot with the currently saved configuration.
+    The bot will run in a background task.
     """
     try:
-        response = stop_grid_bot(symbol=request.symbol)
+        config = bot_state.grid_bot_config
+        start_grid_bot(mode=request.mode)
+        # Add the main loop to background tasks
+        background_tasks.add_task(grid_trading_loop)
+        return {"message": "Grid bot start process initiated."}
+    except (ValueError, ConnectionError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/grid-bot/stop", tags=["Grid Bot Control"])
+async def stop_grid_bot_endpoint():
+    """
+    Stops the grid trading bot.
+    """
+    try:
+        response = stop_grid_bot()
         return {"message": response}
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-@router.post("/grid-bot/stop-all", tags=["Grid Bot Control"])
-async def stop_all_grid_bots_endpoint():
-    """
-    Stops all currently running grid trading bots.
-    """
-    try:
-        response = stop_all_grid_bots()
-        return {"message": response}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @router.get("/grid-bot/status", tags=["Grid Bot Control"])
 async def get_grid_bot_status():
     """
-    Returns the current status of all active and configured grid bots.
+    Returns the current status of the grid bot.
     """
-    return bot_state.grid_bot_states
+    return {"current_mode": bot_state.grid_bot_mode}
 
 
 # --- Master Bot Control ---
@@ -256,17 +250,11 @@ async def get_strategies_status():
             "type": "signal"
         }
 
-    # Add the Grid Bot's status as a special strategy type
-    # It's considered "active" if there is at least one running grid bot.
-    # The params will show all the configurations of running bots.
-    active_grid_bots = {
-        symbol: "running" for symbol, state in bot_state.grid_bot_states.items() if state == "running"
-    }
+    # Add the Grid Bot as a special strategy type
     response['grid'] = {
-        "params": bot_state.grid_bot_configs,
-        "active": len(active_grid_bots) > 0,
-        "type": "grid",
-        "running_bots": active_grid_bots
+        "params": bot_state.grid_bot_config,
+        "active": bot_state.grid_bot_mode != 'stopped',
+        "type": "grid"
     }
     return response
 

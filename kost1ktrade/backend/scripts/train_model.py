@@ -11,11 +11,16 @@ import json
 from scipy.stats import randint as sp_randint
 from scipy.stats import uniform as sp_uniform
 from typing import List
+import optuna
+import shap
+from sklearn.metrics import f1_score
+from statsmodels.tsa.stattools import adfuller
 
 # Add the project root to the python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from src.data_collector.data_cacher import DataCacher
+from src.data_collector.external_data import get_fear_and_greed_index, get_news_sentiment
 from src.ml.feature_generator import create_features, create_labels
 
 # --- Configuration ---
@@ -24,6 +29,51 @@ MODEL_DIR = "src/ml/models"
 def sanitize_symbol(symbol: str) -> str:
     """Converts a symbol like 'BTC/USDT' to 'BTC_USDT' for filenames."""
     return symbol.replace('/', '_')
+
+def optimize_hyperparameters(X_train, y_train):
+    """
+    Performs hyperparameter optimization using Optuna.
+    """
+    def objective(trial):
+        param = {
+            'objective': 'binary',
+            'metric': 'binary_logloss',
+            'verbosity': -1,
+            'boosting_type': 'gbdt',
+            'n_estimators': trial.suggest_int('n_estimators', 100, 1000),
+            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
+            'num_leaves': trial.suggest_int('num_leaves', 20, 300),
+            'max_depth': trial.suggest_int('max_depth', 3, 12),
+            'min_child_samples': trial.suggest_int('min_child_samples', 5, 100),
+            'subsample': trial.suggest_float('subsample', 0.6, 1.0),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+            'random_state': 42,
+        }
+
+        tscv = TimeSeriesSplit(n_splits=5)
+        scores = []
+        for train_index, val_index in tscv.split(X_train):
+            X_train_fold, X_val_fold = X_train.iloc[train_index], X_train.iloc[val_index]
+            y_train_fold, y_val_fold = y_train.iloc[train_index], y_train.iloc[val_index]
+
+            model = lgb.LGBMClassifier(**param)
+            model.fit(X_train_fold, y_train_fold)
+            preds = model.predict(X_val_fold)
+            scores.append(f1_score(y_val_fold, preds))
+
+        return -1.0 * np.mean(scores)
+
+    study = optuna.create_study(direction='minimize')
+    study.optimize(objective, n_trials=50) # n_trials can be adjusted
+
+    print("Best trial:")
+    trial = study.best_trial
+    print(f"  Value: {-trial.value}")
+    print("  Params: ")
+    for key, value in trial.params.items():
+        print(f"    {key}: {value}")
+
+    return trial.params
 
 def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
     """
@@ -48,7 +98,24 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
     df.reset_index(inplace=True)
     print(f"Successfully fetched {len(df)} candles for {symbol}.")
 
-    # 2. Prepare Data
+    # 2. Fetch and Merge External Data
+    print("Fetching external data (Fear & Greed, News)...")
+    days_in_data = (end_dt - start_dt).days
+    fng_df = get_fear_and_greed_index(limit=days_in_data)
+    news_df = get_news_sentiment(days_back=days_in_data)
+
+    # Merge external data into the main dataframe
+    df['date'] = df['open_time'].dt.date
+    if not fng_df.empty:
+        df = pd.merge(df, fng_df, on='date', how='left')
+        df['fng_value'] = df['fng_value'].fillna(method='ffill')
+    if not news_df.empty:
+        df = pd.merge(df, news_df, on='date', how='left')
+        df['sentiment_score'] = df['sentiment_score'].fillna(0) # Fill missing sentiment with neutral
+    df.drop(columns=['date'], inplace=True)
+
+
+    # 3. Prepare Data
     print("Creating features and labels...")
     features_df = create_features(df)
     labeled_df = create_labels(features_df)
@@ -62,6 +129,21 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
 
     labeled_df.dropna(inplace=True)
     print(f"Data shape after cleaning NaNs: {labeled_df.shape}")
+
+    # 4. Verify Stationarity of key features
+    print("\n--- Verifying Feature Stationarity (ADF Test) ---")
+    def run_adf_test(series, name):
+        result = adfuller(series)
+        p_value = result[1]
+        verdict = "Stationary" if p_value <= 0.05 else "Non-Stationary"
+        print(f"'{name}': p-value = {p_value:.4f} ({verdict})")
+
+    # Test a few representative transformed features
+    key_features_to_test = [col for col in labeled_df.columns if 'SMA_50_normalized' in col or 'OBV_pct_change' in col or 'RSI' in col]
+    for feature_name in key_features_to_test:
+        run_adf_test(labeled_df[feature_name], feature_name)
+    print("--- Stationarity Check Complete ---\n")
+
 
     if labeled_df.empty:
         print(f"Not enough data for {symbol} after cleaning. Skipping.")
@@ -77,28 +159,63 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
 
     print(f"Training/tuning data shape for {symbol}: {X_train.shape}")
 
-    # 4. Hyperparameter Tuning
-    print("--- Hyperparameter Tuning ---")
-    param_dist = {
-        'n_estimators': sp_randint(100, 500),
-        'max_depth': sp_randint(3, 10),
-        'learning_rate': sp_uniform(0.01, 0.2),
-    }
-    lgbm = lgb.LGBMClassifier(objective='multiclass', num_class=3, random_state=42, verbose=-1)
-    tscv = TimeSeriesSplit(n_splits=5)
-    random_search = RandomizedSearchCV(
-        lgbm, param_distributions=param_dist, n_iter=15, cv=tscv,
-        scoring='f1_weighted', random_state=42, n_jobs=-1
-    )
-    random_search.fit(X_train, y_train)
+    # 4. Model Training & Hyperparameter Tuning
+    # The user can uncomment the following lines to run Bayesian Optimization with Optuna.
+    # print("--- Hyperparameter Tuning (Optuna) ---")
+    # best_params = optimize_hyperparameters(X_train, y_train)
+    # best_model = lgb.LGBMClassifier(objective='binary', random_state=42, **best_params)
+    # best_model.fit(X_train, y_train) # Fit final model on the whole training data
 
-    print(f"Best parameters for {symbol}: {random_search.best_params_}")
-    best_model = random_search.best_estimator_
+    # Train with default parameters for baseline (current active path)
+    print("--- Model Training (default parameters) ---")
+    best_model = lgb.LGBMClassifier(objective='binary', random_state=42)
+    best_model.fit(X_train, y_train)
 
-    # 5. Final Evaluation
+    # 5. Feature Selection Analysis
+    print("\n--- Feature Selection Analysis ---")
+    # Feature Importance
+    feature_importances = pd.DataFrame({
+        'feature': X_train.columns,
+        'importance': best_model.feature_importances_
+    }).sort_values('importance', ascending=False)
+    print("Top 15 Most Important Features:")
+    print(feature_importances.head(15))
+
+    # Correlation Analysis
+    print("\nIdentifying highly correlated features (threshold > 0.9)...")
+    corr_matrix = X_train.corr().abs()
+    upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
+    highly_correlated = [column for column in upper_tri.columns if any(upper_tri[column] > 0.9)]
+    if highly_correlated:
+        for col in highly_correlated:
+            correlated_with = upper_tri[col][upper_tri[col] > 0.9].index.tolist()
+            print(f"- '{col}' is highly correlated with: {correlated_with}")
+    else:
+        print("No feature pairs found with correlation > 0.9.")
+
+    # SHAP Analysis
+    print("\n--- SHAP Analysis ---")
+    explainer = shap.TreeExplainer(best_model)
+    shap_values = explainer.shap_values(X_test)
+
+    # We can't plot, so we'll log the mean absolute SHAP values
+    shap_sum = np.abs(shap_values).mean(axis=0)
+    if isinstance(shap_sum, list) and len(shap_sum) > 1: # For binary classification, shap_values can be a list of two arrays
+        shap_sum = shap_sum[1]
+
+    shap_importance_df = pd.DataFrame([X_train.columns.tolist(), shap_sum.tolist()]).T
+    shap_importance_df.columns = ['feature', 'mean_abs_shap_value']
+    shap_importance_df = shap_importance_df.sort_values('mean_abs_shap_value', ascending=False)
+
+    print("Top 15 Features by Mean Absolute SHAP Value:")
+    print(shap_importance_df.head(15))
+    print("--- Feature Analysis Complete ---\n")
+
+
+    # 6. Final Evaluation
     print(f"--- Final Evaluation for {symbol} ---")
     y_pred = best_model.predict(X_test)
-    print(classification_report(y_test, y_pred, target_names=['Down (-1)', 'Sideways (0)', 'Up (1)']))
+    print(classification_report(y_test, y_pred, target_names=['Down (0)', 'Up (1)']))
 
     # 6. Save Model and Features with symbol-specific names
     sanitized_symbol = sanitize_symbol(symbol)
