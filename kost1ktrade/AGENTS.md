@@ -51,28 +51,47 @@ This section details significant changes and improvements made to the backend ar
     - The check in the API endpoint was removed.
     - The `BotState` class was refactored to dynamically load all strategies from `strategy_params.json` on startup, making the system more robust.
 
-### 2. Machine Learning Pipeline Overhaul
-The entire ML pipeline has been upgraded for flexibility, power, and efficiency.
+### 2. Advanced Machine Learning Pipeline (September 2025)
+The ML pipeline was fundamentally overhauled to improve prediction quality and robustness, addressing the low performance of the previous model. The new methodology is implemented in `scripts/train_model.py`.
 
-#### **Data Caching System**
-- **File:** `src/data_collector/data_cacher.py`
-- **Functionality:** A `DataCacher` class now manages historical data. It uses a local SQLite database (`data/historical_data.db`) to cache candle data.
-- **Workflow:** When data is requested (e.g., by the training script), the cacher first pulls available data from the local database and then fetches only the newer, missing data from the exchange. This makes fetching large datasets (e.g., 2 years) very efficient after the initial download.
-- **Key Method:** `fetch_and_cache_data()` orchestrates this process.
+#### **Core Methodological Changes**
 
-#### **Flexible and Advanced Model Training**
-- **File:** `scripts/train_model.py`
-- **Usage:** The script is now highly configurable via command-line arguments:
-  ```bash
-  # Run training with default 2 years of BTC/USDT data
-  pipenv run python scripts/train_model.py
+-   **Binary Classification with Noise Filtering:** The model no longer predicts "Sideways" movements. It's now a binary classifier (Up/Down). The training data is filtered using a volatility threshold (based on ATR) to remove low-impact, noisy price movements, focusing the model on significant events.
+-   **Feature Stationarity:** All price-based technical indicators (e.g., SMAs, Bollinger Bands) are transformed into stationary series (e.g., by normalizing against the current price). This prevents the model from learning spurious, price-dependent correlations. An ADF test is included in the pipeline to verify the stationarity of key features.
+-   **Walk-Forward Validation:** The pipeline continues to use `TimeSeriesSplit` for cross-validation, ensuring that the model is always trained on past data and validated on future data to prevent lookahead bias.
 
-  # Run training for ETH/USDT for a specific period
-  pipenv run python scripts/train_model.py --symbol "ETH/USDT" --start_date "2024-01-01" --end_date "2024-08-31"
-  ```
-- **Features:** The `src/ml/feature_generator.py` module now uses the `pandas-ta-openbb` library to generate a rich set of technical indicators. The manual calculations have been removed.
-- **Validation:** The script uses `TimeSeriesSplit` for cross-validation, which is the correct approach for time-series data.
-- **Tuning:** `RandomizedSearchCV` is used to automatically find the best hyperparameters for the model, improving its accuracy.
+#### **Expanded Feature Set**
+
+The model now incorporates a much richer set of features:
+
+-   **Technical Indicators:** A comprehensive set of indicators from `pandas-ta-openbb`, including VWAP.
+-   **Market Sentiment:**
+    -   **Fear & Greed Index:** Daily historical F&G index values are merged into the dataset.
+    -   **News Sentiment:** Daily sentiment is calculated from crypto news headlines via the CryptoPanic API.
+-   **On-Chain Metrics (Placeholder):** The pipeline includes a placeholder framework to integrate on-chain data (e.g., Net Exchange Flow, SOPR). A real implementation requires an API key from a provider like Glassnode.
+
+#### **Dependencies**
+
+The new pipeline requires several new libraries. Ensure they are in your `Pipfile` and installed (`pipenv install`):
+-   `statsmodels`: For the ADF stationarity test.
+-   `cryptopanic-api`: To fetch news data.
+-   `fear-greed-index`: To fetch the Fear & Greed index.
+-   `optuna`: For Bayesian hyperparameter optimization.
+-   `shap`: For model interpretation.
+
+#### **Configuration**
+
+To use the external data features, you must set the following environment variable in your `.env` file:
+-   `CRYPTOPANIC_API_KEY`: Your API key from [CryptoPanic](https://cryptopanic.com/developers/api/).
+-   `ONCHAIN_API_KEY`: (For future use) Your API key from a provider like Glassnode.
+
+#### **Advanced Usage**
+
+-   **Bayesian Optimization:** The script includes a full implementation of hyperparameter tuning with `Optuna`. By default, it is **commented out** to allow for fast baseline training. To enable it, uncomment the relevant block in the "Model Training & Hyperparameter Tuning" section of `train_model.py`.
+-   **Model Interpretation:** The script automatically runs two forms of feature analysis after training:
+    1.  **Feature Importance:** Logs the top 15 features based on the LightGBM model's internal importance score.
+    2.  **SHAP Analysis:** Calculates and logs the top 15 features based on their mean absolute SHAP value, providing a more robust measure of feature impact. The script also contains a commented-out example for generating local, per-prediction SHAP explanations.
+-   **Feature Selection:** The script automatically identifies and removes one feature from any pair with a correlation greater than 0.9, keeping the feature with higher importance.
 
 ### 3. Dependency Update
 - **Package:** `pandas-ta` was found to be incompatible with the current `numpy` version.
