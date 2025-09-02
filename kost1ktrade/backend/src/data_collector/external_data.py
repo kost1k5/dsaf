@@ -1,11 +1,12 @@
 import pandas as pd
-import fear_greed_index
 import os
+import requests
+import json
 from datetime import datetime, timezone
 
 def get_fear_and_greed_index(limit: int = 365 * 2) -> pd.DataFrame:
     """
-    Fetches historical Fear & Greed Index data.
+    Fetches historical Fear & Greed Index data from the alternative.me API.
 
     Args:
         limit (int): Number of days to fetch.
@@ -15,13 +16,21 @@ def get_fear_and_greed_index(limit: int = 365 * 2) -> pd.DataFrame:
     """
     print(f"Fetching last {limit} days of Fear & Greed Index...")
     try:
-        fng_data = fear_greed_index.get(limit, as_json=True)
-        df = pd.DataFrame(fng_data)
+        url = f"https://api.alternative.me/fng/?limit={limit}"
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an exception for bad status codes
+        data = response.json()
+
+        df = pd.DataFrame(data['data'])
+        df['fng_value'] = pd.to_numeric(df['value'])
         df['date'] = pd.to_datetime(df['timestamp'], unit='s').dt.date
-        df = df.rename(columns={'value': 'fng_value'})
         return df[['date', 'fng_value']]
-    except Exception as e:
-        print(f"Could not fetch Fear & Greed Index data: {e}")
+
+    except requests.exceptions.RequestException as e:
+        print(f"Could not fetch Fear & Greed Index data due to a network error: {e}")
+        return pd.DataFrame(columns=['date', 'fng_value'])
+    except (KeyError, json.JSONDecodeError) as e:
+        print(f"Could not parse Fear & Greed Index data: {e}")
         return pd.DataFrame(columns=['date', 'fng_value'])
 
 def get_onchain_metrics(days_back: int = 365 * 2) -> pd.DataFrame:

@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import lightgbm as lgb
 from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
 from sklearn.metrics import classification_report
@@ -127,6 +128,11 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
     # 3. Prepare Data
     print("Creating features and labels...")
     features_df = create_features(df)
+
+    # Handle NaNs from feature generation before creating labels
+    features_df.ffill(inplace=True)
+    features_df.dropna(inplace=True)
+
     labeled_df = create_labels(features_df)
 
     # 3. Clean and Split Data
@@ -239,6 +245,9 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
     # For binary classification, shap_values is a list of two arrays.
     # We're interested in the explanations for the positive class (1).
     shap_sum = np.abs(shap_values[1]).mean(axis=0)
+
+    # Ensure shap_sum is always at least a 1D array
+    shap_sum = np.atleast_1d(shap_sum)
 
     shap_importance_df = pd.DataFrame([X_train.columns.tolist(), shap_sum.tolist()]).T
     shap_importance_df.columns = ['feature', 'mean_abs_shap_value']

@@ -1,0 +1,68 @@
+/app/kost1ktrade/backend/src/data_collector/external_data.py:26: FutureWarning: The behavior of 'to_datetime' with 'unit' when parsing strings is deprecated. In a future version, strings will be parsed as datetime strings, matching the behavior without a 'unit'. To retain the old behavior, explicitly cast ints or floats to numeric type before calling to_datetime.
+  df['date'] = pd.to_datetime(df['timestamp'], unit='s').dt.date
+/app/kost1ktrade/backend/scripts/train_model.py:117: FutureWarning: Series.fillna with 'method' is deprecated and will raise in a future version. Use obj.ffill() or obj.bfill() instead.
+  df['fng_value'] = df['fng_value'].fillna(method='ffill')
+
+--- Starting Model Training for BTC/USDT (2023-09-03 to 2025-09-02) ---
+Fetching historical data for BTC/USDT...
+Fetching data for BTC/USDT (1h) from 2023-09-03 00:00:00 to 2025-09-02 00:00:00
+Latest cached data found at 2025-09-02 00:00:00. Fetching new data since then.
+Cache is already up to date for the requested range.
+Retrieving complete dataset from cache...
+Successfully fetched 17521 candles for BTC/USDT.
+Fetching external data (Fear & Greed, On-chain)...
+Fetching last 730 days of Fear & Greed Index...
+Warning: ONCHAIN_API_KEY not found. Skipping on-chain metrics. This is a placeholder function. You need to implement it with your own data provider.
+Creating features and labels...
+Generating a rich set of TA features...
+[!] VWAP requires an ordered DatetimeIndex.
+Transforming features to be stationary...
+Feature generation complete. New shape: (17521, 51)
+Shape after feature generation: (17521, 51)
+Shape after ffill: (17521, 51)
+Shape after dropping initial NaNs: (17322, 51)
+
+--- Data Sample before Labeling ---
+              open_time     open     high  ...  return_4h  return_8h  return_16h
+199 2023-09-11 07:00:00  25838.3  25844.7  ...   0.002914  -0.001029    0.001552
+200 2023-09-11 08:00:00  25814.5  25830.5  ...   0.000997   0.002977    0.000566
+201 2023-09-11 09:00:00  25806.6  25814.0  ...  -0.005870   0.002040    0.001658
+202 2023-09-11 10:00:00  25740.4  25745.0  ...  -0.004927  -0.001150   -0.000680
+203 2023-09-11 11:00:00  25711.0  25719.7  ...  -0.008154  -0.005264   -0.007716
+204 2023-09-11 12:00:00  25604.0  25715.6  ...  -0.003526  -0.002533   -0.004148
+205 2023-09-11 13:00:00  25716.1  25760.7  ...  -0.004775  -0.010617   -0.011052
+206 2023-09-11 14:00:00  25616.5  25635.7  ...  -0.021819  -0.026639   -0.027143
+207 2023-09-11 15:00:00  25150.0  25205.2  ...  -0.019138  -0.027136   -0.028137
+208 2023-09-11 16:00:00  25112.9  25243.3  ...  -0.020692  -0.024145   -0.021240
+209 2023-09-11 17:00:00  25183.5  25226.4  ...  -0.015372  -0.020073   -0.018075
+210 2023-09-11 18:00:00  25223.8  25224.9  ...   0.000608  -0.021224   -0.022350
+211 2023-09-11 19:00:00  25165.3  25176.5  ...  -0.003707  -0.022774   -0.027918
+212 2023-09-11 20:00:00  25019.5  25132.8  ...  -0.003387  -0.024009   -0.026481
+213 2023-09-11 21:00:00  25098.2  25216.7  ...  -0.003017  -0.018343   -0.028765
+214 2023-09-11 22:00:00  25147.8  25200.0  ...  -0.000532   0.000076   -0.026565
+215 2023-09-11 23:00:00  25152.0  25181.9  ...   0.005779   0.002051   -0.025141
+216 2023-09-12 00:00:00  25165.6  25231.0  ...   0.004132   0.000731   -0.023432
+217 2023-09-12 01:00:00  25204.1  25214.5  ...  -0.000068  -0.003084   -0.023096
+218 2023-09-12 02:00:00  25146.1  25222.4  ...   0.002338   0.001804   -0.019459
+
+[20 rows x 51 columns]
+------------------------------------
+Shape after label creation: (0, 52)
+Data shape after cleaning NaNs: (0, 52)
+
+--- Verifying Feature Stationarity (ADF Test) ---
+Traceback (most recent call last):
+  File "/app/kost1ktrade/backend/scripts/train_model.py", line 313, in <module>
+    train_model(symbol, args.timeframe, args.start_date, args.end_date)
+  File "/app/kost1ktrade/backend/scripts/train_model.py", line 165, in train_model
+    run_adf_test(labeled_df[feature_name], feature_name)
+  File "/app/kost1ktrade/backend/scripts/train_model.py", line 155, in run_adf_test
+    result = adfuller(series.dropna()) # Drop NaNs for the test
+             ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.11/lib/python3.12/site-packages/statsmodels/tsa/stattools.py", line 274, in adfuller
+    if x.max() == x.min():
+       ^^^^^^^
+  File "/home/jules/.pyenv/versions/3.12.11/lib/python3.12/site-packages/numpy/_core/_methods.py", line 44, in _amax
+    return umr_maximum(a, axis, None, out, keepdims, initial, where)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+ValueError: zero-size array to reduction operation maximum which has no identity
