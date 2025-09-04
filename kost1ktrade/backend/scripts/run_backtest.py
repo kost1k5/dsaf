@@ -6,14 +6,64 @@ import optuna
 import argparse
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import log_loss
+from sklearn.calibration import CalibratedClassifierCV
 
 # Adjust the path to allow imports from the 'src' directory
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def objective(trial, X, y):
+def calculate_sharpe_for_optuna(predictions: pd.DataFrame) -> float:
     """
-    Objective function for Optuna hyperparameter tuning.
+    A simplified backtest simulation to calculate Sharpe ratio for Optuna.
+    This is a performance-critical function.
+    """
+    # Use a fixed threshold for evaluation within Optuna, e.g., 0.5, since we are optimizing params not threshold here.
+    # The final threshold will be optimized in the evaluation script.
+    threshold = 0.5
+    initial_capital = 10000.0
+    risk_per_trade = 0.01
+    tp_atr_mult = 2.0
+    sl_atr_mult = 1.0
+
+    capital = initial_capital
+    equity_curve = [initial_capital]
+
+    trade_signals = predictions[predictions['y_pred_proba'] > threshold]
+
+    if len(trade_signals) < 5: # Not enough trades to calculate a meaningful Sharpe
+        return -1.0 # Return a poor score
+
+    for _, trade in trade_signals.iterrows():
+        if capital <= 0: break
+        risk_in_money = capital * risk_per_trade
+        stop_loss_distance_usd = sl_atr_mult * trade['atr']
+        if stop_loss_distance_usd == 0: continue
+        position_size_asset = risk_in_money / stop_loss_distance_usd
+
+        if trade['y_true'] == 1:
+            pnl = position_size_asset * (tp_atr_mult * trade['atr'])
+        else:
+            pnl = -position_size_asset * (sl_atr_mult * trade['atr'])
+
+        capital += pnl
+        equity_curve.append(capital)
+
+    equity_ser = pd.Series(equity_curve)
+    returns = equity_ser.pct_change().dropna()
+
+    if returns.std() > 0 and len(returns) > 1:
+        sharpe_ratio = returns.mean() / returns.std()
+        # Simple annualization assumption for hourly data, penalize for fewer trades
+        # This helps select models that trade more frequently and are more stable.
+        annualized_sharpe = sharpe_ratio * np.sqrt(252 * 24) * (len(trade_signals) / len(predictions))
+        return annualized_sharpe
+    else:
+        return -1.0
+
+
+def objective(trial, X, y, metadata):
+    """
+    Objective function for Optuna hyperparameter tuning, optimizing for Sharpe Ratio.
     """
     # Define the hyperparameter search space
     params = {
@@ -33,16 +83,36 @@ def objective(trial, X, y):
         'bagging_freq': trial.suggest_int('bagging_freq', 1, 7),
     }
 
+    # Create a nested validation set from the training data
+    # Use the last 25% of the data for validation
+    split_point = int(len(X) * 0.75)
+    X_train_inner, X_val_inner = X.iloc[:split_point], X.iloc[split_point:]
+    y_train_inner, y_val_inner = y.iloc[:split_point], y.iloc[split_point:]
+    metadata_val_inner = metadata.loc[X_val_inner.index]
+
+    if len(X_val_inner) == 0:
+        return -1.0 # Cannot evaluate if validation set is empty
+
     model = lgb.LGBMClassifier(**params)
-    model.fit(X, y)
+    model.fit(X_train_inner, y_train_inner)
 
-    # For simplicity, we evaluate on the training data's logloss.
-    # A more robust approach would use a nested validation set.
-    y_pred_proba = model.predict_proba(X)
-    return log_loss(y, y_pred_proba)
+    # Make predictions on the inner validation set
+    y_pred_proba = model.predict_proba(X_val_inner)[:, 1]
+
+    # Combine predictions with metadata for evaluation
+    validation_results = pd.DataFrame({
+        'y_true': y_val_inner.values,
+        'y_pred_proba': y_pred_proba,
+        'close': metadata_val_inner['close'].values,
+        'atr': metadata_val_inner['ATRr_14'].values
+    }, index=X_val_inner.index)
+
+    # Calculate Sharpe Ratio
+    sharpe = calculate_sharpe_for_optuna(validation_results)
+    return sharpe
 
 
-def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, n_splits: int = 5):
+def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.DataFrame, n_splits: int = 5):
     """
     Performs walk-forward validation with nested hyperparameter tuning.
     """
@@ -57,29 +127,39 @@ def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, n_splits: int = 5
 
         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
         y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+        metadata_train, metadata_test = metadata.loc[X_train.index], metadata.loc[X_test.index]
 
         print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
 
         # --- Nested Hyperparameter Tuning with Optuna ---
-        print("Running Optuna hyperparameter search...")
-        study = optuna.create_study(direction='minimize')
-        study.optimize(lambda trial: objective(trial, X_train, y_train), n_trials=25) # 25 trials for speed
+        print("Running Optuna hyperparameter search (optimizing for Sharpe Ratio)...")
+        study = optuna.create_study(direction='maximize')
+        study.optimize(lambda trial: objective(trial, X_train, y_train, metadata_train), n_trials=50) # More trials needed for this complex objective
 
         best_params = study.best_params
         print(f"Best params for this fold: {best_params}")
 
         # --- Final Model Training for this Fold ---
         print("Training final model for this fold with best params...")
-        final_model = lgb.LGBMClassifier(random_state=42, **best_params)
-        final_model.fit(X_train, y_train)
+        base_model = lgb.LGBMClassifier(random_state=42, **best_params)
+
+        # Calibrate the model
+        print("Calibrating model probabilities with CalibratedClassifierCV...")
+        # Using 'isotonic' as it's a non-parametric method that can correct any monotonic distortion.
+        # cv=3 is a reasonable default for the inner cross-validation of the calibrator.
+        calibrated_model = CalibratedClassifierCV(base_model, method='isotonic', cv=3)
+        calibrated_model.fit(X_train, y_train)
+
 
         # --- Prediction on Out-of-Sample (OOS) Data ---
-        y_pred_proba = final_model.predict_proba(X_test)[:, 1] # Probability of class 1
+        y_pred_proba = calibrated_model.predict_proba(X_test)[:, 1] # Probability of class 1
 
         fold_results = pd.DataFrame({
             'timestamp': X_test.index,
             'y_true': y_test.values,
-            'y_pred_proba': y_pred_proba
+            'y_pred_proba': y_pred_proba,
+            'close': metadata_test['close'].values,
+            'atr': metadata_test['ATRr_14'].values
         })
         out_of_sample_preds.append(fold_results)
 
@@ -118,9 +198,10 @@ def main(asset: str, timeframe: str):
     # 3. Prepare data for model
     X = df[selected_features]
     y = df['label']
+    metadata = df[['close', 'ATRr_14']]
 
     # 4. Run Walk-Forward Validation
-    oos_predictions = run_walk_forward_validation(X, y, n_splits=5)
+    oos_predictions = run_walk_forward_validation(X, y, metadata, n_splits=5)
 
     # 5. Save the out-of-sample predictions
     output_path = os.path.join(RESULTS_DIR, f'{asset}_{timeframe}_oos_predictions.parquet')
