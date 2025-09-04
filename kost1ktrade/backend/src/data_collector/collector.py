@@ -271,17 +271,20 @@ class DataCollector:
                     print("No more data returned from exchange. Stopping backward pagination.")
                     break
 
-                # The data from the exchange can be in any order, so we find the minimum timestamp robustly.
-                all_data.extend(data_chunk)
+                # To prevent getting stuck on APIs that ignore millisecond precision in 'until',
+                # we manually filter out any data points we have already collected.
+                existing_timestamps = {d['timestamp'] for d in all_data}
+                unique_new_data = [d for d in data_chunk if d['timestamp'] not in existing_timestamps]
 
-                oldest_ts_in_chunk = min(d['timestamp'] for d in data_chunk)
-                print(f"  Fetched {len(data_chunk)} new data points, back to {datetime.datetime.fromtimestamp(oldest_ts_in_chunk/1000)}")
-
-                # If the oldest timestamp is the same as the one we requested (or older), we are stuck.
-                # The check should be against the new oldest timestamp.
-                if oldest_ts_in_chunk >= current_until:
-                    print("Timestamp did not advance backward. Breaking loop.")
+                if not unique_new_data:
+                    print("No new data points returned in the latest chunk. Stopping backward pagination.")
                     break
+
+                all_data.extend(unique_new_data)
+
+                # The next 'until' should be based on the oldest timestamp in the unique new data we just found.
+                oldest_ts_in_chunk = min(d['timestamp'] for d in unique_new_data)
+                print(f"  Fetched {len(unique_new_data)} new data points, back to {datetime.datetime.fromtimestamp(oldest_ts_in_chunk/1000)}")
 
                 # Subtract 1ms to make the next request exclusive of the last record
                 current_until = oldest_ts_in_chunk - 1
