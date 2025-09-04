@@ -110,7 +110,7 @@ def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.Data
             'y_true': y_test.values,
             'y_pred_proba': y_pred_proba,
             'close': metadata_test['close'].values,
-            'atr': metadata_test['ATRr_14'].values
+            'atr': metadata_test['atr'].values
         })
         out_of_sample_preds.append(fold_results)
 
@@ -149,7 +149,8 @@ def main(asset: str, timeframe: str):
     # 3. Prepare data for model
     X = df[selected_features]
     y = df['label']
-    metadata = df[['close', 'ATRr_14']]
+    # Select metadata and rename ATR column for consistency
+    metadata = df[['close', 'ATRr_14']].rename(columns={'ATRr_14': 'atr'})
 
     # 4. Run Walk-Forward Validation
     oos_predictions = run_walk_forward_validation(X, y, metadata, n_splits=5)
