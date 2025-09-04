@@ -48,10 +48,11 @@ def calculate_sortino_for_optuna(predictions: pd.DataFrame) -> float:
         elif trade['proba_sell'] > threshold:
             position_size = (capital * risk_per_trade) / (trade['atr'] * sl_atr_mult)
             # We are selling, so we win if original y_true was -1 (mapped to 0).
+            # A win for a short is hitting the lower barrier (TP), defined by sl_atr_mult.
             if trade['y_true'] == 0:
-                pnl = position_size * (trade['atr'] * tp_atr_mult)
-            else:
-                pnl = -position_size * (trade['atr'] * sl_atr_mult)
+                pnl = position_size * (trade['atr'] * sl_atr_mult)
+            else: # A loss for a short is hitting the upper barrier (SL), defined by tp_atr_mult.
+                pnl = -position_size * (trade['atr'] * tp_atr_mult)
 
         if position_size > 0:
             capital += pnl
@@ -147,7 +148,7 @@ def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.Data
 
         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
         y_train, y_test = y.iloc[train_index], y.iloc[test_index]
-        metadata_test = metadata.loc[X_test.index]
+        metadata_train, metadata_test = metadata.loc[X_train.index], metadata.loc[X_test.index]
 
         print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
 
