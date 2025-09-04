@@ -13,14 +13,79 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
-def objective(trial, X, y):
+def calculate_sortino_for_optuna(predictions: pd.DataFrame) -> float:
     """
-    Objective function for Optuna hyperparameter tuning, optimizing for F1-Score.
+    A simplified backtest to calculate Sortino ratio for Optuna.
+    Penalizes only for downside volatility.
+    """
+    # For multiclass, we need a strategy to turn predictions into trades.
+    # A simple strategy: Buy on proba_buy > threshold, Sell on proba_sell > threshold.
+    # We'll use a fixed threshold for optimization.
+    threshold = 0.6 # A bit higher to be more selective
+    initial_capital = 10000.0
+    risk_per_trade = 0.01
+    tp_atr_mult = 2.0
+    sl_atr_mult = 1.0
+
+    capital = initial_capital
+    equity_curve = [initial_capital]
+
+    for _, trade in predictions.iterrows():
+        if capital <= 0: break
+
+        position_size = 0
+        pnl = 0
+
+        # Decide trade direction
+        if trade['proba_buy'] > threshold:
+            position_size = (capital * risk_per_trade) / (trade['atr'] * sl_atr_mult)
+            # Original y_true: -1 (Sell), 0 (Hold), 1 (Buy). Mapped y_true: 0, 1, 2.
+            # We are buying, so we win if original y_true was 1 (mapped to 2).
+            if trade['y_true'] == 2:
+                pnl = position_size * (trade['atr'] * tp_atr_mult)
+            else:
+                pnl = -position_size * (trade['atr'] * sl_atr_mult)
+        elif trade['proba_sell'] > threshold:
+            position_size = (capital * risk_per_trade) / (trade['atr'] * sl_atr_mult)
+            # We are selling, so we win if original y_true was -1 (mapped to 0).
+            if trade['y_true'] == 0:
+                pnl = position_size * (trade['atr'] * tp_atr_mult)
+            else:
+                pnl = -position_size * (trade['atr'] * sl_atr_mult)
+
+        if position_size > 0:
+            capital += pnl
+            equity_curve.append(capital)
+
+    if len(equity_curve) < 10: return -1.0 # Not enough trades
+
+    equity_ser = pd.Series(equity_curve)
+    returns = equity_ser.pct_change().dropna()
+
+    if returns.empty: return -1.0
+
+    # Calculate Sortino Ratio
+    downside_returns = returns[returns < 0]
+    downside_std = downside_returns.std()
+
+    if downside_std > 0:
+        sortino_ratio = returns.mean() / downside_std
+        return sortino_ratio
+    elif returns.mean() > 0:
+        return 100.0 # Great performance, no downside
+    else:
+        return -1.0
+
+
+def objective(trial, X, y, metadata, metric: str):
+    """
+    Objective function for Optuna hyperparameter tuning, optimizing for a selected metric.
     """
     # Define the hyperparameter search space
     params = {
-        'objective': 'binary',
-        'metric': 'logloss', # Metric for internal boosting, not for Optuna
+        'objective': 'multiclass',
+        'num_class': 3,
+        'metric': 'multi_logloss',
         'verbosity': -1,
         'boosting_type': 'gbdt',
         'random_state': 42,
@@ -36,33 +101,38 @@ def objective(trial, X, y):
     }
 
     # Create a nested validation set from the training data
-    # Use the last 25% of the data for validation
     split_point = int(len(X) * 0.75)
     X_train_inner, X_val_inner = X.iloc[:split_point], X.iloc[split_point:]
     y_train_inner, y_val_inner = y.iloc[:split_point], y.iloc[split_point:]
+    metadata_val_inner = metadata.loc[X_val_inner.index]
 
     if len(X_val_inner) == 0:
-        return 0.0 # Cannot evaluate if validation set is empty
+        return 0.0
 
     model = lgb.LGBMClassifier(**params)
     model.fit(X_train_inner, y_train_inner)
 
-    # Make predictions on the inner validation set
-    y_pred_proba = model.predict_proba(X_val_inner)[:, 1]
+    y_pred_proba = model.predict_proba(X_val_inner)
 
-    # Convert probabilities to binary predictions for F1 score calculation
-    # A fixed threshold of 0.5 is standard practice during optimization.
-    y_pred_binary = (y_pred_proba > 0.5).astype(int)
+    if metric == 'f1':
+        y_pred_class = np.argmax(y_pred_proba, axis=1)
+        return f1_score(y_val_inner, y_pred_class, average='weighted', zero_division=0.0)
+    elif metric == 'sortino':
+        # Combine predictions with metadata for evaluation
+        validation_results = pd.DataFrame({
+            'y_true': y_val_inner.values,
+            'proba_sell': y_pred_proba[:, 0],
+            'proba_hold': y_pred_proba[:, 1],
+            'proba_buy': y_pred_proba[:, 2],
+            'close': metadata_val_inner['close'].values,
+            'atr': metadata_val_inner['atr'].values
+        }, index=X_val_inner.index)
+        return calculate_sortino_for_optuna(validation_results)
+    else:
+        raise ValueError(f"Unsupported metric for optimization: {metric}")
 
-    # Calculate F1 Score
-    # The 'y_true' labels might only contain one class in small validation splits.
-    # 'zero_division=0.0' prevents warnings and assigns a score of 0 if this happens.
-    score = f1_score(y_val_inner, y_pred_binary, zero_division=0.0)
 
-    return score
-
-
-def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.DataFrame, n_splits: int = 5):
+def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.DataFrame, metric: str, n_splits: int = 5):
     """
     Performs walk-forward validation with nested hyperparameter tuning.
     """
@@ -77,17 +147,19 @@ def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.Data
 
         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
         y_train, y_test = y.iloc[train_index], y.iloc[test_index]
-        metadata_train, metadata_test = metadata.loc[X_train.index], metadata.loc[X_test.index]
+        metadata_test = metadata.loc[X_test.index]
 
         print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
 
         # --- Nested Hyperparameter Tuning with Optuna ---
-        print("Running Optuna hyperparameter search (optimizing for F1-Score)...")
+        print(f"Running Optuna hyperparameter search (optimizing for {metric.upper()})...")
         study = optuna.create_study(direction='maximize')
-        # Note: We no longer pass metadata to the objective function as it's not needed for F1-score
-        study.optimize(lambda trial: objective(trial, X_train, y_train), n_trials=50)
+        study.optimize(lambda trial: objective(trial, X_train, y_train, metadata_train, metric), n_trials=50)
 
         best_params = study.best_params
+        best_params['objective'] = 'multiclass'
+        best_params['num_class'] = 3
+
         print(f"Best params for this fold: {best_params}")
 
         # --- Final Model Training for this Fold ---
@@ -96,29 +168,29 @@ def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.Data
 
         # Calibrate the model
         print("Calibrating model probabilities with CalibratedClassifierCV...")
-        # Using 'isotonic' as it's a non-parametric method that can correct any monotonic distortion.
-        # cv=3 is a reasonable default for the inner cross-validation of the calibrator.
         calibrated_model = CalibratedClassifierCV(base_model, method='isotonic', cv=3)
         calibrated_model.fit(X_train, y_train)
 
-
         # --- Prediction on Out-of-Sample (OOS) Data ---
-        y_pred_proba = calibrated_model.predict_proba(X_test)[:, 1] # Probability of class 1
+        y_pred_proba = calibrated_model.predict_proba(X_test)
 
-        fold_results = pd.DataFrame({
+        # Combine results into a dataframe
+        results_df = pd.DataFrame({
             'timestamp': X_test.index,
             'y_true': y_test.values,
-            'y_pred_proba': y_pred_proba,
+            'proba_sell': y_pred_proba[:, 0],
+            'proba_hold': y_pred_proba[:, 1],
+            'proba_buy': y_pred_proba[:, 2],
             'close': metadata_test['close'].values,
             'atr': metadata_test['atr'].values
         })
-        out_of_sample_preds.append(fold_results)
+        out_of_sample_preds.append(results_df)
 
     print("\nWalk-Forward Validation complete.")
     return pd.concat(out_of_sample_preds)
 
 
-def main(asset: str, timeframe: str):
+def main(asset: str, timeframe: str, metric: str):
     """
     Main script to run the full backtest for a given asset.
     """
@@ -148,12 +220,11 @@ def main(asset: str, timeframe: str):
 
     # 3. Prepare data for model
     X = df[selected_features]
-    y = df['label']
-    # Select metadata and rename ATR column for consistency
+    y = df['label'] + 1
     metadata = df[['close', 'ATRr_14']].rename(columns={'ATRr_14': 'atr'})
 
     # 4. Run Walk-Forward Validation
-    oos_predictions = run_walk_forward_validation(X, y, metadata, n_splits=5)
+    oos_predictions = run_walk_forward_validation(X, y, metadata, metric, n_splits=5)
 
     # 5. Save the out-of-sample predictions
     output_path = os.path.join(RESULTS_DIR, f'{asset}_{timeframe}_oos_predictions.parquet')
@@ -166,6 +237,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Walk-Forward Validation Orchestrator")
     parser.add_argument("--asset", type=str, default="BTC", help="The crypto asset to process.")
     parser.add_argument("--timeframe", type=str, default="1h", help="The OHLCV timeframe to use.")
+    parser.add_argument(
+        "--metric",
+        type=str,
+        default="f1",
+        choices=['f1', 'sortino'],
+        help="The metric to optimize for in Optuna ('f1' or 'sortino')."
+    )
     args = parser.parse_args()
 
-    main(asset=args.asset, timeframe=args.timeframe)
+    main(asset=args.asset, timeframe=args.timeframe, metric=args.metric)
