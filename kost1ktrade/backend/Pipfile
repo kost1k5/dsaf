@@ -26,6 +26,7 @@ feedparser = "*"
 vaderSentiment = "*"
 pandas-ta = "==0.3.14b"
 pyarrow = "*"
+matplotlib = "*"
 
 [dev-packages]
 
