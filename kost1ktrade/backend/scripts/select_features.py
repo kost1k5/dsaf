@@ -19,8 +19,8 @@ def select_features(X: pd.DataFrame, y: pd.Series, shap_threshold=0.01, corr_thr
     # ===================================================================
     X_cleaned = X.copy()
 
-    # A. Handle Sparse Columns (e.g., 'news_sentiment', 'oi_pct_change')
-    min_required_data = 100
+    # A. Handle Sparse Columns (e.g., 'news_sentiment', 'oi_pct_change', derivatives data)
+    min_required_data = 100 # Define a minimum threshold for data presence
     X_cleaned = X_cleaned.dropna(axis=1, how='all')
 
     insufficient_data_cols = X_cleaned.columns[X_cleaned.isnull().sum() > (len(X_cleaned) - min_required_data)]
@@ -28,7 +28,7 @@ def select_features(X: pd.DataFrame, y: pd.Series, shap_threshold=0.01, corr_thr
         # print(f"Dropping columns with insufficient data: {list(insufficient_data_cols)}")
         X_cleaned = X_cleaned.drop(columns=insufficient_data_cols)
 
-    # B. Impute remaining NaNs
+    # B. Impute remaining NaNs (e.g., from indicator calculations or lags)
     X_cleaned = X_cleaned.fillna(0)
 
     if X_cleaned.isnull().sum().sum() > 0:
@@ -41,14 +41,6 @@ def select_features(X: pd.DataFrame, y: pd.Series, shap_threshold=0.01, corr_thr
     le = LabelEncoder()
     y_encoded = le.fit_transform(y)
 
-    # ===================================================================
-    # DEBUGGING BLOCK 1: Input Dimensions
-    # ===================================================================
-    print("\n--- DEBUGGING INFO START ---")
-    print(f"[Debug 1] Shape of X_cleaned (Samples, Features): {X_cleaned.shape}")
-    print(f"[Debug 1] Length of X_cleaned.columns: {len(X_cleaned.columns)}")
-    # ===================================================================
-
     print("Stage 1: Calculating SHAP values for multi-class model...")
 
     # Train the model
@@ -60,90 +52,72 @@ def select_features(X: pd.DataFrame, y: pd.Series, shap_threshold=0.01, corr_thr
     shap_values = explainer.shap_values(X_cleaned)
 
     # ===================================================================
-    # DEBUGGING BLOCK 2: SHAP Output Structure
-    # ===================================================================
-    print(f"[Debug 2] Type of shap_values: {type(shap_values)}")
-    if isinstance(shap_values, list):
-        print(f"[Debug 2] Length of shap_values list (Classes): {len(shap_values)}")
-        for i, sv in enumerate(shap_values):
-            if hasattr(sv, 'shape'):
-                 # Shapes should match X_cleaned (Samples, Features)
-                 print(f"  [Debug 2] Shape of shap_values[{i}]: {sv.shape}")
-            else:
-                 print(f"  [Debug 2] shap_values[{i}] is not an array (Type: {type(sv)})")
-    elif isinstance(shap_values, np.ndarray):
-        print(f"[Debug 2] Shape of shap_values: {shap_values.shape}")
+    # Robust SHAP Aggregation Logic (The Fix)
     # ===================================================================
 
-    # ===================================================================
-    # SHAP Aggregation Logic (With integrated debugging)
-    # ===================================================================
+    shap_sum = None
 
-    if isinstance(shap_values, list) and len(shap_values) > 1:
-        # Multi-class case
+    # Case 1: 3D Array Format (As observed in the logs)
+    # Format: (n_samples, n_features, n_classes)
+    if isinstance(shap_values, np.ndarray) and shap_values.ndim == 3:
+        print("[SHAP Aggregation] Detected format: 3D Array (Samples, Features, Classes).")
+        # Take absolute values
+        abs_shap = np.abs(shap_values)
+        # Mean across samples (axis=0) and classes (axis=2) -> (n_features,)
+        shap_sum = abs_shap.mean(axis=(0, 2))
+
+    # Case 2: Standard Multi-class (List of 2D arrays)
+    # Format: List of [ (n_samples, n_features) ] * n_classes
+    elif isinstance(shap_values, list) and len(shap_values) > 1 and all(isinstance(sv, np.ndarray) for sv in shap_values):
+        print("[SHAP Aggregation] Detected format: List of 2D arrays (Standard Multi-class).")
         try:
-            # 1. Calculate absolute values and stack
-            # This requires all arrays in the list (Debug 2) to have the same shape
+            # Stack along a new axis (axis=0) -> (n_classes, n_samples, n_features)
             stacked_abs_shap = np.stack([np.abs(sv) for sv in shap_values])
-
-            # ===================================================================
-            # DEBUGGING BLOCK 3: Aggregation Intermediate
-            # ===================================================================
-            # Shape expected: (n_classes, n_samples, n_features)
-            print(f"[Debug 3] Shape of stacked_abs_shap: {stacked_abs_shap.shape}")
-            # ===================================================================
-
-        except ValueError as e:
-            print(f"[Debug 3] ERROR: Failed to stack SHAP values: {e}. Check if shapes in Debug 2 are consistent.")
-            # If stacking fails, we cannot proceed reliably.
-            raise ValueError("Cannot aggregate SHAP values due to inconsistent dimensions across classes.")
-
-        else:
-             # 2. Calculate the mean across classes (axis=0) AND samples (axis=1)
-             # Resulting shape expected: (n_features,)
+            # Mean across classes (axis=0) and samples (axis=1) -> (n_features,)
             shap_sum = stacked_abs_shap.mean(axis=(0, 1))
+        except ValueError:
+             raise ValueError("Cannot aggregate SHAP values (List format) due to inconsistent dimensions.")
 
-    elif isinstance(shap_values, np.ndarray) or (isinstance(shap_values, list) and len(shap_values) <= 1):
-        # Binary, regression, or edge case
-        if isinstance(shap_values, list):
-             if shap_values:
-                 sv_data = shap_values[0]
+    # Case 3: Binary Classification or Regression (2D array)
+    # Format: (n_samples, n_features)
+    elif isinstance(shap_values, np.ndarray) and shap_values.ndim == 2:
+        print("[SHAP Aggregation] Detected format: 2D Array (Binary/Regression).")
+        # Mean across samples (axis=0) -> (n_features,)
+        shap_sum = np.abs(shap_values).mean(axis=0)
+
+    # Case 4: Edge case handling (e.g., list with one element)
+    elif isinstance(shap_values, list) and len(shap_values) <= 1:
+         if shap_values:
+             print("[SHAP Aggregation] Detected format: List with single 2D array.")
+             sv_data = shap_values[0]
+             if isinstance(sv_data, np.ndarray) and sv_data.ndim == 2:
+                  shap_sum = np.abs(sv_data).mean(axis=0)
              else:
-                 raise ValueError("SHAP values list is empty.")
-        else:
-            sv_data = shap_values # It's an ndarray
-
-        shap_sum = np.abs(sv_data).mean(axis=0)
+                 raise ValueError(f"Unexpected dimensions or type for single element in SHAP list.")
+         else:
+             raise ValueError("SHAP values list is empty.")
 
     else:
-        raise ValueError("Unexpected format for shap_values.")
+        # Handle unexpected formats
+        raise ValueError(f"Unexpected format for shap_values. Type: {type(shap_values)}. Dimensions (if applicable): {getattr(shap_values, 'ndim', 'N/A')}")
+
+    # Finalization
+    if shap_sum is None:
+         raise RuntimeError("SHAP aggregation failed to produce a result.")
 
     # Ensure the result is flat
     shap_sum = np.ravel(shap_sum)
 
     # ===================================================================
-    # DEBUGGING BLOCK 4: Final Dimensions Before Crash
+    # Verification and Selection
     # ===================================================================
-    if hasattr(shap_sum, 'shape'):
-        print(f"[Debug 4] Shape of final shap_sum: {shap_sum.shape}")
-    else:
-        print(f"[Debug 4] shap_sum is not an array (Type: {type(shap_sum)})")
-
-    print(f"[Debug 4] Length of final shap_sum: {len(shap_sum)}")
-
     if len(X_cleaned.columns) != len(shap_sum):
-        print("[Debug 4] ERROR: Mismatch detected! Feature count and shap_sum length are different.")
-    else:
-        print("[Debug 4] SUCCESS: Dimensions match.")
-    print("--- DEBUGGING INFO END ---\n")
-    # ===================================================================
+        # This error should not occur with the logic above, but is kept as a safeguard.
+        raise ValueError(f"ERROR: Dimension mismatch remains. Features: {len(X_cleaned.columns)}, SHAP scores: {len(shap_sum)}")
 
-    # Create importance DataFrame (Where the error occurs)
+    # Create importance DataFrame (This should now succeed)
     importance_df = pd.DataFrame({'feature': X_cleaned.columns, 'shap_importance': shap_sum})
 
-    # ... (The rest of the function logic)
-
-    # Example continuation (ensure the function can return values if successful)
     # Normalize importance
     importance_df = importance_df.sort_values(by='shap_importance', ascending=False)
     total_importance = importance_df['shap_importance'].sum()
@@ -157,10 +131,12 @@ def select_features(X: pd.DataFrame, y: pd.Series, shap_threshold=0.01, corr_thr
     selected_features_stage1 = importance_df[importance_df['shap_importance_norm'] > shap_threshold]['feature'].tolist()
     print(f"Stage 1 selected {len(selected_features_stage1)} features.")
 
-    # Stage 2: (Placeholder)
-    final_features = selected_features_stage1
+    # Stage 2: (Placeholder for correlation analysis if implemented)
+    # ...
 
-    # Return cleaned data for plotting
+    final_features = selected_features_stage1 # Placeholder
+
+    # Return the final list of features, the raw shap values, and the cleaned data for plotting
     return final_features, shap_values, X_cleaned
 
 def main(asset: str, timeframe: str):
