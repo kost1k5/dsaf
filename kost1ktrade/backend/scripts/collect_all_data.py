@@ -22,6 +22,7 @@ def main(days_history: int):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
 
     CRYPTO_ASSETS = ['BTC', 'ETH', 'SOL', 'LINK']
+    # Explicitly define all timeframes needed for feature generation
     TIMEFRAMES = ['1h', '4h', '1d']
 
     # Define date range

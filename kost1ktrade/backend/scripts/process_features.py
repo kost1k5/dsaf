@@ -19,6 +19,8 @@ def load_data(asset: str, timeframe: str, data_dir: str) -> dict:
     # Define paths
     paths = {
         'ohlcv': (os.path.join(data_dir, f'{asset}_ohlcv_{timeframe}.csv'), ['timestamp']),
+        'ohlcv_4h': (os.path.join(data_dir, f'{asset}_ohlcv_4h.csv'), ['timestamp']),
+        'ohlcv_1d': (os.path.join(data_dir, f'{asset}_ohlcv_1d.csv'), ['timestamp']),
         'open_interest': (os.path.join(data_dir, f'{asset}_open_interest_1h.csv'), ['timestamp']),
         'funding_rate': (os.path.join(data_dir, f'{asset}_funding_rates.csv'), ['timestamp']),
         'macro': (os.path.join(data_dir, 'macro_data.csv'), ['Date']),
@@ -60,11 +62,13 @@ def main(asset: str, timeframe: str):
     feature_generator = FeatureGenerator(
         ohlcv_df=raw_data['ohlcv'],
         timeframe=timeframe,
-        open_interest_df=raw_data['open_interest'],
-        funding_rate_df=raw_data['funding_rate'],
-        macro_df=raw_data['macro'],
-        fng_df=raw_data['fng'],
-        news_df=raw_data['news']
+        ohlcv_df_4h=raw_data.get('ohlcv_4h'),
+        ohlcv_df_1d=raw_data.get('ohlcv_1d'),
+        open_interest_df=raw_data.get('open_interest'),
+        funding_rate_df=raw_data.get('funding_rate'),
+        macro_df=raw_data.get('macro'),
+        fng_df=raw_data.get('fng'),
+        news_df=raw_data.get('news')
     )
 
     # 3. Run the pipeline

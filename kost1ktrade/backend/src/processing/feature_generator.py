@@ -8,16 +8,19 @@ class FeatureGenerator:
     A class to generate a wide array of features for the trading model.
     It takes various dataframes as input and produces a single dataframe with all features.
     """
-    def __init__(self, ohlcv_df: pd.DataFrame, timeframe: str, open_interest_df: pd.DataFrame = None,
-                 funding_rate_df: pd.DataFrame = None, macro_df: pd.DataFrame = None,
-                 fng_df: pd.DataFrame = None, news_df: pd.DataFrame = None):
+    def __init__(self, ohlcv_df: pd.DataFrame, timeframe: str,
+                 ohlcv_df_4h: pd.DataFrame = None, ohlcv_df_1d: pd.DataFrame = None,
+                 open_interest_df: pd.DataFrame = None, funding_rate_df: pd.DataFrame = None,
+                 macro_df: pd.DataFrame = None, fng_df: pd.DataFrame = None, news_df: pd.DataFrame = None):
         """
         Initializes the FeatureGenerator with all necessary dataframes.
         The main dataframe `self.df` is based on the ohlcv data.
         """
         self.timeframe = timeframe
-        # Ensure dataframes are sorted by time
+        # Ensure dataframes are sorted by time and have a timestamp index
         self.df = ohlcv_df.set_index('timestamp').sort_index().copy()
+        self.ohlcv_4h = ohlcv_df_4h.set_index('timestamp').sort_index() if ohlcv_df_4h is not None else None
+        self.ohlcv_1d = ohlcv_df_1d.set_index('timestamp').sort_index() if ohlcv_df_1d is not None else None
         self.open_interest = open_interest_df.set_index('timestamp').sort_index() if open_interest_df is not None else None
         self.funding_rate = funding_rate_df.set_index('timestamp').sort_index() if funding_rate_df is not None else None
         self.macro = macro_df.set_index(pd.to_datetime(macro_df['Date'])).sort_index() if macro_df is not None else None
@@ -36,6 +39,30 @@ class FeatureGenerator:
         self.df.ta.vwap(append=True)
         self.df.ta.cmf(append=True)
         self.df.ta.adx(append=True)
+
+        return self
+
+    def add_multi_timeframe_features(self):
+        """
+        Adds technical indicators from higher timeframes (4h, 1d) to the base dataframe.
+        """
+        print("Adding multi-timeframe features...")
+        for tf_df, tf_name in [(self.ohlcv_4h, "4h"), (self.ohlcv_1d, "1d")]:
+            if tf_df is None or tf_df.empty:
+                print(f"  - Skipping {tf_name} timeframe, data not available.")
+                continue
+
+            # Calculate indicators on the higher timeframe dataframe
+            tf_df.ta.rsi(append=True)
+            tf_df.ta.ppo(append=True)
+
+            # Select and rename the indicator columns to avoid name clashes
+            indicators = tf_df[['RSI_14', 'PPO_12_26_9', 'PPOh_12_26_9', 'PPOs_12_26_9']]
+            indicators = indicators.add_suffix(f'_{tf_name}')
+
+            # Merge the HTF indicators onto the base dataframe
+            self.df = pd.merge_asof(self.df, indicators, left_index=True, right_index=True, direction='backward')
+            print(f"  - Merged {tf_name} indicators.")
 
         return self
 
@@ -123,6 +150,28 @@ class FeatureGenerator:
 
         return self
 
+    def add_lag_features(self):
+        """
+        Adds lagged versions of important features to provide historical context.
+        """
+        print("Adding lag features...")
+        lags = [3, 6, 12, 24] # e.g., for 1h timeframe, this is 3h, 6h, 12h, 24h ago
+
+        # Define columns to lag
+        # We lag the percentage change of price, not the price itself, to maintain stationarity.
+        self.df['close_pct_change'] = self.df['close'].pct_change()
+        cols_to_lag = ['close_pct_change', 'volume', 'oi_pct_change', 'funding_rate']
+
+        for col in cols_to_lag:
+            if col in self.df.columns:
+                for lag in lags:
+                    self.df[f'{col}_lag_{lag}'] = self.df[col].shift(lag)
+
+        # We can drop the original close_pct_change as it's now represented by its lags
+        self.df.drop(columns=['close_pct_change'], inplace=True, errors='ignore')
+
+        return self
+
     def add_interaction_features(self):
         """
         Creates features by combining or transforming existing ones.
@@ -182,10 +231,12 @@ class FeatureGenerator:
         Runs the full feature generation pipeline.
         """
         self.add_technical_indicators()
+        self.add_multi_timeframe_features()
         self.add_derivative_features()
         self.add_sentiment_features()
         self.add_cross_market_features()
         self.add_time_based_features()
+        self.add_lag_features()
         self.add_interaction_features()
 
         # Final check for stationarity
