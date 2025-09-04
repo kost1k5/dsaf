@@ -62,13 +62,12 @@ def calculate_financial_metrics(
             else: # Loss
                 pnl = -position_size_asset * (sl_atr_mult * atr_at_entry)
         elif trade_type == 'sell':
-            # For a short trade, a win means the price hit the lower barrier (defined by sl_atr_mult from a long perspective).
-            # However, the user wants a symmetrical reward:risk. The take-profit distance should be based on tp_atr_mult.
+            # For a short trade, a win means price hits the lower barrier (TP), loss means hitting upper barrier (SL)
             if row['y_true'] == 0: # Win
-                pnl = position_size_asset * (tp_atr_mult * atr_at_entry) # Profit target
+                pnl = position_size_asset * (sl_atr_mult * atr_at_entry)
                 is_win = True
             else: # Loss
-                pnl = -position_size_asset * (sl_atr_mult * atr_at_entry) # Stop loss
+                pnl = -position_size_asset * (tp_atr_mult * atr_at_entry)
 
         # --- Net PnL and Capital Update ---
         exit_commission = (position_value_usd + pnl) * commission_rate

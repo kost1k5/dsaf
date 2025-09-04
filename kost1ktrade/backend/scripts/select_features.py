@@ -19,17 +19,19 @@ def select_features(X: pd.DataFrame, y: pd.Series, correlation_threshold: float 
     print("Starting two-stage feature selection...")
 
     # --- Stage 1: SHAP Importance Ranking ---
-    print("Stage 1: Calculating SHAP values...")
-    # Using a simple LightGBM model for SHAP ranking
-    model = lgb.LGBMClassifier(random_state=42)
-    model.fit(X, y)
+    print("Stage 1: Calculating SHAP values for multi-class model...")
+    # Using a multi-class LightGBM model for SHAP ranking, matching the main model.
+    # We need to map y from {-1, 0, 1} to {0, 1, 2} for multiclass objective.
+    y_mapped = y + 1
+    model = lgb.LGBMClassifier(objective='multiclass', num_class=3, random_state=42)
+    model.fit(X, y_mapped)
 
     explainer = shap.TreeExplainer(model)
-    # For binary LGBM models, shap_values returns a single array for the positive class
+    # For multi-class models, shap_values returns a list of arrays (one for each class)
     shap_values = explainer.shap_values(X)
 
-    # We can directly use this array.
-    shap_sum = np.abs(shap_values).mean(axis=0)
+    # Aggregate SHAP values across all classes by taking the mean of mean absolute values.
+    shap_sum = np.mean([np.abs(s).mean(0) for s in shap_values], axis=0)
 
     importance_df = pd.DataFrame({'feature': X.columns, 'shap_importance': shap_sum})
     importance_df = importance_df.sort_values('shap_importance', ascending=False)

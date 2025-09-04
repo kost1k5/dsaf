@@ -97,7 +97,7 @@ class FeatureGenerator:
         # Add Fear & Greed Index
         if self.fng is not None and not self.fng.empty:
             self.df = pd.merge_asof(self.df, self.fng['fng_value'], left_index=True, right_index=True, direction='backward')
-            self.df['fng_value'] = self.df['fng_value'].ffill().bfill()
+            self.df['fng_value'] = self.df['fng_value'].ffill()
 
         # Add VADER sentiment from news headlines
         if self.news is not None and not self.news.empty:
@@ -107,7 +107,7 @@ class FeatureGenerator:
             daily_sentiment = self.news[['news_sentiment']].resample('D').mean()
             self.df = pd.merge_asof(self.df, daily_sentiment, left_index=True, right_index=True, direction='backward')
             # Propagate last known sentiment. This assumes sentiment persists until new news arrives.
-            self.df['news_sentiment'] = self.df['news_sentiment'].ffill().bfill()
+            self.df['news_sentiment'] = self.df['news_sentiment'].ffill()
 
         return self
 
