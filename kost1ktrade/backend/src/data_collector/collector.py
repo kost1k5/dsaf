@@ -271,14 +271,15 @@ class DataCollector:
                     print("No more data returned from exchange. Stopping backward pagination.")
                     break
 
-                # The data from the exchange is typically newest first.
+                # The data from the exchange can be in any order, so we find the minimum timestamp robustly.
                 all_data.extend(data_chunk)
 
-                oldest_ts_in_chunk = data_chunk[-1]['timestamp']
+                oldest_ts_in_chunk = min(d['timestamp'] for d in data_chunk)
                 print(f"  Fetched {len(data_chunk)} new data points, back to {datetime.datetime.fromtimestamp(oldest_ts_in_chunk/1000)}")
 
-                # If the oldest timestamp is the same as the one we requested, we are stuck.
-                if oldest_ts_in_chunk == current_until:
+                # If the oldest timestamp is the same as the one we requested (or older), we are stuck.
+                # The check should be against the new oldest timestamp.
+                if oldest_ts_in_chunk >= current_until:
                     print("Timestamp did not advance backward. Breaking loop.")
                     break
 
