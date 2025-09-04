@@ -83,7 +83,8 @@ def main(days_history: int):
         # --- Open Interest Data ---
         print(f"\n--- Collecting {asset} Open Interest (1h) ---")
         try:
-            oi_data = okx_collector.fetch_paginated_history(
+            # Use backward pagination for data with limited history
+            oi_data = okx_collector.fetch_paginated_history_backwards(
                 okx_collector.fetch_open_interest_history,
                 symbol=symbol,
                 since=since_ms,
@@ -102,7 +103,8 @@ def main(days_history: int):
         # --- Funding Rate Data ---
         print(f"\n--- Collecting {asset} Funding Rates ---")
         try:
-            fr_data = okx_collector.fetch_paginated_history(
+            # Use backward pagination for data with limited history
+            fr_data = okx_collector.fetch_paginated_history_backwards(
                 okx_collector.fetch_funding_rate_history,
                 symbol=symbol,
                 since=since_ms,

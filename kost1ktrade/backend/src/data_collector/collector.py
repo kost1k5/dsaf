@@ -152,14 +152,15 @@ class DataCollector:
         finally:
             db.close()
 
-    def fetch_funding_rate_history(self, symbol: str, since: int = None, limit: int = 100) -> List[dict]:
+    def fetch_funding_rate_history(self, symbol: str, since: int = None, limit: int = 100, params={}) -> List[dict]:
         """
         Fetches historical funding rate data for a given symbol.
         OKX specific: uses fetch_funding_rate_history
         :param symbol: The trading symbol (e.g., 'BTC-USDT-SWAP').
         :param since: The starting time in milliseconds since the epoch.
         :param limit: The number of candles to fetch. Max is 100 for this endpoint.
-        :return: A list of funding rate data.
+        :param params: Extra parameters to pass to the exchange API call.
+        :return: A list of funding rate data, typically newest first.
         """
         if not self.exchange.has['fetchFundingRateHistory']:
             raise NotSupported(f"The exchange {self.exchange.id} does not support fetching funding rate history.")
@@ -168,19 +169,20 @@ class DataCollector:
 
         print(f"Fetching {limit} funding rates for {symbol}...")
         # Note: CCXT unified method often returns in reverse chronological order (newest first)
-        funding_rates = self.exchange.fetch_funding_rate_history(symbol, since, limit)
-        # We want chronological order (oldest first) for our pagination logic
-        return sorted(funding_rates, key=lambda x: x['timestamp'])
+        funding_rates = self.exchange.fetch_funding_rate_history(symbol, since, limit, params)
+        # We REMOVE sorting to respect the exchange's default order, which is required for backward pagination.
+        return funding_rates
 
 
-    def fetch_open_interest_history(self, symbol: str, timeframe: str = '1h', since: int = None, limit: int = 100) -> List[dict]:
+    def fetch_open_interest_history(self, symbol: str, timeframe: str = '1h', since: int = None, limit: int = 100, params={}) -> List[dict]:
         """
         Fetches historical open interest data for a given symbol.
         :param symbol: The trading symbol (e.g., 'BTC-USDT-SWAP').
         :param timeframe: The timeframe for the data points (e.g., '5m', '1h', '4h', '1d').
         :param since: The starting time in milliseconds since the epoch.
         :param limit: The number of data points to fetch. Max is 100 for this endpoint.
-        :return: A list of open interest data points.
+        :param params: Extra parameters to pass to the exchange API call.
+        :return: A list of open interest data points, typically newest first.
         """
         if not self.exchange.has['fetchOpenInterestHistory']:
             raise NotSupported(f"The exchange {self.exchange.id} does not support fetching open interest history.")
@@ -188,9 +190,9 @@ class DataCollector:
             raise ValueError(f"Symbol '{symbol}' not available on {self.exchange.id}")
 
         print(f"Fetching {limit} open interest data points for {symbol} on timeframe {timeframe}...")
-        open_interest = self.exchange.fetch_open_interest_history(symbol, timeframe, since, limit)
-        # We want chronological order (oldest first) for our pagination logic
-        return sorted(open_interest, key=lambda x: x['timestamp'])
+        open_interest = self.exchange.fetch_open_interest_history(symbol, timeframe, since, limit, params)
+        # We REMOVE sorting to respect the exchange's default order, which is required for backward pagination.
+        return open_interest
 
     def fetch_paginated_history(self, fetch_method, symbol: str, since: int, end: int, **kwargs) -> List[dict]:
         """
@@ -242,6 +244,64 @@ class DataCollector:
         final_data = [d for d in all_data if since <= d['timestamp'] <= end]
         print(f"Total data points fetched: {len(final_data)}")
         return final_data
+
+
+    def fetch_paginated_history_backwards(self, fetch_method, symbol: str, since: int, end: int, **kwargs) -> List[dict]:
+        """
+        Fetches historical data by paginating backwards from the end date.
+        This is useful for endpoints with limited history like open interest or funding rates.
+        :param fetch_method: The bound method to call for fetching data.
+        :param symbol: The trading symbol.
+        :param since: The earliest time in milliseconds to fetch data for.
+        :param end: The latest time in milliseconds to fetch data for (the starting point).
+        :param kwargs: Additional keyword arguments for the fetch_method (e.g., timeframe).
+        :return: A list of all data points in the range, sorted chronologically.
+        """
+        all_data = []
+        current_until = end
+        print(f"Fetching all data for {symbol} BACKWARDS from {datetime.datetime.fromtimestamp(end/1000)} to {datetime.datetime.fromtimestamp(since/1000)}")
+
+        while current_until > since:
+            try:
+                # We use the 'params' argument to pass 'until' to ccxt, which maps to OKX's 'before' parameter.
+                # We fetch data *before* the current_until timestamp.
+                data_chunk = fetch_method(symbol=symbol, since=None, limit=100, params={'until': current_until}, **kwargs)
+
+                if not data_chunk:
+                    print("No more data returned from exchange. Stopping backward pagination.")
+                    break
+
+                # The data from the exchange is typically newest first.
+                all_data.extend(data_chunk)
+
+                oldest_ts_in_chunk = data_chunk[-1]['timestamp']
+                print(f"  Fetched {len(data_chunk)} new data points, back to {datetime.datetime.fromtimestamp(oldest_ts_in_chunk/1000)}")
+
+                # If the oldest timestamp is the same as the one we requested, we are stuck.
+                if oldest_ts_in_chunk == current_until:
+                    print("Timestamp did not advance backward. Breaking loop.")
+                    break
+
+                current_until = oldest_ts_in_chunk
+
+                # Be polite to the API
+                time.sleep(self.exchange.rateLimit / 1000)
+
+            except ExchangeError as e:
+                if '50030' in str(e):
+                    print(f"Info: Reached the end of available history for this asset (50030).")
+                else:
+                    print(f"An exchange error occurred while fetching a chunk of data: {e}")
+                break # Stop paginating on exchange errors, but keep the data we have.
+            except Exception as e:
+                print(f"A general error occurred while fetching a chunk of data: {e}")
+                break
+
+        # Final filter and sort chronologically before returning
+        final_data = [d for d in all_data if since <= d['timestamp'] <= end]
+        print(f"Total data points fetched: {len(final_data)}")
+        return sorted(final_data, key=lambda x: x['timestamp'])
+
 
 # Example usage:
 if __name__ == '__main__':
