@@ -15,101 +15,150 @@ def select_features(X: pd.DataFrame, y: pd.Series, shap_threshold=0.01, corr_thr
     print("Starting two-stage feature selection...")
 
     # ===================================================================
-    # FIX 1: Preprocessing and Cleaning
+    # Preprocessing and Cleaning (Essential)
     # ===================================================================
     X_cleaned = X.copy()
 
-    # A. Handle Sparse Columns
-    # Drop columns that are entirely NaN (like 'news_sentiment') or have very few data points.
-    min_required_data = 100 # Define a minimum threshold for data presence
+    # A. Handle Sparse Columns (e.g., 'news_sentiment', 'oi_pct_change')
+    min_required_data = 100
     X_cleaned = X_cleaned.dropna(axis=1, how='all')
 
     insufficient_data_cols = X_cleaned.columns[X_cleaned.isnull().sum() > (len(X_cleaned) - min_required_data)]
     if len(insufficient_data_cols) > 0:
-        print(f"Dropping columns with insufficient data: {list(insufficient_data_cols)}")
+        # print(f"Dropping columns with insufficient data: {list(insufficient_data_cols)}")
         X_cleaned = X_cleaned.drop(columns=insufficient_data_cols)
 
     # B. Impute remaining NaNs
-    # We fill remaining NaNs (e.g., resulting from indicator calculations or lags) with 0.
     X_cleaned = X_cleaned.fillna(0)
 
     if X_cleaned.isnull().sum().sum() > 0:
         raise ValueError("NaN values remain in X after preprocessing.")
 
     # ===================================================================
-    # FIX 2: Label Encoding
+    # Label Encoding (Essential for LGBM Multi-class)
     # ===================================================================
-    # LGBM multi-class requires labels to be 0, 1, ..., n_classes-1.
+    # Converts labels (e.g., -1, 0, 1) to (0, 1, 2)
     le = LabelEncoder()
     y_encoded = le.fit_transform(y)
 
+    # ===================================================================
+    # DEBUGGING BLOCK 1: Input Dimensions
+    # ===================================================================
+    print("\n--- DEBUGGING INFO START ---")
+    print(f"[Debug 1] Shape of X_cleaned (Samples, Features): {X_cleaned.shape}")
+    print(f"[Debug 1] Length of X_cleaned.columns: {len(X_cleaned.columns)}")
+    # ===================================================================
+
     print("Stage 1: Calculating SHAP values for multi-class model...")
 
-    # Train the model on cleaned data
+    # Train the model
     model = lgb.LGBMClassifier(objective='multiclass', n_estimators=100, learning_rate=0.05, random_state=42, n_jobs=-1)
     model.fit(X_cleaned, y_encoded)
 
-    # Calculate SHAP values using the cleaned data
+    # Calculate SHAP values
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(X_cleaned)
 
     # ===================================================================
-    # FIX 3: Correct SHAP Aggregation (Resolves the ValueError)
+    # DEBUGGING BLOCK 2: SHAP Output Structure
+    # ===================================================================
+    print(f"[Debug 2] Type of shap_values: {type(shap_values)}")
+    if isinstance(shap_values, list):
+        print(f"[Debug 2] Length of shap_values list (Classes): {len(shap_values)}")
+        for i, sv in enumerate(shap_values):
+            if hasattr(sv, 'shape'):
+                 # Shapes should match X_cleaned (Samples, Features)
+                 print(f"  [Debug 2] Shape of shap_values[{i}]: {sv.shape}")
+            else:
+                 print(f"  [Debug 2] shap_values[{i}] is not an array (Type: {type(sv)})")
+    elif isinstance(shap_values, np.ndarray):
+        print(f"[Debug 2] Shape of shap_values: {shap_values.shape}")
+    # ===================================================================
+
+    # ===================================================================
+    # SHAP Aggregation Logic (With integrated debugging)
     # ===================================================================
 
     if isinstance(shap_values, list) and len(shap_values) > 1:
-        # Multi-class case: We aggregate importance across all classes and samples.
-
-        # 1. Take the absolute value of SHAP values for each class and stack them.
-        # Resulting shape: (n_classes, n_samples, n_features)
+        # Multi-class case
         try:
+            # 1. Calculate absolute values and stack
+            # This requires all arrays in the list (Debug 2) to have the same shape
             stacked_abs_shap = np.stack([np.abs(sv) for sv in shap_values])
-        except ValueError as e:
-            print("Error stacking SHAP values. Check if all classes have consistent output shapes.")
-            raise e
 
-        # 2. Calculate the mean across classes (axis=0) AND samples (axis=1)
-        # Resulting shape: (n_features,) -> A 1D array
-        shap_sum = stacked_abs_shap.mean(axis=(0, 1))
+            # ===================================================================
+            # DEBUGGING BLOCK 3: Aggregation Intermediate
+            # ===================================================================
+            # Shape expected: (n_classes, n_samples, n_features)
+            print(f"[Debug 3] Shape of stacked_abs_shap: {stacked_abs_shap.shape}")
+            # ===================================================================
+
+        except ValueError as e:
+            print(f"[Debug 3] ERROR: Failed to stack SHAP values: {e}. Check if shapes in Debug 2 are consistent.")
+            # If stacking fails, we cannot proceed reliably.
+            raise ValueError("Cannot aggregate SHAP values due to inconsistent dimensions across classes.")
+
+        else:
+             # 2. Calculate the mean across classes (axis=0) AND samples (axis=1)
+             # Resulting shape expected: (n_features,)
+            shap_sum = stacked_abs_shap.mean(axis=(0, 1))
 
     elif isinstance(shap_values, np.ndarray) or (isinstance(shap_values, list) and len(shap_values) <= 1):
         # Binary, regression, or edge case
-        if isinstance(shap_values, list) and shap_values:
-             shap_values = shap_values[0]
-        elif isinstance(shap_values, list) and not shap_values:
-             raise ValueError("SHAP values list is empty.")
+        if isinstance(shap_values, list):
+             if shap_values:
+                 sv_data = shap_values[0]
+             else:
+                 raise ValueError("SHAP values list is empty.")
+        else:
+            sv_data = shap_values # It's an ndarray
 
-        shap_sum = np.abs(shap_values).mean(axis=0)
+        shap_sum = np.abs(sv_data).mean(axis=0)
 
     else:
         raise ValueError("Unexpected format for shap_values.")
 
-    # Ensure the result is flat (safety check)
+    # Ensure the result is flat
     shap_sum = np.ravel(shap_sum)
 
-    # Create importance DataFrame (This line should now succeed)
+    # ===================================================================
+    # DEBUGGING BLOCK 4: Final Dimensions Before Crash
+    # ===================================================================
+    if hasattr(shap_sum, 'shape'):
+        print(f"[Debug 4] Shape of final shap_sum: {shap_sum.shape}")
+    else:
+        print(f"[Debug 4] shap_sum is not an array (Type: {type(shap_sum)})")
+
+    print(f"[Debug 4] Length of final shap_sum: {len(shap_sum)}")
+
+    if len(X_cleaned.columns) != len(shap_sum):
+        print("[Debug 4] ERROR: Mismatch detected! Feature count and shap_sum length are different.")
+    else:
+        print("[Debug 4] SUCCESS: Dimensions match.")
+    print("--- DEBUGGING INFO END ---\n")
+    # ===================================================================
+
+    # Create importance DataFrame (Where the error occurs)
     importance_df = pd.DataFrame({'feature': X_cleaned.columns, 'shap_importance': shap_sum})
 
-    # ... (The rest of the function logic for normalization, selection, visualization)
+    # ... (The rest of the function logic)
 
-    # IMPORTANT: The main script expects the function to return the features list,
-    # the shap values, and the DataFrame used for plotting (X_for_plot).
-    # We must return the cleaned data (X_cleaned).
-
-    # Example continuation (adjust based on the rest of your script's implementation):
-
-    # Normalize importance (Example)
+    # Example continuation (ensure the function can return values if successful)
+    # Normalize importance
     importance_df = importance_df.sort_values(by='shap_importance', ascending=False)
-    importance_df['shap_importance_norm'] = importance_df['shap_importance'] / importance_df['shap_importance'].sum()
+    total_importance = importance_df['shap_importance'].sum()
+    if total_importance > 0:
+        importance_df['shap_importance_norm'] = importance_df['shap_importance'] / total_importance
+    else:
+        # Handle case where all importances are zero
+        importance_df['shap_importance_norm'] = 0.0
 
-    # Select features above threshold (Example)
+    # Select features above threshold
     selected_features_stage1 = importance_df[importance_df['shap_importance_norm'] > shap_threshold]['feature'].tolist()
     print(f"Stage 1 selected {len(selected_features_stage1)} features.")
 
-    # Stage 2: (Placeholder if correlation analysis follows)
-    # ...
-
-    final_features = selected_features_stage1 # Placeholder
+    # Stage 2: (Placeholder)
+    final_features = selected_features_stage1
 
     # Return cleaned data for plotting
     return final_features, shap_values, X_cleaned
