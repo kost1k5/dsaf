@@ -48,15 +48,16 @@ class FeatureGenerator:
         if self.open_interest is not None and not self.open_interest.empty:
             oi_series = self.open_interest[['openInterestValue']].rename(columns={'openInterestValue': 'oi_value'})
             self.df = pd.merge_asof(self.df, oi_series, left_index=True, right_index=True, direction='backward')
-            # First forward-fill, then back-fill to ensure the series is fully populated
-            self.df['oi_value'] = self.df['oi_value'].ffill().bfill()
+            # Forward-fill is okay to propagate last known value, but back-filling introduces lookahead bias.
+            # The model will learn to handle NaNs for periods where no data was available.
+            self.df['oi_value'] = self.df['oi_value'].ffill()
             self.df['oi_pct_change'] = self.df['oi_value'].pct_change()
 
         if self.funding_rate is not None and not self.funding_rate.empty:
             fr_series = self.funding_rate[['fundingRate']].rename(columns={'fundingRate': 'funding_rate'})
             self.df = pd.merge_asof(self.df, fr_series, left_index=True, right_index=True, direction='backward')
-            # First forward-fill, then back-fill
-            self.df['funding_rate'] = self.df['funding_rate'].ffill().bfill()
+            # Forward-fill is okay, back-filling is not.
+            self.df['funding_rate'] = self.df['funding_rate'].ffill()
             self.df['funding_rate_mom'] = self.df['funding_rate'].diff(periods=3)
 
         return self
@@ -95,6 +96,30 @@ class FeatureGenerator:
             # Calculate rolling correlations - DISABLED due to large lookback window causing issues with data size.
             # self.df['corr_spy_30d'] = self.df['close'].rolling(window=24*30).corr(self.df['SPY'])
             # self.df['corr_vix_30d'] = self.df['close'].rolling(window=24*30).corr(self.df['VIX'])
+
+        return self
+
+    def add_time_based_features(self):
+        """
+        Adds time-based features like hour of day, day of week, and volatility regimes.
+        """
+        print("Adding time-based features...")
+        self.df['hour_of_day'] = self.df.index.hour
+        self.df['day_of_week'] = self.df.index.dayofweek
+
+        # Add volatility feature
+        # We need to parse the timeframe to make the window dynamic
+        # For simplicity, we assume 'h' for hours. A more robust parser would be needed for 'm', 'd', etc.
+        if 'h' in self.timeframe:
+            try:
+                hours = int(self.timeframe.replace('h', ''))
+                window_24h = 24 // hours
+                self.df['volatility_24h'] = self.df['close'].pct_change().rolling(window=window_24h).std()
+            except ValueError:
+                print(f"Warning: Could not parse timeframe '{self.timeframe}' to calculate volatility. Skipping.")
+        else:
+             # Default to a 24 period window if timeframe is not in hours (e.g. '1d')
+            self.df['volatility_24h'] = self.df['close'].pct_change().rolling(window=24).std()
 
         return self
 
@@ -160,6 +185,7 @@ class FeatureGenerator:
         self.add_derivative_features()
         self.add_sentiment_features()
         self.add_cross_market_features()
+        self.add_time_based_features()
         self.add_interaction_features()
 
         # Final check for stationarity

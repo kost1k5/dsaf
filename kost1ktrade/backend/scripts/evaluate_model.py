@@ -8,53 +8,101 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def calculate_financial_metrics(predictions: pd.DataFrame, threshold: float):
+def calculate_financial_metrics(
+    predictions: pd.DataFrame,
+    threshold: float,
+    initial_capital: float = 10000.0,
+    risk_per_trade: float = 0.01,
+    commission_rate: float = 0.0005, # 0.05%
+    slippage_rate: float = 0.0005,   # 0.05%
+    tp_atr_mult: float = 2.0,
+    sl_atr_mult: float = 1.0
+):
     """
-    Simulates trades based on a probability threshold and calculates financial metrics.
+    Simulates trades with fixed fractional risk management and calculates financial metrics.
     """
-    # Generate trade signals (1 for long, 0 for hold/flat)
-    signals = (predictions['y_pred_proba'] > threshold).astype(int)
+    capital = initial_capital
+    equity_curve = [initial_capital]
+    trades_list = []
 
-    # We only act on a signal of 1
-    trades = signals[signals == 1]
-    if len(trades) == 0:
+    # Filter for potential trade entries
+    trade_signals = predictions[predictions['y_pred_proba'] > threshold]
+
+    if len(trade_signals) == 0:
         return {
-            "sharpe_ratio": 0, "profit_factor": 0, "max_drawdown": 1,
-            "win_rate": 0, "total_trades": 0
+            "sharpe_ratio": 0, "profit_factor": 0, "max_drawdown": 0,
+            "win_rate": 0, "total_trades": 0, "final_capital": initial_capital
         }
 
-    # Get the outcomes of the trades we took
-    trade_outcomes = predictions.loc[trades.index]['y_true']
+    for _, trade in trade_signals.iterrows():
+        # Prevent taking new trades if capital is depleted
+        if capital <= 0:
+            break
 
-    # Simplified returns: +2 for a win (TP), -1 for a loss (SL) based on our labeling
-    returns = trade_outcomes.apply(lambda x: 2 if x == 1 else -1)
+        # --- Position Sizing ---
+        risk_in_money = capital * risk_per_trade
+        atr_at_entry = trade['atr']
+        stop_loss_distance_usd = sl_atr_mult * atr_at_entry
 
-    # --- Sharpe Ratio ---
-    # Assuming risk-free rate is 0
-    sharpe_ratio = returns.mean() / returns.std() if returns.std() > 0 else 0
+        if stop_loss_distance_usd == 0:
+            continue # Avoid division by zero
 
-    # --- Win Rate ---
-    win_rate = returns[returns > 0].count() / len(returns)
+        position_size_asset = risk_in_money / stop_loss_distance_usd
+        position_value_usd = position_size_asset * trade['close']
 
-    # --- Profit Factor ---
-    gross_profit = returns[returns > 0].sum()
-    gross_loss = abs(returns[returns < 0].sum())
+        # --- Cost Calculation ---
+        entry_commission = position_value_usd * commission_rate
+        slippage_cost = position_value_usd * slippage_rate
+
+        # --- PnL Calculation ---
+        if trade['y_true'] == 1: # Win (Take Profit)
+            pnl = position_size_asset * (tp_atr_mult * atr_at_entry)
+        else: # Loss (Stop Loss or Time Barrier)
+            pnl = -position_size_asset * (sl_atr_mult * atr_at_entry)
+
+        # --- Net PnL and Capital Update ---
+        exit_commission = (position_value_usd + pnl) * commission_rate
+        net_pnl = pnl - entry_commission - exit_commission - slippage_cost
+
+        capital += net_pnl
+        equity_curve.append(capital)
+        trades_list.append({
+            'net_pnl': net_pnl,
+            'win': trade['y_true'] == 1
+        })
+
+    # --- Final Metrics Calculation ---
+    if not trades_list:
+        return {
+            "sharpe_ratio": 0, "profit_factor": 0, "max_drawdown": 0,
+            "win_rate": 0, "total_trades": 0, "final_capital": initial_capital
+        }
+
+    total_trades = len(trades_list)
+    wins = sum(1 for t in trades_list if t['win'])
+    win_rate = wins / total_trades if total_trades > 0 else 0
+
+    gross_profit = sum(t['net_pnl'] for t in trades_list if t['win'])
+    gross_loss = abs(sum(t['net_pnl'] for t in trades_list if not t['win']))
     profit_factor = gross_profit / gross_loss if gross_loss > 0 else np.inf
 
-    # --- Max Drawdown ---
-    # This requires a proper equity curve, which is hard with simplified returns.
-    # We will calculate a simplified drawdown on the cumulative returns.
-    cumulative_returns = returns.cumsum()
-    peak = cumulative_returns.cummax()
-    drawdown = (cumulative_returns - peak) / (peak + 1e-6) # Add epsilon to avoid division by zero
+    # Max Drawdown
+    equity_ser = pd.Series(equity_curve)
+    peak = equity_ser.cummax()
+    drawdown = (equity_ser - peak) / peak
     max_drawdown = abs(drawdown.min())
+
+    # Sharpe Ratio (simplified, non-annualized)
+    returns = equity_ser.pct_change().dropna()
+    sharpe_ratio = returns.mean() / returns.std() if returns.std() > 0 else 0
 
     return {
         "sharpe_ratio": sharpe_ratio,
         "profit_factor": profit_factor,
         "max_drawdown": max_drawdown,
         "win_rate": win_rate,
-        "total_trades": len(trades)
+        "total_trades": total_trades,
+        "final_capital": capital
     }
 
 def main(asset: str, timeframe: str):
@@ -112,7 +160,8 @@ def main(asset: str, timeframe: str):
     report += f"  - Profit Factor: {final_metrics['profit_factor']:.4f}\n"
     report += f"  - Max Drawdown: {final_metrics['max_drawdown']:.2%}\n"
     report += f"  - Win Rate: {final_metrics['win_rate']:.2%}\n"
-    report += f"  - Total Trades: {final_metrics['total_trades']}\n"
+    report += f"  - Total Trades: {int(final_metrics['total_trades'])}\n"
+    report += f"  - Final Capital: ${final_metrics.get('final_capital', 0):,.2f}\n"
     report += "-"*40 + "\n"
     report += "ML Classification Metrics (at optimal threshold):\n"
     report += f"  - Precision: {precision:.4f}\n"

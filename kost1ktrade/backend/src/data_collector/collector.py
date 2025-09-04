@@ -6,7 +6,7 @@ from typing import List
 from sqlalchemy.orm import Session
 from src.database.session import SessionLocal
 from src.database.models import Candle
-from ccxt.base.errors import NotSupported
+from ccxt.base.errors import NotSupported, ExchangeError
 
 
 class DataCollector:
@@ -84,9 +84,16 @@ class DataCollector:
                 # Be polite to the API
                 time.sleep(self.exchange.rateLimit / 1000)
 
+            except ExchangeError as e:
+                # Specific handling for OKX's "history data is not available" error
+                if '50030' in str(e):
+                    print(f"Info: Exchange returned 'no data available' (50030). Likely reached the end of available history for this asset.")
+                else:
+                    print(f"An exchange error occurred while fetching a chunk of data: {e}")
+                break # Stop paginating on exchange errors, but keep the data we have.
             except Exception as e:
-                print(f"An error occurred while fetching a chunk of data: {e}")
-                break
+                print(f"A general error occurred while fetching a chunk of data: {e}")
+                break # Also stop on general errors
 
         # Filter out any candles that might be outside the end date
         final_candles = [c for c in all_candles if c[0] <= end]
