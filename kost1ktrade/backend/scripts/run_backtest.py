@@ -1,201 +1,138 @@
-import sys
 import os
 import pandas as pd
 import numpy as np
+import lightgbm as lgb
+import optuna
+import argparse
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.metrics import log_loss
 
-# Add project root to path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Adjust the path to allow imports from the 'src' directory
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.data_collector.collector import DataCollector
-from src.strategies.sma_crossover import SmaCrossoverStrategy
-from src.database.session import SessionLocal
-from src.database.models import Candle, BacktestResult
-
-def load_data_from_db(db_session, symbol, interval) -> pd.DataFrame:
-    """Loads candle data from the database for a given symbol and interval."""
-    print(f"Loading data for {symbol} ({interval}) from database...")
-    try:
-        query = db_session.query(Candle).filter(Candle.symbol == symbol, Candle.interval == interval).order_by(Candle.open_time)
-        df = pd.read_sql(query.statement, db_session.bind)
-        if df.empty:
-            print("No data found in the database.")
-        else:
-            print(f"Loaded {len(df)} candles from database.")
-        return df
-    except Exception as e:
-        print(f"Could not load from DB: {e}")
-        return pd.DataFrame()
-
-
-def save_results_to_db(results: dict):
-    """Saves the backtest results to the database."""
-    db = SessionLocal()
-    try:
-        # Serialize datetime objects in trades list before saving
-        if 'trades' in results and results['trades']:
-            for trade in results['trades']:
-                if 'entry_time' in trade:
-                    trade['entry_time'] = trade['entry_time'].isoformat()
-                if 'exit_time' in trade:
-                    trade['exit_time'] = trade['exit_time'].isoformat()
-
-        backtest_entry = BacktestResult(**results)
-        db.add(backtest_entry)
-        db.commit()
-        print("\nBacktest results saved to database.")
-    except Exception as e:
-        print(f"\nCould not save results to DB: {e}")
-        db.rollback()
-    finally:
-        db.close()
-
-
-def run_backtest(strategy, data: pd.DataFrame, initial_cash=10000.0, commission_pct=0.001, slippage_pct=0.0005):
+def objective(trial, X, y):
     """
-    Runs a detailed backtest, including commission and slippage, and calculates performance metrics.
+    Objective function for Optuna hyperparameter tuning.
     """
-    if data.empty:
-        print("Data is empty, cannot run backtest.")
-        return
-
-    print(f"\nRunning backtest... (Commission: {commission_pct*100}%, Slippage: {slippage_pct*100}%)")
-    df = strategy.generate_signals(data)
-
-    cash = initial_cash
-    position = 0.0
-    portfolio_values = [initial_cash]
-    trades = []
-    entry_price = 0
-
-    for i, row in df.iterrows():
-        close_price = df.loc[i, 'close']
-        signal = df.loc[i, 'signal']
-        trade_time = df.loc[i, 'open_time']
-
-        # Manage trades, including costs
-        if signal == 'BUY' and cash > 0:
-            buy_price = close_price * (1 + slippage_pct)
-            position_before_commission = cash / buy_price
-            commission = position_before_commission * commission_pct
-            position = position_before_commission - commission
-
-            entry_price = buy_price
-            entry_time = trade_time
-            cash = 0
-            print(f"{trade_time.date()} | BUY at ~{buy_price:.2f} | Portfolio: ${initial_cash:.2f}")
-
-        elif signal == 'SELL' and position > 0:
-            sell_price = close_price * (1 - slippage_pct)
-            cash_before_commission = position * sell_price
-            commission = cash_before_commission * commission_pct
-            cash = cash_before_commission - commission
-
-            trades.append({
-                'entry_price': entry_price,
-                'exit_price': sell_price,
-                'entry_time': entry_time,
-                'exit_time': trade_time
-            })
-            position = 0
-            entry_price = 0
-            print(f"{trade_time.date()} | SELL at ~{sell_price:.2f} | Portfolio: ${cash:.2f}")
-
-        # Record portfolio value at each step
-        current_value = cash if cash > 0 else position * close_price
-        portfolio_values.append(current_value)
-
-    # --- Metrics Calculation ---
-    final_value = portfolio_values[-1]
-    total_pnl = final_value - initial_cash
-    total_return_percent = (total_pnl / initial_cash) * 100
-
-    # Win Rate
-    wins = sum(1 for trade in trades if trade['exit_price'] > trade['entry_price'])
-    win_rate = (wins / len(trades)) * 100 if trades else 0
-
-    # Max Drawdown
-    portfolio_series = pd.Series(portfolio_values)
-    rolling_max = portfolio_series.cummax()
-    drawdown = (portfolio_series - rolling_max) / rolling_max
-    max_drawdown = drawdown.min() * 100 if not drawdown.empty else 0
-
-    # Sharpe Ratio (assuming daily data and 0 risk-free rate)
-    returns = portfolio_series.pct_change().dropna()
-    sharpe_ratio = (returns.mean() / returns.std()) * np.sqrt(365) if len(returns) > 1 else 0
-
-    # --- Prepare results for saving and printing ---
-    results = {
-        "strategy_name": strategy.__class__.__name__,
-        "symbol": data.attrs.get('symbol', 'N/A'),
-        "timeframe": data.attrs.get('timeframe', 'N/A'),
-        "initial_balance": float(initial_cash),
-        "final_balance": float(final_value),
-        "pnl_usd": float(total_pnl),
-        "pnl_percent": float(total_return_percent),
-        "win_rate": float(win_rate),
-        "max_drawdown": float(max_drawdown),
-        "sharpe_ratio": float(sharpe_ratio),
-        "total_trades": len(trades),
-        "start_date": df.iloc[0]['open_time'].date(),
-        "end_date": df.iloc[-1]['open_time'].date(),
-        "trades": trades,
+    # Define the hyperparameter search space
+    params = {
+        'objective': 'binary',
+        'metric': 'logloss',
+        'verbosity': -1,
+        'boosting_type': 'gbdt',
+        'random_state': 42,
+        'n_estimators': trial.suggest_int('n_estimators', 100, 1000),
+        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
+        'num_leaves': trial.suggest_int('num_leaves', 20, 300),
+        'max_depth': trial.suggest_int('max_depth', 3, 12),
+        'lambda_l1': trial.suggest_float('lambda_l1', 1e-8, 10.0, log=True),
+        'lambda_l2': trial.suggest_float('lambda_l2', 1e-8, 10.0, log=True),
+        'feature_fraction': trial.suggest_float('feature_fraction', 0.4, 1.0),
+        'bagging_fraction': trial.suggest_float('bagging_fraction', 0.4, 1.0),
+        'bagging_freq': trial.suggest_int('bagging_freq', 1, 7),
     }
 
-    print("\n--- Backtest Report ---")
-    print(f"Period: {results['start_date']} to {results['end_date']}")
-    print(f"Strategy: {results['strategy_name']}")
-    print(f"Symbol: {results['symbol']}, Timeframe: {results['timeframe']}")
-    print(f"Initial Portfolio Value: ${results['initial_balance']:,.2f}")
-    print(f"Final Portfolio Value:   ${results['final_balance']:,.2f}")
-    print(f"Total Profit/Loss:       ${results['pnl_usd']:,.2f} ({results['pnl_percent']:.2f}%)")
-    print(f"Total Trades:            {results['total_trades']}")
-    print(f"Win Rate:                {results['win_rate']:.2f}%")
-    print(f"Max Drawdown:            {results['max_drawdown']:.2f}%")
-    print(f"Sharpe Ratio (ann.):     {results['sharpe_ratio']:.2f}")
-    print("-----------------------")
+    model = lgb.LGBMClassifier(**params)
+    model.fit(X, y)
 
-    return results
+    # For simplicity, we evaluate on the training data's logloss.
+    # A more robust approach would use a nested validation set.
+    y_pred_proba = model.predict_proba(X)
+    return log_loss(y, y_pred_proba)
+
+
+def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, n_splits: int = 5):
+    """
+    Performs walk-forward validation with nested hyperparameter tuning.
+    """
+    print(f"Starting Walk-Forward Validation with {n_splits} splits...")
+
+    tscv = TimeSeriesSplit(n_splits=n_splits)
+
+    out_of_sample_preds = []
+
+    for i, (train_index, test_index) in enumerate(tscv.split(X)):
+        print(f"\n--- Processing Fold {i+1}/{n_splits} ---")
+
+        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+
+        print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
+
+        # --- Nested Hyperparameter Tuning with Optuna ---
+        print("Running Optuna hyperparameter search...")
+        study = optuna.create_study(direction='minimize')
+        study.optimize(lambda trial: objective(trial, X_train, y_train), n_trials=25) # 25 trials for speed
+
+        best_params = study.best_params
+        print(f"Best params for this fold: {best_params}")
+
+        # --- Final Model Training for this Fold ---
+        print("Training final model for this fold with best params...")
+        final_model = lgb.LGBMClassifier(random_state=42, **best_params)
+        final_model.fit(X_train, y_train)
+
+        # --- Prediction on Out-of-Sample (OOS) Data ---
+        y_pred_proba = final_model.predict_proba(X_test)[:, 1] # Probability of class 1
+
+        fold_results = pd.DataFrame({
+            'timestamp': X_test.index,
+            'y_true': y_test.values,
+            'y_pred_proba': y_pred_proba
+        })
+        out_of_sample_preds.append(fold_results)
+
+    print("\nWalk-Forward Validation complete.")
+    return pd.concat(out_of_sample_preds)
+
+
+def main(asset: str, timeframe: str):
+    """
+    Main script to run the full backtest for a given asset.
+    """
+    LABELED_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'labeled')
+    REPORTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'reports')
+    RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+
+    # 1. Load the labeled dataset
+    labeled_path = os.path.join(LABELED_DATA_DIR, f'{asset}_{timeframe}_labeled.parquet')
+    try:
+        df = pd.read_parquet(labeled_path)
+    except FileNotFoundError:
+        print(f"Error: Labeled file not found at {labeled_path}.")
+        return
+
+    # 2. Load the selected features
+    features_path = os.path.join(REPORTS_DIR, f'{asset}_{timeframe}_selected_features.txt')
+    try:
+        with open(features_path, 'r') as f:
+            selected_features = [line.strip() for line in f]
+    except FileNotFoundError:
+        print(f"Error: Selected features file not found at {features_path}.")
+        return
+
+    print(f"Loaded {len(selected_features)} selected features for {asset}.")
+
+    # 3. Prepare data for model
+    X = df[selected_features]
+    y = df['label']
+
+    # 4. Run Walk-Forward Validation
+    oos_predictions = run_walk_forward_validation(X, y, n_splits=5)
+
+    # 5. Save the out-of-sample predictions
+    output_path = os.path.join(RESULTS_DIR, f'{asset}_{timeframe}_oos_predictions.parquet')
+    oos_predictions.to_parquet(output_path, index=False)
+    print(f"\nOut-of-sample predictions saved to: {output_path}")
+    print(oos_predictions.head())
 
 
 if __name__ == '__main__':
-    SYMBOL = 'BTC/USDT'
-    TIMEFRAME = '1d' # Daily timeframe for a longer-term backtest
+    parser = argparse.ArgumentParser(description="Walk-Forward Validation Orchestrator")
+    parser.add_argument("--asset", type=str, default="BTC", help="The crypto asset to process.")
+    parser.add_argument("--timeframe", type=str, default="1h", help="The OHLCV timeframe to use.")
+    args = parser.parse_args()
 
-    # 1. Try to load data from DB
-    db = SessionLocal()
-    candles_df = load_data_from_db(db, SYMBOL, TIMEFRAME)
-    db.close()
-
-    # 2. If DB is empty, fetch from the exchange
-    if candles_df.empty:
-        print(f"Fetching new data for {SYMBOL} since database is empty...")
-        collector = DataCollector(exchange_id='okx')
-        # Fetch last 365 days of data
-        since = collector.exchange.parse8601('2023-01-01T00:00:00Z')
-        candles_list = collector.fetch_candles(SYMBOL, timeframe=TIMEFRAME, since=since, limit=365)
-
-        if candles_list:
-            candles_df = pd.DataFrame(candles_list, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
-            # Convert timestamp to datetime
-            candles_df['open_time'] = pd.to_datetime(candles_df['open_time'], unit='ms', utc=True)
-            # Store metadata in the DataFrame
-            candles_df.attrs = {'symbol': SYMBOL, 'timeframe': TIMEFRAME}
-        else:
-            print("Failed to fetch new data. Exiting.")
-            candles_df = pd.DataFrame()
-
-
-    # 3. Initialize and run the backtest
-    if not candles_df.empty:
-        from src.core.config import settings
-        sma_strategy = SmaCrossoverStrategy(short_window=40, long_window=100)
-        results = run_backtest(
-            strategy=sma_strategy,
-            data=candles_df,
-            commission_pct=settings.BACKTEST_COMMISSION_PCT,
-            slippage_pct=settings.BACKTEST_SLIPPAGE_PCT
-        )
-        if results:
-            save_results_to_db(results)
-    else:
-        print("No data available to run the backtest.")
+    main(asset=args.asset, timeframe=args.timeframe)
