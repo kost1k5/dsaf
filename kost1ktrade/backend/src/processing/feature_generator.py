@@ -11,7 +11,8 @@ class FeatureGenerator:
     def __init__(self, ohlcv_df: pd.DataFrame, timeframe: str,
                  ohlcv_df_4h: pd.DataFrame = None, ohlcv_df_1d: pd.DataFrame = None,
                  open_interest_df: pd.DataFrame = None, funding_rate_df: pd.DataFrame = None,
-                 macro_df: pd.DataFrame = None, fng_df: pd.DataFrame = None, news_df: pd.DataFrame = None):
+                 macro_df: pd.DataFrame = None, fng_df: pd.DataFrame = None, news_df: pd.DataFrame = None,
+                 eth_ohlcv_df: pd.DataFrame = None):
         """
         Initializes the FeatureGenerator with all necessary dataframes.
         The main dataframe `self.df` is based on the ohlcv data.
@@ -21,6 +22,7 @@ class FeatureGenerator:
         self.df = ohlcv_df.set_index('timestamp').sort_index().copy()
         self.ohlcv_4h = ohlcv_df_4h.set_index('timestamp').sort_index() if ohlcv_df_4h is not None else None
         self.ohlcv_1d = ohlcv_df_1d.set_index('timestamp').sort_index() if ohlcv_df_1d is not None else None
+        self.eth_ohlcv = eth_ohlcv_df.set_index('timestamp').sort_index() if eth_ohlcv_df is not None else None
         self.open_interest = open_interest_df.set_index('timestamp').sort_index() if open_interest_df is not None else None
         self.funding_rate = funding_rate_df.set_index('timestamp').sort_index() if funding_rate_df is not None else None
         self.macro = macro_df.set_index(pd.to_datetime(macro_df['Date'])).sort_index() if macro_df is not None else None
@@ -30,16 +32,36 @@ class FeatureGenerator:
     def add_technical_indicators(self):
         """
         Calculates and adds technical indicators using the pandas-ta library.
+        (Б, В) This has been expanded to include multiple time windows and new indicators.
         """
-        print("Adding technical indicators...")
-        # Use the main dataframe's OHLCV data
-        self.df.ta.atr(append=True)
-        self.df.ta.ppo(append=True)
-        self.df.ta.rsi(append=True)
-        self.df.ta.vwap(append=True)
-        self.df.ta.cmf(append=True)
-        self.df.ta.adx(append=True)
+        print("Adding technical indicators with multiple time windows...")
 
+        # (В) Add multiple time windows for key indicators
+        for length in [7, 14, 21]:
+            self.df.ta.rsi(length=length, append=True)
+            self.df.ta.adx(length=length, append=True)
+            self.df.ta.ppo(fast=length, slow=length*2, append=True)
+
+        # (Б.1) Add Volatility and Volume indicators
+        # ATR (already uses a default length of 14, which is fine)
+        self.df.ta.atr(append=True)
+
+        # Bollinger Bands (BBB is Band Width)
+        self.df.ta.bbands(length=20, append=True)
+
+        # On-Balance Volume
+        self.df.ta.obv(append=True)
+
+        # CMF
+        self.df.ta.cmf(append=True)
+
+        # VWAP and distance from it
+        self.df.ta.vwap(append=True)
+        # The default column name for vwap is VWAP_D
+        if 'VWAP_D' in self.df.columns:
+            self.df['dist_from_vwap'] = (self.df['close'] / self.df['VWAP_D']) - 1
+
+        print(f"  - Generated {len(self.df.columns)} columns so far.")
         return self
 
     def add_multi_timeframe_features(self):
@@ -120,9 +142,18 @@ class FeatureGenerator:
             # Join macro data, forward-filling for weekends/holidays
             self.df = pd.merge_asof(self.df, self.macro[['SPY', 'VIX', 'DXY']], left_index=True, right_index=True, direction='backward')
 
-            # Calculate rolling correlations - DISABLED due to large lookback window causing issues with data size.
-            # self.df['corr_spy_30d'] = self.df['close'].rolling(window=24*30).corr(self.df['SPY'])
-            # self.df['corr_vix_30d'] = self.df['close'].rolling(window=24*30).corr(self.df['VIX'])
+        if self.eth_ohlcv is not None and not self.eth_ohlcv.empty:
+            print("  - Calculating ETH correlation...")
+            # Calculate returns for both assets
+            eth_returns = self.eth_ohlcv['close'].pct_change().rename('eth_returns')
+            asset_returns = self.df['close'].pct_change().rename('asset_returns')
+
+            # Merge ETH returns onto the main df
+            merged_returns = pd.merge_asof(asset_returns.to_frame(), eth_returns.to_frame(), left_index=True, right_index=True, direction='backward')
+
+            # Calculate rolling correlation (e.g., 30-day window on 1h data)
+            window = 24 * 30
+            self.df['corr_eth_30d'] = merged_returns['asset_returns'].rolling(window=window).corr(merged_returns['eth_returns'])
 
         return self
 

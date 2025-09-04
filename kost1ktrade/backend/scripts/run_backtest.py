@@ -94,8 +94,8 @@ def objective(trial, X, y, metadata, metric: str):
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
         'num_leaves': trial.suggest_int('num_leaves', 20, 300),
         'max_depth': trial.suggest_int('max_depth', 3, 12),
-        'lambda_l1': trial.suggest_float('lambda_l1', 1e-8, 10.0, log=True),
-        'lambda_l2': trial.suggest_float('lambda_l2', 1e-8, 10.0, log=True),
+        'lambda_l1': trial.suggest_float('lambda_l1', 1e-8, 50.0, log=True),
+        'lambda_l2': trial.suggest_float('lambda_l2', 1e-8, 50.0, log=True),
         'feature_fraction': trial.suggest_float('feature_fraction', 0.4, 1.0),
         'bagging_fraction': trial.suggest_float('bagging_fraction', 0.4, 1.0),
         'bagging_freq': trial.suggest_int('bagging_freq', 1, 7),
@@ -241,9 +241,9 @@ if __name__ == '__main__':
     parser.add_argument(
         "--metric",
         type=str,
-        default="f1",
+        default="sortino", # (E) Default to financial metric for optimization
         choices=['f1', 'sortino'],
-        help="The metric to optimize for in Optuna ('f1' or 'sortino')."
+        help="The metric to optimize for in Optuna ('f1' or 'sortino'). Default is 'sortino'."
     )
     args = parser.parse_args()
 

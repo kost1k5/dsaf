@@ -141,11 +141,21 @@ def main(asset: str, timeframe: str):
 
     results_df = pd.DataFrame(results)
 
-    if results_df.empty or results_df['sharpe_ratio'].isnull().all():
-        print("Could not find any trades for any threshold combination. Exiting.")
+    # --- (Z) Constraint on Threshold Optimization ---
+    MIN_TRADES = 100
+    realistic_results_df = results_df[results_df['total_trades'] >= MIN_TRADES]
+
+    if realistic_results_df.empty:
+        print(f"CRITICAL: No threshold combination produced the minimum required {MIN_TRADES} trades.")
+        # Optional: Print the best of the insufficient-trade results for diagnostics
+        if not results_df.empty:
+            best_insufficient_row = results_df.loc[results_df['sharpe_ratio'].idxmax()]
+            print("Diagnostics: Best result among all combinations (below trade threshold):")
+            print(best_insufficient_row)
         return
 
-    best_threshold_row = results_df.loc[results_df['sharpe_ratio'].idxmax()]
+    # Find the best threshold from the realistic, filtered results
+    best_threshold_row = realistic_results_df.loc[realistic_results_df['sharpe_ratio'].idxmax()]
     best_buy_threshold = best_threshold_row['buy_threshold']
     best_sell_threshold = best_threshold_row['sell_threshold']
 

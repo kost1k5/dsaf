@@ -77,9 +77,9 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Triple-Barrier Labeling Orchestrator")
     parser.add_argument("--asset", type=str, default="BTC", help="The crypto asset to process.")
     parser.add_argument("--timeframe", type=str, default="1h", help="The OHLCV timeframe to use.")
-    parser.add_argument("--tp", type=float, default=2.0, help="Take-profit ATR multiplier.")
+    parser.add_argument("--tp", type=float, default=1.5, help="Take-profit ATR multiplier.")
     parser.add_argument("--sl", type=float, default=1.0, help="Stop-loss ATR multiplier.")
-    parser.add_argument("--hold", type=int, default=24, help="Holding period in hours for the vertical barrier.")
+    parser.add_argument("--hold", type=int, default=12, help="Holding period in hours for the vertical barrier.")
 
     args = parser.parse_args()
 
