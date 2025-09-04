@@ -282,7 +282,8 @@ class DataCollector:
                     print("Timestamp did not advance backward. Breaking loop.")
                     break
 
-                current_until = oldest_ts_in_chunk
+                # Subtract 1ms to make the next request exclusive of the last record
+                current_until = oldest_ts_in_chunk - 1
 
                 # Be polite to the API
                 time.sleep(self.exchange.rateLimit / 1000)
