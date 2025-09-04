@@ -25,7 +25,7 @@ class MacroDataCollector:
         print(f"Fetching macro data for tickers {list(self.tickers.values())} from {start_date} to {end_date}...")
         try:
             # Download data from yfinance
-            data = yf.download(list(self.tickers.values()), start=start_date, end=end_date, progress=False)
+            data = yf.download(list(self.tickers.values()), start=start_date, end=end_date, progress=False, auto_adjust=True)
 
             if data.empty:
                 print("Warning: No data returned from yfinance.")

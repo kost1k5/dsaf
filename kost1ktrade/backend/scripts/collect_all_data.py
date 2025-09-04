@@ -124,7 +124,7 @@ if __name__ == '__main__':
     parser.add_argument(
         "--days",
         type=int,
-        default=180, # Default to 180 days to avoid sandbox file size limits
+        default=90, # Default to 90 days to comply with OKX API limits and avoid sandbox issues
         help="Number of past days of history to collect."
     )
     args = parser.parse_args()
