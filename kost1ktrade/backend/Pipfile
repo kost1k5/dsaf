@@ -17,12 +17,15 @@ lightgbm = "*"
 scikit-learn = "*"
 textblob = "*"
 numpy = "*"
-pandas-ta-openbb = "*"
 requests = "*"
 statsmodels = "*"
-fear-greed-index = "*"
 optuna = "*"
 shap = "*"
+yfinance = "*"
+feedparser = "*"
+vaderSentiment = "*"
+pandas-ta = "*"
+pyarrow = "*"
 
 [dev-packages]
 
