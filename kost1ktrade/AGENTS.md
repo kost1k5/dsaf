@@ -91,8 +91,44 @@ To use the external data features, you must set the following environment variab
 -   **Feature Selection:** The script automatically identifies and removes one feature from any pair with a correlation greater than 0.9, keeping the feature with higher importance.
 
 ### 3. Dependency Update
-- **Package:** `pandas-ta` was found to be incompatible with the current `numpy` version.
-- **Resolution:** It has been replaced with the community-maintained fork `pandas-ta-openbb` in the `Pipfile`. This fork is actively maintained and resolves the dependency issues. The code was updated to use `import pandas_ta as ta` as the fork maintains the original import name.
+- **Package:** The `pandas-ta-openbb` fork was causing import errors in the environment.
+- **Resolution:** Reverted to the original `pandas-ta` library, which is now working correctly with the project's dependencies. The import `import pandas_ta as ta` remains standard.
+
+---
+
+## Quantitative Analysis Pipeline (September 2025)
+
+A new end-to-end pipeline for quantitative research has been added. It is composed of several modular scripts designed to be run in sequence. All scripts are located in the `kost1ktrade/backend/scripts/` directory and should be run from the `kost1ktrade/backend/` directory using `pipenv run python ...`.
+
+### 1. `collect_all_data.py`
+- **Purpose:** Fetches all raw data required for analysis.
+- **Args:** `--days`: Number of days of history to fetch (e.g., 180).
+- **Output:** Raw data files in `data/raw/`.
+
+### 2. `process_features.py`
+- **Purpose:** Loads raw data and generates a full feature set.
+- **Args:** `--asset`: (e.g., 'BTC'), `--timeframe`: (e.g., '1h').
+- **Output:** Processed feature set in Parquet format in `data/processed/`.
+
+### 3. `apply_labels.py`
+- **Purpose:** Applies Triple-Barrier Method labeling to a feature set.
+- **Args:** `--asset`, `--timeframe`, and barrier parameters (`--tp`, `--sl`, `--hold`).
+- **Output:** Labeled dataset in Parquet format in `data/labeled/`.
+
+### 4. `select_features.py`
+- **Purpose:** Performs two-stage feature selection using SHAP and correlation.
+- **Args:** `--asset`, `--timeframe`.
+- **Output:** List of selected features and a SHAP summary plot in `reports/`.
+
+### 5. `run_backtest.py`
+- **Purpose:** Executes a full walk-forward validation with nested Optuna hyperparameter tuning.
+- **Args:** `--asset`, `--timeframe`.
+- **Output:** Out-of-sample predictions in Parquet format in `results/`.
+
+### 6. `evaluate_model.py`
+- **Purpose:** Evaluates the out-of-sample predictions to generate final performance metrics.
+- **Args:** `--asset`, `--timeframe`.
+- **Output:** A final evaluation report in `reports/`.
 
 ---
 
