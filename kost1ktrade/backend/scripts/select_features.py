@@ -30,8 +30,20 @@ def select_features(X: pd.DataFrame, y: pd.Series, correlation_threshold: float 
     # For multi-class models, shap_values returns a list of arrays (one for each class)
     shap_values = explainer.shap_values(X)
 
-    # Aggregate SHAP values across all classes by taking the mean of mean absolute values.
-    shap_sum = np.mean([np.abs(s).mean(0) for s in shap_values], axis=0)
+    # Calculate overall feature importance (Handles both binary and multi-class)
+    if isinstance(shap_values, list):
+        # Multi-class case: shap_values is a list of arrays (one per class).
+
+        # 1. Calculate the mean absolute SHAP value per feature FOR EACH CLASS
+        class_importances = [np.abs(sv).mean(axis=0) for sv in shap_values]
+
+        # 2. Average these importances ACROSS ALL CLASSES to get the overall importance
+        # Note: np.sum() is also a valid alternative aggregation strategy instead of np.mean()
+        shap_sum = np.mean(class_importances, axis=0)
+
+    else:
+        # Binary or regression case: shap_values is a single array
+        shap_sum = np.abs(shap_values).mean(axis=0)
 
     importance_df = pd.DataFrame({'feature': X.columns, 'shap_importance': shap_sum})
     importance_df = importance_df.sort_values('shap_importance', ascending=False)
