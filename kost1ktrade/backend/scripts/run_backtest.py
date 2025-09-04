@@ -5,70 +5,22 @@ import lightgbm as lgb
 import optuna
 import argparse
 from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import log_loss
+from sklearn.metrics import f1_score
 from sklearn.calibration import CalibratedClassifierCV
 
 # Adjust the path to allow imports from the 'src' directory
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-def calculate_sharpe_for_optuna(predictions: pd.DataFrame) -> float:
+
+def objective(trial, X, y):
     """
-    A simplified backtest simulation to calculate Sharpe ratio for Optuna.
-    This is a performance-critical function.
-    """
-    # Use a fixed threshold for evaluation within Optuna, e.g., 0.5, since we are optimizing params not threshold here.
-    # The final threshold will be optimized in the evaluation script.
-    threshold = 0.5
-    initial_capital = 10000.0
-    risk_per_trade = 0.01
-    tp_atr_mult = 2.0
-    sl_atr_mult = 1.0
-
-    capital = initial_capital
-    equity_curve = [initial_capital]
-
-    trade_signals = predictions[predictions['y_pred_proba'] > threshold]
-
-    if len(trade_signals) < 5: # Not enough trades to calculate a meaningful Sharpe
-        return -1.0 # Return a poor score
-
-    for _, trade in trade_signals.iterrows():
-        if capital <= 0: break
-        risk_in_money = capital * risk_per_trade
-        stop_loss_distance_usd = sl_atr_mult * trade['atr']
-        if stop_loss_distance_usd == 0: continue
-        position_size_asset = risk_in_money / stop_loss_distance_usd
-
-        if trade['y_true'] == 1:
-            pnl = position_size_asset * (tp_atr_mult * trade['atr'])
-        else:
-            pnl = -position_size_asset * (sl_atr_mult * trade['atr'])
-
-        capital += pnl
-        equity_curve.append(capital)
-
-    equity_ser = pd.Series(equity_curve)
-    returns = equity_ser.pct_change().dropna()
-
-    if returns.std() > 0 and len(returns) > 1:
-        sharpe_ratio = returns.mean() / returns.std()
-        # Simple annualization assumption for hourly data, penalize for fewer trades
-        # This helps select models that trade more frequently and are more stable.
-        annualized_sharpe = sharpe_ratio * np.sqrt(252 * 24) * (len(trade_signals) / len(predictions))
-        return annualized_sharpe
-    else:
-        return -1.0
-
-
-def objective(trial, X, y, metadata):
-    """
-    Objective function for Optuna hyperparameter tuning, optimizing for Sharpe Ratio.
+    Objective function for Optuna hyperparameter tuning, optimizing for F1-Score.
     """
     # Define the hyperparameter search space
     params = {
         'objective': 'binary',
-        'metric': 'logloss',
+        'metric': 'logloss', # Metric for internal boosting, not for Optuna
         'verbosity': -1,
         'boosting_type': 'gbdt',
         'random_state': 42,
@@ -88,10 +40,9 @@ def objective(trial, X, y, metadata):
     split_point = int(len(X) * 0.75)
     X_train_inner, X_val_inner = X.iloc[:split_point], X.iloc[split_point:]
     y_train_inner, y_val_inner = y.iloc[:split_point], y.iloc[split_point:]
-    metadata_val_inner = metadata.loc[X_val_inner.index]
 
     if len(X_val_inner) == 0:
-        return -1.0 # Cannot evaluate if validation set is empty
+        return 0.0 # Cannot evaluate if validation set is empty
 
     model = lgb.LGBMClassifier(**params)
     model.fit(X_train_inner, y_train_inner)
@@ -99,17 +50,16 @@ def objective(trial, X, y, metadata):
     # Make predictions on the inner validation set
     y_pred_proba = model.predict_proba(X_val_inner)[:, 1]
 
-    # Combine predictions with metadata for evaluation
-    validation_results = pd.DataFrame({
-        'y_true': y_val_inner.values,
-        'y_pred_proba': y_pred_proba,
-        'close': metadata_val_inner['close'].values,
-        'atr': metadata_val_inner['ATRr_14'].values
-    }, index=X_val_inner.index)
+    # Convert probabilities to binary predictions for F1 score calculation
+    # A fixed threshold of 0.5 is standard practice during optimization.
+    y_pred_binary = (y_pred_proba > 0.5).astype(int)
 
-    # Calculate Sharpe Ratio
-    sharpe = calculate_sharpe_for_optuna(validation_results)
-    return sharpe
+    # Calculate F1 Score
+    # The 'y_true' labels might only contain one class in small validation splits.
+    # 'zero_division=0.0' prevents warnings and assigns a score of 0 if this happens.
+    score = f1_score(y_val_inner, y_pred_binary, zero_division=0.0)
+
+    return score
 
 
 def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.DataFrame, n_splits: int = 5):
@@ -132,9 +82,10 @@ def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.Data
         print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
 
         # --- Nested Hyperparameter Tuning with Optuna ---
-        print("Running Optuna hyperparameter search (optimizing for Sharpe Ratio)...")
+        print("Running Optuna hyperparameter search (optimizing for F1-Score)...")
         study = optuna.create_study(direction='maximize')
-        study.optimize(lambda trial: objective(trial, X_train, y_train, metadata_train), n_trials=50) # More trials needed for this complex objective
+        # Note: We no longer pass metadata to the objective function as it's not needed for F1-score
+        study.optimize(lambda trial: objective(trial, X_train, y_train), n_trials=50)
 
         best_params = study.best_params
         print(f"Best params for this fold: {best_params}")
