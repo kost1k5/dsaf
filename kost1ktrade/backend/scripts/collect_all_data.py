@@ -16,6 +16,9 @@ from src.data_collector.sentiment_collector import SentimentCollector
 def main(days_history: int):
     """
     Main orchestration script to collect all required data sources.
+    - OHLCV and Macro data are collected for the specified 'days_history'.
+    - Derivatives (OI, Funding) and Sentiment (F&G) data are collected for their full available history
+      to ensure a complete dataset for feature engineering.
     """
     # --- Configuration ---
     OUTPUT_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'raw')
@@ -33,7 +36,9 @@ def main(days_history: int):
     since_ms = int(start_date.timestamp() * 1000)
     end_ms = int(end_date.timestamp() * 1000)
 
-    print(f"Starting data collection for {days_history} days from {start_date_str} to {end_date_str}")
+    print(f"Starting data collection...")
+    print(f" - OHLCV/Macro data will be fetched for {days_history} days (from {start_date_str} to {end_date_str}).")
+    print(f" - Derivatives/Sentiment data will be fetched for the full available history.")
 
     # --- Initialize Collectors ---
     okx_collector = DataCollector(exchange_id='okx')
@@ -88,9 +93,8 @@ def main(days_history: int):
             oi_data = okx_collector.fetch_paginated_history_backwards(
                 okx_collector.fetch_open_interest_history,
                 symbol=symbol,
-                since=since_ms,
-                end=end_ms,
                 timeframe='1h'
+                # By not providing 'since' or 'end', we fetch all available historical data
             )
             if oi_data:
                 oi_df = pd.DataFrame(oi_data)
@@ -107,9 +111,8 @@ def main(days_history: int):
             # Use backward pagination for data with limited history
             fr_data = okx_collector.fetch_paginated_history_backwards(
                 okx_collector.fetch_funding_rate_history,
-                symbol=symbol,
-                since=since_ms,
-                end=end_ms
+                symbol=symbol
+                # By not providing 'since' or 'end', we fetch all available historical data
             )
             if fr_data:
                 fr_df = pd.DataFrame(fr_data)

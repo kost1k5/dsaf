@@ -41,6 +41,7 @@ def optimize_hyperparameters(X_train, y_train):
             'metric': 'binary_logloss',
             'verbosity': -1,
             'boosting_type': 'gbdt',
+            'is_unbalance': True, # (Г) Address class imbalance
             'n_estimators': trial.suggest_int('n_estimators', 100, 1000),
             'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
             'num_leaves': trial.suggest_int('num_leaves', 20, 300),
@@ -233,7 +234,8 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
 
     # Active path: Train with default parameters for baseline
     print("--- Model Training (default parameters) ---")
-    best_model = lgb.LGBMClassifier(objective='binary', random_state=42)
+    # (Г) Address class imbalance by setting is_unbalance=True
+    best_model = lgb.LGBMClassifier(objective='binary', random_state=42, is_unbalance=True)
     best_model.fit(X_train, y_train)
 
     # SHAP Analysis
