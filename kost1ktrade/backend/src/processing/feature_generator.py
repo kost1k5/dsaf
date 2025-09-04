@@ -242,8 +242,9 @@ class FeatureGenerator:
         # Final check for stationarity
         self.check_and_transform_stationarity()
 
-        # Drop any remaining rows with NaNs
-        self.df.dropna(inplace=True)
+        # Do not drop NaNs. LightGBM can handle them, and this preserves the maximum
+        # amount of historical data, especially when some features have a shorter history.
+        # self.df.dropna(inplace=True)
 
         print("Feature generation complete.")
         return self.df
