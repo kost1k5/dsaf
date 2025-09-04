@@ -31,7 +31,7 @@ class SentimentCollector:
             df = pd.DataFrame(json_data['data'])
 
             # Convert 'timestamp' to datetime and set as index
-            df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
+            df['timestamp'] = pd.to_datetime(pd.to_numeric(df['timestamp']), unit='s')
             df = df.set_index('timestamp').sort_index()
 
             # Convert 'value' to numeric
