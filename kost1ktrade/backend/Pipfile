@@ -24,7 +24,7 @@ shap = "*"
 yfinance = "*"
 feedparser = "*"
 vaderSentiment = "*"
-pandas-ta = "*"
+pandas-ta = "==0.3.14b"
 pyarrow = "*"
 
 [dev-packages]
