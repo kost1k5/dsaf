@@ -10,7 +10,8 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 def calculate_financial_metrics(
     predictions: pd.DataFrame,
-    threshold: float,
+    buy_threshold: float,
+    sell_threshold: float,
     initial_capital: float = 10000.0,
     risk_per_trade: float = 0.01,
     commission_rate: float = 0.0005, # 0.05%
@@ -19,46 +20,55 @@ def calculate_financial_metrics(
     sl_atr_mult: float = 1.0
 ):
     """
-    Simulates trades with fixed fractional risk management and calculates financial metrics.
+    Simulates long and short trades with fixed fractional risk management.
     """
     capital = initial_capital
     equity_curve = [initial_capital]
     trades_list = []
 
-    # Filter for potential trade entries
-    trade_signals = predictions[predictions['y_pred_proba'] > threshold]
+    for _, row in predictions.iterrows():
+        if capital <= 0: break
 
-    if len(trade_signals) == 0:
-        return {
-            "sharpe_ratio": 0, "profit_factor": 0, "max_drawdown": 0,
-            "win_rate": 0, "total_trades": 0, "final_capital": initial_capital
-        }
+        trade_type = None
+        if row['proba_buy'] > buy_threshold:
+            trade_type = 'buy'
+        elif row['proba_sell'] > sell_threshold:
+            trade_type = 'sell'
 
-    for _, trade in trade_signals.iterrows():
-        # Prevent taking new trades if capital is depleted
-        if capital <= 0:
-            break
+        if trade_type is None:
+            continue
 
-        # --- Position Sizing ---
+        # --- Position Sizing (same for long and short) ---
         risk_in_money = capital * risk_per_trade
-        atr_at_entry = trade['atr']
-        stop_loss_distance_usd = sl_atr_mult * atr_at_entry
+        atr_at_entry = row['atr']
+        if atr_at_entry == 0: continue
 
-        if stop_loss_distance_usd == 0:
-            continue # Avoid division by zero
-
-        position_size_asset = risk_in_money / stop_loss_distance_usd
-        position_value_usd = position_size_asset * trade['close']
+        stop_loss_distance_price = sl_atr_mult * atr_at_entry
+        position_size_asset = risk_in_money / stop_loss_distance_price
+        position_value_usd = position_size_asset * row['close']
 
         # --- Cost Calculation ---
         entry_commission = position_value_usd * commission_rate
         slippage_cost = position_value_usd * slippage_rate
 
         # --- PnL Calculation ---
-        if trade['y_true'] == 1: # Win (Take Profit)
-            pnl = position_size_asset * (tp_atr_mult * atr_at_entry)
-        else: # Loss (Stop Loss or Time Barrier)
-            pnl = -position_size_asset * (sl_atr_mult * atr_at_entry)
+        pnl = 0
+        is_win = False
+        # y_true is mapped: 0=Sell(-1), 1=Hold(0), 2=Buy(1)
+        if trade_type == 'buy':
+            if row['y_true'] == 2: # Win
+                pnl = position_size_asset * (tp_atr_mult * atr_at_entry)
+                is_win = True
+            else: # Loss
+                pnl = -position_size_asset * (sl_atr_mult * atr_at_entry)
+        elif trade_type == 'sell':
+            # For a short trade, a win means the price hit the lower barrier (defined by sl_atr_mult from a long perspective).
+            # However, the user wants a symmetrical reward:risk. The take-profit distance should be based on tp_atr_mult.
+            if row['y_true'] == 0: # Win
+                pnl = position_size_asset * (tp_atr_mult * atr_at_entry) # Profit target
+                is_win = True
+            else: # Loss
+                pnl = -position_size_asset * (sl_atr_mult * atr_at_entry) # Stop loss
 
         # --- Net PnL and Capital Update ---
         exit_commission = (position_value_usd + pnl) * commission_rate
@@ -68,7 +78,7 @@ def calculate_financial_metrics(
         equity_curve.append(capital)
         trades_list.append({
             'net_pnl': net_pnl,
-            'win': trade['y_true'] == 1
+            'win': is_win
         })
 
     # --- Final Metrics Calculation ---
@@ -121,31 +131,49 @@ def main(asset: str, timeframe: str):
         print(f"Error: OOS predictions file not found at {predictions_path}.")
         return
 
-    # 2. Find the optimal probability threshold
-    print("Finding optimal probability threshold by maximizing Sharpe Ratio...")
-    thresholds = np.arange(0.5, 1.0, 0.01)
+    # 2. Find the optimal probability thresholds via Grid Search
+    print("Finding optimal probability thresholds by maximizing Sharpe Ratio...")
+    thresholds = np.arange(0.5, 1.0, 0.05) # Coarser grid for speed
     results = []
-    for t in thresholds:
-        metrics = calculate_financial_metrics(predictions_df, t)
-        results.append({'threshold': t, **metrics})
+    for buy_t in thresholds:
+        for sell_t in thresholds:
+            metrics = calculate_financial_metrics(predictions_df, buy_t, sell_t)
+            results.append({'buy_threshold': buy_t, 'sell_threshold': sell_t, **metrics})
 
     results_df = pd.DataFrame(results)
+
+    if results_df.empty or results_df['sharpe_ratio'].isnull().all():
+        print("Could not find any trades for any threshold combination. Exiting.")
+        return
+
     best_threshold_row = results_df.loc[results_df['sharpe_ratio'].idxmax()]
-    best_threshold = best_threshold_row['threshold']
+    best_buy_threshold = best_threshold_row['buy_threshold']
+    best_sell_threshold = best_threshold_row['sell_threshold']
 
-    print(f"Optimal threshold found: {best_threshold:.2f}")
+    print(f"Optimal Buy Threshold: {best_buy_threshold:.2f}")
+    print(f"Optimal Sell Threshold: {best_sell_threshold:.2f}")
 
-    # 3. Evaluate using the best threshold
+    # 3. Evaluate using the best thresholds
     print("\n--- Final Evaluation Report ---")
 
-    # Get binary predictions based on the best threshold
-    y_pred = (predictions_df['y_pred_proba'] > best_threshold).astype(int)
+    # Generate class predictions based on the best thresholds
+    def get_pred_class(row):
+        if row['proba_buy'] > best_buy_threshold:
+            return 2 # Buy
+        elif row['proba_sell'] > best_sell_threshold:
+            return 0 # Sell
+        else:
+            # If neither Buy nor Sell threshold is met, predict Hold.
+            # We can also use argmax as a fallback, but this is more explicit.
+            return 1 # Hold
+
+    y_pred = predictions_df.apply(get_pred_class, axis=1)
     y_true = predictions_df['y_true']
 
     # ML Metrics
-    precision = precision_score(y_true, y_pred)
-    recall = recall_score(y_true, y_pred)
-    f1 = f1_score(y_true, y_pred)
+    precision = precision_score(y_true, y_pred, average='weighted', zero_division=0)
+    recall = recall_score(y_true, y_pred, average='weighted', zero_division=0)
+    f1 = f1_score(y_true, y_pred, average='weighted', zero_division=0)
 
     # Financial Metrics from the best threshold
     final_metrics = best_threshold_row.to_dict()
@@ -153,9 +181,10 @@ def main(asset: str, timeframe: str):
     # --- Generate Report ---
     report = f"Evaluation Report for {asset} ({timeframe})\n"
     report += "="*40 + "\n"
-    report += f"Optimal Probability Threshold: {final_metrics['threshold']:.2f}\n"
+    report += f"Optimal Buy Threshold: {final_metrics['buy_threshold']:.2f}\n"
+    report += f"Optimal Sell Threshold: {final_metrics['sell_threshold']:.2f}\n"
     report += "-"*40 + "\n"
-    report += "Financial Metrics (at optimal threshold):\n"
+    report += "Financial Metrics (at optimal thresholds):\n"
     report += f"  - Sharpe Ratio: {final_metrics['sharpe_ratio']:.4f}\n"
     report += f"  - Profit Factor: {final_metrics['profit_factor']:.4f}\n"
     report += f"  - Max Drawdown: {final_metrics['max_drawdown']:.2%}\n"
@@ -163,10 +192,10 @@ def main(asset: str, timeframe: str):
     report += f"  - Total Trades: {int(final_metrics['total_trades'])}\n"
     report += f"  - Final Capital: ${final_metrics.get('final_capital', 0):,.2f}\n"
     report += "-"*40 + "\n"
-    report += "ML Classification Metrics (at optimal threshold):\n"
-    report += f"  - Precision: {precision:.4f}\n"
-    report += f"  - Recall: {recall:.4f}\n"
-    report += f"  - F1-Score: {f1:.4f}\n"
+    report += "ML Classification Metrics (at optimal thresholds):\n"
+    report += f"  - Precision (weighted): {precision:.4f}\n"
+    report += f"  - Recall (weighted): {recall:.4f}\n"
+    report += f"  - F1-Score (weighted): {f1:.4f}\n"
     report += "="*40 + "\n"
 
     print(report)
