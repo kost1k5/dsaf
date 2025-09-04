@@ -156,7 +156,7 @@
 
 ```bash
 # 1. Собрать данные (например, за последние 180 дней)
-pipenv run python scripts/collect_all_data.py --days 180
+pipenv run python scripts/collect_all_data.py --days 30
 
 # 2. Сгенерировать признаки для актива (например, BTC)
 pipenv run python scripts/process_features.py --asset BTC
