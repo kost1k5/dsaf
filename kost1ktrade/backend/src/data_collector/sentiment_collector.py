@@ -38,7 +38,7 @@ class SentimentCollector:
         fng_records = []
         for timestamp, row in fng_df.iterrows():
             fng_records.append({
-                "timestamp": timestamp.to_pydatetime().replace(tzinfo=timezone.utc),
+                "timestamp": timestamp.to_pydatetime(),
                 "value": int(row['fng_value']),
                 "classification": row['fng_classification']
             })
@@ -126,7 +126,7 @@ class SentimentCollector:
                     "source": item['source'],
                     "title": item['title'],
                     "link": item['link'],
-                    "published_at": item['published'].replace(tzinfo=timezone.utc)
+                    "published_at": item['published']
                 })
 
         if not records:

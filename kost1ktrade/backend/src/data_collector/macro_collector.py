@@ -37,7 +37,7 @@ class MacroDataCollector:
         records = []
         for timestamp, row in macro_df.iterrows():
             records.append({
-                "date": timestamp.to_pydatetime().replace(tzinfo=timezone.utc),
+                "date": timestamp.to_pydatetime(),
                 "spy_close": row.get('SPY'),
                 "vix_close": row.get('VIX'),
                 "dxy_close": row.get('DXY')

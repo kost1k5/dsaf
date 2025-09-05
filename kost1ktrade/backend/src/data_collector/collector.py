@@ -157,7 +157,7 @@ class DataCollector:
                 {
                     "symbol": symbol,
                     "interval": interval,
-                    "open_time": datetime.datetime.fromtimestamp(c[0] / 1000, tz=datetime.timezone.utc),
+                        "open_time": datetime.datetime.fromtimestamp(c[0] / 1000),
                     "open": c[1],
                     "high": c[2],
                     "low": c[3],
@@ -239,7 +239,7 @@ class DataCollector:
             fr_dicts.append({
                 "symbol": symbol,
                 "instrument_type": fr.get('info', {}).get('instType', 'SWAP'),
-                "funding_time": datetime.datetime.fromtimestamp(fr['timestamp'] / 1000, tz=datetime.timezone.utc),
+                "funding_time": datetime.datetime.fromtimestamp(fr['timestamp'] / 1000),
                 "funding_rate": fr['fundingRate']
             })
 
@@ -350,7 +350,7 @@ if __name__ == '__main__':
     collector = DataCollector(exchange_id='okx')
     symbol_swap = 'BTC/USDT:USDT'
     # Define a time range for the last 3 days
-    end_time = datetime.datetime.now(datetime.timezone.utc)
+    end_time = datetime.datetime.now()
     start_time = end_time - datetime.timedelta(days=3)
     since_ms = int(start_time.timestamp() * 1000)
     end_ms = int(end_time.timestamp() * 1000)
@@ -359,7 +359,7 @@ if __name__ == '__main__':
     try:
         candles_data = collector.fetch_candles(symbol_swap, timeframe='1h', limit=5)
         for candle in candles_data:
-            dt_object = datetime.datetime.fromtimestamp(candle[0] / 1000, tz=datetime.timezone.utc)
+            dt_object = datetime.datetime.fromtimestamp(candle[0] / 1000)
             print(f"Time: {dt_object}, Open: {candle[1]}, Close: {candle[4]}")
     except (ValueError, NotSupported) as e:
         print(f"An error occurred: {e}")
