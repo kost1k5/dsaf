@@ -142,7 +142,7 @@ def main(asset: str, timeframe: str):
     results_df = pd.DataFrame(results)
 
     # --- (Z) Constraint on Threshold Optimization ---
-    MIN_TRADES = 100
+    MIN_TRADES = 1000
     realistic_results_df = results_df[results_df['total_trades'] >= MIN_TRADES]
 
     if realistic_results_df.empty:
