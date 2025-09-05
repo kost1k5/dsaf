@@ -5,16 +5,17 @@ from typing import List, Optional
 # --- Nested Models for Organization ---
 
 class DBSettings(BaseModel):
-    USER: str = "postgres"
-    PASS: str = "Kostya1790"
-    HOST: str = "localhost"
-    PORT: int = 5432
-    NAME: str = "trading_bot_data"
+    # USER: str = "postgres"
+    # PASS: str = "Kostya1790"
+    # HOST: str = "localhost"
+    # PORT: int = 5432
+    # NAME: str = "trading_bot_data"
 
     @property
     def DATABASE_URL(self) -> str:
         """Constructs the full database URL."""
-        return f"postgresql+psycopg2://{self.USER}:{self.PASS}@{self.HOST}:{self.PORT}/{self.NAME}"
+        # return f"postgresql+psycopg2://{self.USER}:{self.PASS}@{self.HOST}:{self.PORT}/{self.NAME}"
+        return "sqlite:////app/kost1ktrade/backend/data/local_database.db"
 
 class OKXKeys(BaseModel):
     API_KEY: str

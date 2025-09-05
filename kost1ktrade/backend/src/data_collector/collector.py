@@ -2,10 +2,15 @@ import ccxt
 import datetime
 import time
 from typing import List
+import requests
+import zipfile
+import io
+import pandas as pd
+
 
 from sqlalchemy.orm import Session
 from src.database.session import SessionLocal
-from src.database.models import Candle
+from src.database.models import Candle, FundingRate
 from ccxt.base.errors import NotSupported, ExchangeError
 
 
