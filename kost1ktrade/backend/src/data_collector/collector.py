@@ -194,59 +194,9 @@ class DataCollector:
         # We REMOVE sorting to respect the exchange's default order, which is required for backward pagination.
         return open_interest
 
+
+
     def fetch_paginated_history(self, fetch_method, symbol: str, since: int, end: int, **kwargs) -> List[dict]:
-        """
-        Generic function to fetch historical data in a paginated way for methods that return newest first.
-        It handles pagination by repeatedly calling the provided fetch_method.
-        :param fetch_method: The bound method to call for fetching data (e.g., self.fetch_open_interest_history).
-        :param symbol: The trading symbol.
-        :param since: The starting time in milliseconds since the epoch.
-        :param end: The ending time in milliseconds since the epoch.
-        :param kwargs: Additional keyword arguments for the fetch_method (e.g., timeframe).
-        :return: A list of all data points in the range.
-        """
-        all_data = []
-        current_since = since
-        print(f"Fetching all data for {symbol} from {datetime.datetime.fromtimestamp(since/1000)} to {datetime.datetime.fromtimestamp(end/1000)}")
-
-        while current_since < end:
-            try:
-                # Fetch data, limit is 100 for many OKX history endpoints
-                data_chunk = fetch_method(symbol=symbol, since=current_since, limit=100, **kwargs)
-
-                if not data_chunk:
-                    print("No more data returned from exchange. Stopping.")
-                    break
-
-                # Filter out data that might already be in the list from previous chunk
-                # and ensure we are moving forward in time
-                last_timestamp = all_data[-1]['timestamp'] if all_data else 0
-                new_data = [d for d in data_chunk if d['timestamp'] > last_timestamp]
-
-                if not new_data:
-                    print("No new data in this chunk. Stopping to avoid infinite loop.")
-                    break
-
-                all_data.extend(new_data)
-                # The timestamp for the next fetch should be the last one we received
-                current_since = new_data[-1]['timestamp']
-                print(f"  Fetched {len(new_data)} new data points, up to {datetime.datetime.fromtimestamp(current_since/1000)}")
-
-
-                # Be polite to the API
-                time.sleep(self.exchange.rateLimit / 1000)
-
-            except Exception as e:
-                print(f"An error occurred while fetching a chunk of data: {e}")
-                break
-
-        # Final filter to ensure all data is within the requested range
-        final_data = [d for d in all_data if since <= d['timestamp'] <= end]
-        print(f"Total data points fetched: {len(final_data)}")
-        return final_data
-
-
-    def fetch_paginated_history_backwards(self, fetch_method, symbol: str, since: int, end: int, **kwargs) -> List[dict]:
         """
         Fetches historical data by paginating backwards from the end date.
         This is useful for endpoints with limited history like open interest or funding rates.

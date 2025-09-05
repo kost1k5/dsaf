@@ -10,7 +10,7 @@ class FeatureGenerator:
     """
     def __init__(self, ohlcv_df: pd.DataFrame, timeframe: str,
                  ohlcv_df_4h: pd.DataFrame = None, ohlcv_df_1d: pd.DataFrame = None,
-                 open_interest_df: pd.DataFrame = None, funding_rate_df: pd.DataFrame = None,
+                 funding_rate_df: pd.DataFrame = None,
                  macro_df: pd.DataFrame = None, fng_df: pd.DataFrame = None, news_df: pd.DataFrame = None,
                  eth_ohlcv_df: pd.DataFrame = None):
         """
@@ -23,7 +23,7 @@ class FeatureGenerator:
         self.ohlcv_4h = ohlcv_df_4h.set_index('timestamp').sort_index() if ohlcv_df_4h is not None else None
         self.ohlcv_1d = ohlcv_df_1d.set_index('timestamp').sort_index() if ohlcv_df_1d is not None else None
         self.eth_ohlcv = eth_ohlcv_df.set_index('timestamp').sort_index() if eth_ohlcv_df is not None else None
-        self.open_interest = open_interest_df.set_index('timestamp').sort_index() if open_interest_df is not None else None
+        self.open_interest = None # OI feature removed
         self.funding_rate = funding_rate_df.set_index('timestamp').sort_index() if funding_rate_df is not None else None
         self.macro = macro_df.set_index(pd.to_datetime(macro_df['Date'])).sort_index() if macro_df is not None else None
         self.fng = fng_df.set_index(pd.to_datetime(fng_df.index)).sort_index() if fng_df is not None else None
@@ -94,14 +94,6 @@ class FeatureGenerator:
         Uses merge_asof for robust joining of sparse data.
         """
         print("Adding derivative features...")
-        if self.open_interest is not None and not self.open_interest.empty:
-            oi_series = self.open_interest[['openInterestValue']].rename(columns={'openInterestValue': 'oi_value'})
-            self.df = pd.merge_asof(self.df, oi_series, left_index=True, right_index=True, direction='backward')
-            # Forward-fill is okay to propagate last known value, but back-filling introduces lookahead bias.
-            # The model will learn to handle NaNs for periods where no data was available.
-            self.df['oi_value'] = self.df['oi_value'].ffill()
-            self.df['oi_pct_change'] = self.df['oi_value'].pct_change()
-
         if self.funding_rate is not None and not self.funding_rate.empty:
             fr_series = self.funding_rate[['fundingRate']].rename(columns={'fundingRate': 'funding_rate'})
             self.df = pd.merge_asof(self.df, fr_series, left_index=True, right_index=True, direction='backward')
@@ -191,7 +183,7 @@ class FeatureGenerator:
         # Define columns to lag
         # We lag the percentage change of price, not the price itself, to maintain stationarity.
         self.df['close_pct_change'] = self.df['close'].pct_change()
-        cols_to_lag = ['close_pct_change', 'volume', 'oi_pct_change', 'funding_rate']
+        cols_to_lag = ['close_pct_change', 'volume', 'funding_rate']
 
         for col in cols_to_lag:
             if col in self.df.columns:

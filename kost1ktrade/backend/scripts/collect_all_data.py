@@ -103,60 +103,11 @@ def main(days_history: int):
                 print(f"Could not fetch OHLCV for {asset} ({tf}). Error: {e}")
             time.sleep(1) # Rate limiting precaution
 
-        # --- Open Interest Data (with custom forward pagination) ---
-        print(f"\n--- Collecting {asset} Open Interest (1h) ---")
-        all_oi_data = []
-        current_since = since_ms
-        oi_timeframe = '1h'
-        timeframe_duration_ms = 1 * 60 * 60 * 1000 # 1h in ms
+        # --- Open Interest Data ---
+        # NOTE: Historical Open Interest data is not available via the OKX API for the required range.
+        # This feature has been removed as per user's final request.
+        print(f"\n--- Skipping Open Interest for {asset} (Not Available) ---")
 
-        while current_since < end_ms:
-            try:
-                print(f"  Fetching open interest chunk since {datetime.fromtimestamp(current_since/1000)}...")
-                oi_chunk = data_collector.exchange.fetch_open_interest_history(
-                    symbol=symbol,
-                    timeframe=oi_timeframe,
-                    since=current_since,
-                    limit=100 # OKX limit is 100
-                )
-
-                if not oi_chunk:
-                    print("  No more Open Interest data returned, stopping pagination.")
-                    break
-
-                # Sort and filter out duplicates
-                oi_chunk_sorted = sorted(oi_chunk, key=lambda x: x['timestamp'])
-                last_timestamp_in_all_data = all_oi_data[-1]['timestamp'] if all_oi_data else 0
-                new_data = [d for d in oi_chunk_sorted if d['timestamp'] > last_timestamp_in_all_data]
-
-                if not new_data:
-                    print("  No new data in this chunk (all records were duplicates). Advancing time.")
-                    current_since = oi_chunk_sorted[-1]['timestamp'] + timeframe_duration_ms
-                    continue
-
-                all_oi_data.extend(new_data)
-
-                last_ts_in_chunk = new_data[-1]['timestamp']
-                current_since = last_ts_in_chunk + 1 # Increment by 1ms to avoid fetching the same record
-
-                first_ts_str = datetime.fromtimestamp(new_data[0]['timestamp']/1000)
-                last_ts_str = datetime.fromtimestamp(new_data[-1]['timestamp']/1000)
-                print(f"  Fetched {len(new_data)} new OI points. Total: {len(all_oi_data)}. Chunk range: {first_ts_str} to {last_ts_str}")
-
-            except Exception as e:
-                print(f"  An error occurred while fetching Open Interest chunk for {asset}: {e}")
-                break
-
-            time.sleep(data_collector.exchange.rateLimit / 1000)
-
-        if all_oi_data:
-            oi_df = pd.DataFrame(all_oi_data)
-            oi_df['timestamp'] = pd.to_datetime(oi_df['timestamp'], unit='ms')
-            oi_df.to_csv(os.path.join(OUTPUT_DIR, f'{asset}_open_interest_1h.csv'), index=False)
-            print(f"Saved {asset}_open_interest_1h.csv with {len(oi_df)} records to {OUTPUT_DIR}")
-        else:
-            print(f"No Open Interest data was collected for {asset}.")
-        time.sleep(1)
 
         # --- Funding Rate Data (with custom forward pagination) ---
         print(f"\n--- Collecting {asset} Funding Rates ---")
