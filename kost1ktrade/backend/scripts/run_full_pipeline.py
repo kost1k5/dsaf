@@ -38,7 +38,7 @@ def main():
     # It does not need to be in the loop.
     pipeline_step_0 = [
         "scripts/collect_all_data.py",
-        "--days", "30" # A reasonable default
+        "--days", "1095" # Set to 3 years
     ]
 
     try:
