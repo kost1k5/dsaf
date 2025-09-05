@@ -2,7 +2,7 @@ import os
 import pandas as pd
 import argparse
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 # Adjust the path to allow imports from the 'src' directory
 import sys
@@ -92,7 +92,11 @@ def main(asset: str, timeframe: str):
         # --- Smart Caching Check ---
         latest_input_ts = get_latest_input_timestamp(db, asset, timeframe)
         if os.path.exists(output_path) and latest_input_ts:
-            output_mod_time = datetime.fromtimestamp(os.path.getmtime(output_path), tz=UTC)
+            output_mod_time = datetime.fromtimestamp(os.path.getmtime(output_path), tz=timezone.utc)
+            # Make latest_input_ts timezone-aware if it's not already
+            if latest_input_ts.tzinfo is None:
+                latest_input_ts = latest_input_ts.replace(tzinfo=timezone.utc)
+
             if output_mod_time > latest_input_ts:
                 print(f"'{output_path}' is already up-to-date. Skipping feature generation.")
                 return
