@@ -36,32 +36,16 @@ This step only needs to be performed once.
 
 This is the new core workflow. This process runs the entire quantitative analysis pipeline to produce the final, production-ready model that the live bot will use.
 
-**You should run this full sequence whenever you want to update the trading model.** All commands must be run from the `kost1ktrade/backend` directory.
+**You should run this script whenever you want to generate or update the trading models for all symbols configured in your `.env` file.**
 
+This single command will execute the entire quantitative pipeline (data collection, feature engineering, labeling, training, and saving) for all assets.
+
+From the `kost1ktrade/backend` directory, run:
 ```bash
-# 1. Collect all required data (e.g., for the last 30 days)
-pipenv run python scripts/collect_all_data.py --days 30
-
-# 2. Process the raw data to generate features
-pipenv run python scripts/process_features.py --asset BTC
-
-# 3. Apply labels to the feature set using the Triple-Barrier Method
-pipenv run python scripts/apply_labels.py --asset BTC
-
-# 4. Select the best features from the dataset
-pipenv run python scripts/select_features.py --asset BTC
-
-# 5. Run a walk-forward backtest for performance analysis
-pipenv run python scripts/run_backtest.py --asset BTC
-
-# 6. Evaluate the results of the backtest
-pipenv run python scripts/evaluate_model.py --asset BTC
-
-# 7. (CRITICAL STEP) Train and save the final production model
-pipenv run python scripts/create_production_model.py --asset BTC
+pipenv run python scripts/run_full_pipeline.py
 ```
 
-After this, a new model will be saved in the `kost1ktrade/backend/models/production/` directory. The bot will automatically find and use this model.
+After the script finishes, new production-ready models will be available in the `kost1ktrade/backend/models/production/` directory. The bot will automatically find and use these new models the next time it makes a prediction.
 
 ---
 
