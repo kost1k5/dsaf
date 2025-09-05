@@ -113,3 +113,47 @@ class BacktestResult(Base):
 
     def __repr__(self):
         return f"<BacktestResult(strategy='{self.strategy_name}', symbol='{self.symbol}', pnl_percent={self.pnl_percent:.2f}%)>"
+
+
+class FearGreedIndex(Base):
+    __tablename__ = "fear_greed_index"
+    __table_args__ = (UniqueConstraint('timestamp', name='_fng_timestamp_uc'),)
+
+    id = Column(Integer, primary_key=True)
+    timestamp = Column(DateTime, nullable=False, index=True)
+    value = Column(Integer, nullable=False)
+    classification = Column(String, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+    def __repr__(self):
+        return f"<FearGreedIndex(timestamp='{self.timestamp}', value={self.value})>"
+
+
+class MacroData(Base):
+    __tablename__ = "macro_data"
+    __table_args__ = (UniqueConstraint('date', name='_macro_date_uc'),)
+
+    id = Column(Integer, primary_key=True)
+    date = Column(DateTime, nullable=False, index=True)
+    spy_close = Column(Float)
+    vix_close = Column(Float)
+    dxy_close = Column(Float)
+    created_at = Column(DateTime, server_default=func.now())
+
+    def __repr__(self):
+        return f"<MacroData(date='{self.date}')>"
+
+
+class NewsHeadline(Base):
+    __tablename__ = "news_headlines"
+    __table_args__ = (UniqueConstraint('link', name='_news_link_uc'),)
+
+    id = Column(Integer, primary_key=True)
+    source = Column(String, nullable=False)
+    title = Column(String, nullable=False)
+    link = Column(String, nullable=False)
+    published_at = Column(DateTime, nullable=False, index=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    def __repr__(self):
+        return f"<NewsHeadline(source='{self.source}', title='{self.title[:50]}...')>"

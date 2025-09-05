@@ -1,18 +1,57 @@
 import pandas as pd
 import feedparser
 import requests
-from datetime import datetime
+from datetime import datetime, timezone
 import time
+from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import func
+
+from src.database.models import FearGreedIndex, NewsHeadline
+from src.database.session import SessionLocal
 
 class SentimentCollector:
     """
     A class to collect sentiment data from various sources.
     """
-    def __init__(self):
+    def __init__(self, db_session: Session):
+        self.db = db_session
         self.rss_feeds = {
             'Cointelegraph': 'https://cointelegraph.com/rss',
             'CoinDesk': 'https://www.coindesk.com/arc/outboundfeeds/rss/'
         }
+
+    def get_latest_fng_timestamp(self) -> datetime:
+        """
+        Gets the timestamp of the most recent Fear & Greed index entry in the database.
+        """
+        latest_fng = self.db.query(func.max(FearGreedIndex.timestamp)).scalar()
+        return latest_fng
+
+    def save_fng_data_to_db(self, fng_df: pd.DataFrame):
+        """
+        Saves Fear & Greed data to the database, ignoring duplicates.
+        """
+        if fng_df.empty:
+            return
+
+        fng_records = []
+        for timestamp, row in fng_df.iterrows():
+            fng_records.append({
+                "timestamp": timestamp.to_pydatetime().replace(tzinfo=timezone.utc),
+                "value": int(row['fng_value']),
+                "classification": row['fng_classification']
+            })
+
+        if not fng_records:
+            return
+
+        stmt = insert(FearGreedIndex).values(fng_records)
+        stmt = stmt.on_conflict_do_nothing(index_elements=['timestamp'])
+        self.db.execute(stmt)
+        self.db.commit()
+        print(f"Saved {len(fng_records)} new Fear & Greed Index records to the database.")
+
 
     def fetch_fear_greed_data(self, limit: int = 0) -> pd.DataFrame:
         """
@@ -65,6 +104,40 @@ class SentimentCollector:
 
         return pd.DataFrame() # Should only be reached if the loop finishes, which it shouldn't
 
+    def get_latest_news_timestamp(self) -> datetime:
+        """
+        Gets the timestamp of the most recent news headline in the database.
+        """
+        latest_news = self.db.query(func.max(NewsHeadline.published_at)).scalar()
+        return latest_news
+
+    def save_news_to_db(self, news_items: list):
+        """
+        Saves news items to the database, ignoring duplicates based on the link.
+        """
+        if not news_items:
+            return
+
+        records = []
+        for item in news_items:
+            # Ensure there is a datetime object to save
+            if item.get('published') and isinstance(item['published'], datetime):
+                records.append({
+                    "source": item['source'],
+                    "title": item['title'],
+                    "link": item['link'],
+                    "published_at": item['published'].replace(tzinfo=timezone.utc)
+                })
+
+        if not records:
+            return
+
+        stmt = insert(NewsHeadline).values(records)
+        stmt = stmt.on_conflict_do_nothing(index_elements=['link'])
+        self.db.execute(stmt)
+        self.db.commit()
+        print(f"Saved {len(records)} new news headlines to the database.")
+
     def fetch_rss_news(self) -> list:
         """
         Fetches news headlines from a list of RSS feeds.
@@ -95,7 +168,8 @@ class SentimentCollector:
         return all_news
 
 if __name__ == '__main__':
-    collector = SentimentCollector()
+    db_session = SessionLocal()
+    collector = SentimentCollector(db_session)
 
     print("\n--- Testing Fear & Greed Index Collector ---")
     # Fetch all historical data
