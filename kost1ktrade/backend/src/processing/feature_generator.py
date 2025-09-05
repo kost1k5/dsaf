@@ -1,7 +1,6 @@
 import pandas as pd
 import pandas_ta as ta
 from statsmodels.tsa.stattools import adfuller
-from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 class FeatureGenerator:
     """
@@ -11,7 +10,7 @@ class FeatureGenerator:
     def __init__(self, ohlcv_df: pd.DataFrame, timeframe: str,
                  ohlcv_df_4h: pd.DataFrame = None, ohlcv_df_1d: pd.DataFrame = None,
                  open_interest_df: pd.DataFrame = None, funding_rate_df: pd.DataFrame = None,
-                 macro_df: pd.DataFrame = None, fng_df: pd.DataFrame = None, news_df: pd.DataFrame = None,
+                 macro_df: pd.DataFrame = None, fng_df: pd.DataFrame = None,
                  eth_ohlcv_df: pd.DataFrame = None):
         """
         Initializes the FeatureGenerator with all necessary dataframes.
@@ -27,7 +26,6 @@ class FeatureGenerator:
         self.funding_rate = funding_rate_df.set_index('timestamp').sort_index() if funding_rate_df is not None else None
         self.macro = macro_df.set_index(pd.to_datetime(macro_df['Date'])).sort_index() if macro_df is not None else None
         self.fng = fng_df.set_index(pd.to_datetime(fng_df.index)).sort_index() if fng_df is not None else None
-        self.news = news_df.set_index(pd.to_datetime(news_df['published'])).sort_index() if news_df is not None else None
 
     def add_technical_indicators(self):
         """
@@ -120,16 +118,6 @@ class FeatureGenerator:
         if self.fng is not None and not self.fng.empty:
             self.df = pd.merge_asof(self.df, self.fng['fng_value'], left_index=True, right_index=True, direction='backward')
             self.df['fng_value'] = self.df['fng_value'].ffill()
-
-        # Add VADER sentiment from news headlines
-        if self.news is not None and not self.news.empty:
-            analyzer = SentimentIntensityAnalyzer()
-            self.news['title'] = self.news['title'].astype(str)
-            self.news['news_sentiment'] = self.news['title'].apply(lambda title: analyzer.polarity_scores(title)['compound'])
-            daily_sentiment = self.news[['news_sentiment']].resample('D').mean()
-            self.df = pd.merge_asof(self.df, daily_sentiment, left_index=True, right_index=True, direction='backward')
-            # Propagate last known sentiment. This assumes sentiment persists until new news arrives.
-            self.df['news_sentiment'] = self.df['news_sentiment'].ffill()
 
         return self
 

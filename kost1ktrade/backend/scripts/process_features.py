@@ -26,7 +26,6 @@ def load_data(asset: str, timeframe: str, data_dir: str) -> dict:
         'funding_rate': (os.path.join(data_dir, f'{asset}_funding_rates.csv'), ['timestamp']),
         'macro': (os.path.join(data_dir, 'macro_data.csv'), ['Date']),
         'fng': (os.path.join(data_dir, 'fng_data.csv'), ['timestamp']),
-        'news': (os.path.join(data_dir, 'news_headlines.csv'), ['published'])
     }
 
     # Also load ETH data if the main asset is not ETH
@@ -74,7 +73,6 @@ def main(asset: str, timeframe: str):
         funding_rate_df=raw_data.get('funding_rate'),
         macro_df=raw_data.get('macro'),
         fng_df=raw_data.get('fng'),
-        news_df=raw_data.get('news'),
         eth_ohlcv_df=raw_data.get('eth_ohlcv') # Pass ETH data for context
     )
 
