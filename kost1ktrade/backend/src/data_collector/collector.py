@@ -143,62 +143,64 @@ class DataCollector:
         return None
 
 
-    def save_candles_to_db(self, candles: List[list], symbol: str, interval: str):
+    def save_candles_to_db(self, candles: List[list], symbol: str, interval: str, batch_size: int = 1500):
         """
-        Saves a list of OHLCV candles to the database.
+        Saves a list of OHLCV candles to the database in batches.
         It ignores duplicates based on the unique constraint (symbol, interval, open_time).
         :param candles: A list of OHLCV candles from ccxt.
         :param symbol: The trading symbol (e.g., 'BTC/USDT').
         :param interval: The timeframe for the candles (e.g., '1h').
+        :param batch_size: The number of rows to insert in each batch.
         """
         if not candles:
-            # print("No candles to save.") # Too verbose
             return
         if not self.db:
             raise Exception("Database session not provided to DataCollector.")
 
         from sqlalchemy.dialects.postgresql import insert
 
-        candle_dicts = []
-        unique_timestamps = set()
-
+        # 1. Prepare and de-duplicate the data
+        unique_candles = {}
         for c in candles:
-            # ccxt returns timestamp in milliseconds, convert to timezone-aware datetime
-            ts = datetime.datetime.fromtimestamp(c[0] / 1000, tz=datetime.timezone.utc)
-            if ts not in unique_timestamps:
-                candle_dicts.append(
-                    {
-                        "symbol": symbol,
-                        "interval": interval,
-                        "open_time": ts,
-                        "open": c[1],
-                        "high": c[2],
-                        "low": c[3],
-                        "close": c[4],
-                        "volume": c[5],
-                    }
-                )
-                unique_timestamps.add(ts)
+            # Use timestamp as key to remove duplicates within the fetched list
+            unique_candles[c[0]] = c
+
+        candle_dicts = [
+            {
+                "symbol": symbol,
+                "interval": interval,
+                "open_time": datetime.datetime.fromtimestamp(c[0] / 1000, tz=datetime.timezone.utc),
+                "open": c[1],
+                "high": c[2],
+                "low": c[3],
+                "close": c[4],
+                "volume": c[5],
+            }
+            for c in unique_candles.values()
+        ]
 
         if not candle_dicts:
-            # print("No new unique candles to save.") # Too verbose
             return
 
-        original_count = len(candles)
-        new_count = len(candle_dicts)
-        if original_count > new_count:
-            print(f"Filtered out {original_count - new_count} duplicate candles from the batch.")
+        total_rows = len(candle_dicts)
 
-
-        # Create an insert statement with ON CONFLICT DO NOTHING
-        stmt = insert(Candle).values(candle_dicts)
-        stmt = stmt.on_conflict_do_nothing(
+        # 2. Define the base INSERT statement with ON CONFLICT
+        stmt = insert(Candle).on_conflict_do_nothing(
             index_elements=['symbol', 'interval', 'open_time']
         )
 
-        self.db.execute(stmt)
-        self.db.commit()
-        print(f"Saved {len(candle_dicts)} new candles to DB for {symbol} ({interval}).")
+        # 3. Execute in chunks
+        for i in range(0, total_rows, batch_size):
+            chunk = candle_dicts[i:i + batch_size]
+            try:
+                self.db.execute(stmt, chunk)
+                self.db.commit()
+            except Exception as e:
+                print(f"Error inserting candle batch for {symbol} ({interval}): {e}")
+                self.db.rollback()
+                raise
+
+        print(f"Saved {total_rows} new candles to DB for {symbol} ({interval}).")
 
     def fetch_funding_rate_history(self, symbol: str, since: int = None, limit: int = 100, params={}) -> List[dict]:
         """
@@ -246,9 +248,9 @@ class DataCollector:
             return int(latest_fr_time.timestamp() * 1000)
         return None
 
-    def save_funding_rates_to_db(self, funding_rates: List[dict], symbol: str):
+    def save_funding_rates_to_db(self, funding_rates: List[dict], symbol: str, batch_size: int = 1500):
         """
-        Saves a list of funding rates to the database.
+        Saves a list of funding rates to the database in batches.
         """
         if not funding_rates:
             return
@@ -257,28 +259,41 @@ class DataCollector:
 
         from sqlalchemy.dialects.postgresql import insert
 
-        fr_dicts = []
-        unique_timestamps = set()
-
+        unique_rates = {}
         for fr in funding_rates:
-            ts = datetime.datetime.fromtimestamp(fr['timestamp'] / 1000, tz=datetime.timezone.utc)
-            if ts not in unique_timestamps:
-                fr_dicts.append({
-                    "symbol": symbol,
-                    "instrument_type": fr.get('info', {}).get('instType', 'SWAP'),
-                    "funding_time": ts,
-                    "funding_rate": fr['fundingRate']
-                })
-                unique_timestamps.add(ts)
+            unique_rates[fr['timestamp']] = fr
+
+        fr_dicts = [
+            {
+                "symbol": symbol,
+                "instrument_type": fr.get('info', {}).get('instType', 'SWAP'),
+                "funding_time": datetime.datetime.fromtimestamp(fr['timestamp'] / 1000, tz=datetime.timezone.utc),
+                "funding_rate": fr['fundingRate']
+            }
+            for fr in unique_rates.values()
+        ]
+
 
         if not fr_dicts:
             return
 
-        stmt = insert(FundingRate).values(fr_dicts)
-        stmt = stmt.on_conflict_do_nothing(index_elements=['symbol', 'funding_time'])
-        self.db.execute(stmt)
-        self.db.commit()
-        print(f"Saved {len(fr_dicts)} new funding rate records to DB for {symbol}.")
+        total_rows = len(fr_dicts)
+
+        stmt = insert(FundingRate).on_conflict_do_nothing(
+            index_elements=['symbol', 'funding_time']
+        )
+
+        for i in range(0, total_rows, batch_size):
+            chunk = fr_dicts[i:i + batch_size]
+            try:
+                self.db.execute(stmt, chunk)
+                self.db.commit()
+            except Exception as e:
+                print(f"Error inserting funding rate batch for {symbol}: {e}")
+                self.db.rollback()
+                raise
+
+        print(f"Saved {total_rows} new funding rate records to DB for {symbol}.")
 
 
     def fetch_open_interest_history(self, symbol: str, timeframe: str = '1h', since: int = None, limit: int = 100, params={}) -> List[dict]:
