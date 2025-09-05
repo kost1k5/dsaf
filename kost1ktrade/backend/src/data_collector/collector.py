@@ -36,6 +36,7 @@ class DataCollector:
     def fetch_candles(self, symbol: str, timeframe: str = '1h', since: int = None, limit: int = 100) -> List[list]:
         """
         Fetches historical OHLCV data for a given symbol.
+        (A) Includes retry logic for network robustness.
         :param symbol: The trading symbol (e.g., 'BTC/USDT').
         :param timeframe: The timeframe for the candles (e.g., '1m', '5m', '1h', '1d').
         :param since: The starting time in milliseconds since the epoch.
@@ -47,11 +48,19 @@ class DataCollector:
         if symbol not in self.exchange.markets:
             raise ValueError(f"Symbol '{symbol}' not available on {self.exchange.id}")
 
-        print(f"Fetching {limit} candles for {symbol} on timeframe {timeframe}...")
-        # CCXT returns data in a list of lists format: [timestamp, open, high, low, close, volume]
-        ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, since, limit)
-        # print(f"Fetched {len(ohlcv)} candles.") # This becomes too verbose in a loop
-        return ohlcv
+        # print(f"Fetching {limit} candles for {symbol} on timeframe {timeframe}...") # Becomes too verbose
+        retries = 3
+        for i in range(retries):
+            try:
+                # CCXT returns data in a list of lists format: [timestamp, open, high, low, close, volume]
+                ohlcv = self.exchange.fetch_ohlcv(symbol, timeframe, since, limit)
+                return ohlcv
+            except (ccxt.NetworkError, ccxt.ExchangeError) as e:
+                print(f"Attempt {i + 1}/{retries} for fetch_candles failed: {e}. Retrying in 5 seconds...")
+                time.sleep(5)
+
+        # If all retries fail, raise an exception to be handled by the calling function.
+        raise ExchangeError(f"Failed to fetch candles for {symbol} after {retries} retries.")
 
     def fetch_candles_in_range(self, symbol: str, timeframe: str, since: int, end: int) -> List[list]:
         """
@@ -160,7 +169,7 @@ class DataCollector:
     def fetch_funding_rate_history(self, symbol: str, since: int = None, limit: int = 100, params={}) -> List[dict]:
         """
         Fetches historical funding rate data for a given symbol.
-        OKX specific: uses fetch_funding_rate_history
+        (A) Includes retry logic for network robustness.
         :param symbol: The trading symbol (e.g., 'BTC-USDT-SWAP').
         :param since: The starting time in milliseconds since the epoch.
         :param limit: The number of candles to fetch. Max is 100 for this endpoint.
@@ -172,16 +181,23 @@ class DataCollector:
         if symbol not in self.exchange.markets:
             raise ValueError(f"Symbol '{symbol}' not available on {self.exchange.id}")
 
-        print(f"Fetching {limit} funding rates for {symbol}...")
-        # Note: CCXT unified method often returns in reverse chronological order (newest first)
-        funding_rates = self.exchange.fetch_funding_rate_history(symbol, since, limit, params)
-        # We REMOVE sorting to respect the exchange's default order, which is required for backward pagination.
-        return funding_rates
+        # print(f"Fetching {limit} funding rates for {symbol}...") # Becomes too verbose
+        retries = 3
+        for i in range(retries):
+            try:
+                funding_rates = self.exchange.fetch_funding_rate_history(symbol, since, limit, params)
+                return funding_rates
+            except (ccxt.NetworkError, ccxt.ExchangeError) as e:
+                print(f"Attempt {i + 1}/{retries} for fetch_funding_rate_history failed: {e}. Retrying in 5 seconds...")
+                time.sleep(5)
+
+        raise ExchangeError(f"Failed to fetch funding rates for {symbol} after {retries} retries.")
 
 
     def fetch_open_interest_history(self, symbol: str, timeframe: str = '1h', since: int = None, limit: int = 100, params={}) -> List[dict]:
         """
         Fetches historical open interest data for a given symbol.
+        (A) Includes retry logic for network robustness.
         :param symbol: The trading symbol (e.g., 'BTC-USDT-SWAP').
         :param timeframe: The timeframe for the data points (e.g., '5m', '1h', '4h', '1d').
         :param since: The starting time in milliseconds since the epoch.
@@ -194,10 +210,17 @@ class DataCollector:
         if symbol not in self.exchange.markets:
             raise ValueError(f"Symbol '{symbol}' not available on {self.exchange.id}")
 
-        print(f"Fetching {limit} open interest data points for {symbol} on timeframe {timeframe}...")
-        open_interest = self.exchange.fetch_open_interest_history(symbol, timeframe, since, limit, params)
-        # We REMOVE sorting to respect the exchange's default order, which is required for backward pagination.
-        return open_interest
+        # print(f"Fetching {limit} open interest data points for {symbol} on timeframe {timeframe}...") # Becomes too verbose
+        retries = 3
+        for i in range(retries):
+            try:
+                open_interest = self.exchange.fetch_open_interest_history(symbol, timeframe, since, limit, params)
+                return open_interest
+            except (ccxt.NetworkError, ccxt.ExchangeError) as e:
+                print(f"Attempt {i + 1}/{retries} for fetch_open_interest_history failed: {e}. Retrying in 5 seconds...")
+                time.sleep(5)
+
+        raise ExchangeError(f"Failed to fetch open interest for {symbol} after {retries} retries.")
 
 
 

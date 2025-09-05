@@ -17,42 +17,53 @@ class SentimentCollector:
     def fetch_fear_greed_data(self, limit: int = 0) -> pd.DataFrame:
         """
         Fetches historical Fear & Greed Index data from alternative.me API.
+        (A) Includes retry logic for network robustness.
 
         :param limit: The number of days to fetch data for. 0 means all available data.
         :return: A pandas DataFrame with historical F&G data.
         """
         print(f"Fetching Fear & Greed Index data (limit={limit})...")
-        try:
-            url = f"https://api.alternative.me/fng/?limit={limit}"
-            response = requests.get(url, timeout=10)
-            response.raise_for_status()  # Raise an exception for bad status codes
+        retries = 3
+        for i in range(retries):
+            try:
+                url = f"https://api.alternative.me/fng/?limit={limit}"
+                response = requests.get(url, timeout=15)  # Increased timeout
+                response.raise_for_status()  # Raise an exception for bad status codes
 
-            json_data = response.json()
-            df = pd.DataFrame(json_data['data'])
+                json_data = response.json()
+                df = pd.DataFrame(json_data['data'])
 
-            # Convert 'timestamp' to datetime and set as index
-            df['timestamp'] = pd.to_datetime(pd.to_numeric(df['timestamp']), unit='s')
-            df = df.set_index('timestamp').sort_index()
+                # Convert 'timestamp' to datetime and set as index
+                df['timestamp'] = pd.to_datetime(pd.to_numeric(df['timestamp']), unit='s')
+                df = df.set_index('timestamp').sort_index()
 
-            # Convert 'value' to numeric
-            df['value'] = pd.to_numeric(df['value'])
+                # Convert 'value' to numeric
+                df['value'] = pd.to_numeric(df['value'])
 
-            # Rename columns for clarity
-            df = df.rename(columns={'value': 'fng_value', 'value_classification': 'fng_classification'})
+                # Rename columns for clarity
+                df = df.rename(columns={'value': 'fng_value', 'value_classification': 'fng_classification'})
 
-            # Drop the 'time_until_update' column as it's not needed for historical analysis
-            if 'time_until_update' in df.columns:
-                df = df.drop(columns=['time_until_update'])
+                # Drop the 'time_until_update' column as it's not needed for historical analysis
+                if 'time_until_update' in df.columns:
+                    df = df.drop(columns=['time_until_update'])
 
-            print(f"Successfully fetched {len(df)} F&G data points.")
-            return df
+                print(f"Successfully fetched {len(df)} F&G data points.")
+                return df
 
-        except requests.exceptions.RequestException as e:
-            print(f"An error occurred during API request to alternative.me: {e}")
-            return pd.DataFrame()
-        except Exception as e:
-            print(f"An error occurred while processing Fear & Greed data: {e}")
-            return pd.DataFrame()
+            except requests.exceptions.RequestException as e:
+                print(f"Attempt {i + 1}/{retries} failed: An error occurred during API request to alternative.me: {e}")
+                if i < retries - 1:
+                    print("Retrying in 5 seconds...")
+                    time.sleep(5)
+                else:
+                    print("All retries failed for Fear & Greed Index.")
+                    return pd.DataFrame()
+            except Exception as e:
+                print(f"A non-recoverable error occurred while processing Fear & Greed data: {e}")
+                # This is for JSON errors, etc. which are not worth retrying.
+                return pd.DataFrame()
+
+        return pd.DataFrame() # Should only be reached if the loop finishes, which it shouldn't
 
     def fetch_rss_news(self) -> list:
         """
