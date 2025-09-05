@@ -14,12 +14,16 @@ from src.database.models import Candle, FundingRate
 from ccxt.base.errors import NotSupported, ExchangeError
 
 
+from sqlalchemy import func
+
 class DataCollector:
-    def __init__(self, exchange_id: str = 'okx'):
+    def __init__(self, exchange_id: str = 'okx', db_session: Session = None):
         """
-        Initializes the DataCollector with a specific exchange.
+        Initializes the DataCollector with a specific exchange and a database session.
         :param exchange_id: The ID of the exchange to use (e.g., 'binance', 'bybit').
+        :param db_session: An active SQLAlchemy session.
         """
+        self.db = db_session
         try:
             exchange_class = getattr(ccxt, exchange_id)
             self.exchange = exchange_class({
@@ -114,6 +118,23 @@ class DataCollector:
         print(f"Total candles fetched: {len(final_candles)}")
         return final_candles
 
+    def get_latest_candle_timestamp(self, symbol: str, interval: str) -> int:
+        """
+        Gets the timestamp of the most recent candle for a given symbol and interval.
+        """
+        if not self.db:
+            return None
+
+        latest_candle = (
+            self.db.query(func.max(Candle.open_time))
+            .filter(Candle.symbol == symbol, Candle.interval == interval)
+            .scalar()
+        )
+        if latest_candle:
+            return int(latest_candle.timestamp() * 1000)
+        return None
+
+
     def save_candles_to_db(self, candles: List[list], symbol: str, interval: str):
         """
         Saves a list of OHLCV candles to the database.
@@ -123,48 +144,40 @@ class DataCollector:
         :param interval: The timeframe for the candles (e.g., '1h').
         """
         if not candles:
-            print("No candles to save.")
+            # print("No candles to save.") # Too verbose
             return
+        if not self.db:
+            raise Exception("Database session not provided to DataCollector.")
 
-        db: Session = SessionLocal()
-        try:
-            from sqlalchemy.dialects.postgresql import insert
+        from sqlalchemy.dialects.postgresql import insert
 
-            candle_dicts = []
-            for c in candles:
-                candle_dicts.append(
-                    {
-                        "symbol": symbol,
-                        "interval": interval,
-                        "open_time": datetime.datetime.fromtimestamp(c[0] / 1000, tz=datetime.timezone.utc),
-                        "open": c[1],
-                        "high": c[2],
-                        "low": c[3],
-                        "close": c[4],
-                        "volume": c[5],
-                    }
-                )
-
-            if not candle_dicts:
-                return
-
-            print(f"Attempting to save {len(candle_dicts)} candles to the database...")
-
-            # Create an insert statement with ON CONFLICT DO NOTHING
-            stmt = insert(Candle).values(candle_dicts)
-            stmt = stmt.on_conflict_do_nothing(
-                index_elements=['symbol', 'interval', 'open_time']
+        candle_dicts = []
+        for c in candles:
+            candle_dicts.append(
+                {
+                    "symbol": symbol,
+                    "interval": interval,
+                    "open_time": datetime.datetime.fromtimestamp(c[0] / 1000, tz=datetime.timezone.utc),
+                    "open": c[1],
+                    "high": c[2],
+                    "low": c[3],
+                    "close": c[4],
+                    "volume": c[5],
+                }
             )
 
-            db.execute(stmt)
-            db.commit()
-            print(f"Successfully processed save request for {len(candle_dicts)} candles for {symbol}.")
+        if not candle_dicts:
+            return
 
-        except Exception as e:
-            print(f"An error occurred while saving candles to the database: {e}")
-            db.rollback()
-        finally:
-            db.close()
+        # Create an insert statement with ON CONFLICT DO NOTHING
+        stmt = insert(Candle).values(candle_dicts)
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=['symbol', 'interval', 'open_time']
+        )
+
+        self.db.execute(stmt)
+        self.db.commit()
+        print(f"Saved {len(candle_dicts)} new candles to DB for {symbol} ({interval}).")
 
     def fetch_funding_rate_history(self, symbol: str, since: int = None, limit: int = 100, params={}) -> List[dict]:
         """
@@ -192,6 +205,52 @@ class DataCollector:
                 time.sleep(5)
 
         raise ExchangeError(f"Failed to fetch funding rates for {symbol} after {retries} retries.")
+
+
+    def get_latest_funding_rate_timestamp(self, symbol: str) -> int:
+        """
+        Gets the timestamp of the most recent funding rate for a given symbol.
+        """
+        if not self.db:
+            return None
+
+        latest_fr = (
+            self.db.query(func.max(FundingRate.funding_time))
+            .filter(FundingRate.symbol == symbol)
+            .scalar()
+        )
+        if latest_fr:
+            return int(latest_fr.timestamp() * 1000)
+        return None
+
+    def save_funding_rates_to_db(self, funding_rates: List[dict], symbol: str):
+        """
+        Saves a list of funding rates to the database.
+        """
+        if not funding_rates:
+            return
+        if not self.db:
+            raise Exception("Database session not provided to DataCollector.")
+
+        from sqlalchemy.dialects.postgresql import insert
+
+        fr_dicts = []
+        for fr in funding_rates:
+            fr_dicts.append({
+                "symbol": symbol,
+                "instrument_type": fr.get('info', {}).get('instType', 'SWAP'),
+                "funding_time": datetime.datetime.fromtimestamp(fr['timestamp'] / 1000, tz=datetime.timezone.utc),
+                "funding_rate": fr['fundingRate']
+            })
+
+        if not fr_dicts:
+            return
+
+        stmt = insert(FundingRate).values(fr_dicts)
+        stmt = stmt.on_conflict_do_nothing(index_elements=['symbol', 'funding_time'])
+        self.db.execute(stmt)
+        self.db.commit()
+        print(f"Saved {len(fr_dicts)} new funding rate records to DB for {symbol}.")
 
 
     def fetch_open_interest_history(self, symbol: str, timeframe: str = '1h', since: int = None, limit: int = 100, params={}) -> List[dict]:

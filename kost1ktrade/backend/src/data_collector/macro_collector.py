@@ -1,18 +1,56 @@
 import yfinance as yf
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timezone
+from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert
+from sqlalchemy import func
+
+from src.database.models import MacroData
 
 class MacroDataCollector:
     """
     A class to collect macroeconomic data using the yfinance library.
     """
-    def __init__(self):
+    def __init__(self, db_session: Session):
+        self.db = db_session
         # Tickers for S&P 500 (SPY), VIX Index, and US Dollar Index (DXY)
         self.tickers = {
             'SPY': 'SPY',
             'VIX': '^VIX',
             'DXY': 'DX-Y.NYB'
         }
+
+    def get_latest_macro_timestamp(self) -> datetime:
+        """
+        Gets the timestamp of the most recent macro data entry in the database.
+        """
+        latest_macro = self.db.query(func.max(MacroData.date)).scalar()
+        return latest_macro
+
+    def save_macro_data_to_db(self, macro_df: pd.DataFrame):
+        """
+        Saves macro data to the database, ignoring duplicates.
+        """
+        if macro_df.empty:
+            return
+
+        records = []
+        for timestamp, row in macro_df.iterrows():
+            records.append({
+                "date": timestamp.to_pydatetime().replace(tzinfo=timezone.utc),
+                "spy_close": row.get('SPY'),
+                "vix_close": row.get('VIX'),
+                "dxy_close": row.get('DXY')
+            })
+
+        if not records:
+            return
+
+        stmt = insert(MacroData).values(records)
+        stmt = stmt.on_conflict_do_nothing(index_elements=['date'])
+        self.db.execute(stmt)
+        self.db.commit()
+        print(f"Saved {len(records)} new macro data records to the database.")
 
     def fetch_data(self, start_date: str, end_date: str) -> pd.DataFrame:
         """
@@ -47,8 +85,11 @@ class MacroDataCollector:
             print(f"An error occurred while fetching data from yfinance: {e}")
             return pd.DataFrame()
 
+from src.database.session import SessionLocal
+
 if __name__ == '__main__':
-    collector = MacroDataCollector()
+    db_session = SessionLocal()
+    collector = MacroDataCollector(db_session)
 
     # Example: Fetch data for the last year
     end_dt = datetime.now()
