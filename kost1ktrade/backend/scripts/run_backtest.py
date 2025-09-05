@@ -280,16 +280,24 @@ def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str,
             else:
                 risk_percentage = 0.03 # 3%
 
-            # Calculate position size and PnL
+            # (A) Correctly calculate position size and PnL
             amount_to_risk = capital * risk_percentage
-            # Position size is determined by how much we can buy/sell before hitting SL
-            position_size_usd = amount_to_risk / sl_atr_mult # Simplified for this context
-
             entry_price = row['close']
-            atr_at_trade = row['atr'] * entry_price # Convert relative ATR to absolute price value
+
+            # (A) The 'atr' column is already an absolute price value, not a ratio.
+            # Do not multiply by entry_price.
+            atr_at_trade = row['atr']
+
+            # (A) Correct position size calculation
+            stop_loss_price_distance = atr_at_trade * sl_atr_mult
+            if stop_loss_price_distance == 0:
+                continue # Cannot calculate position size if ATR is zero, skip trade
+
+            position_size_asset = amount_to_risk / stop_loss_price_distance
+            position_size_usd = position_size_asset * entry_price
 
             if decision == "BUY":
-                sl_price = entry_price - (atr_at_trade * sl_atr_mult)
+                sl_price = entry_price - stop_loss_price_distance
                 tp_price = entry_price + (atr_at_trade * tp_atr_mult)
                 # y_true: 0 (Sell), 1 (Hold), 2 (Buy). We win if y_true is 2.
                 if row['y_true'] == 2:
@@ -297,7 +305,7 @@ def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str,
                 else:
                     pnl = -amount_to_risk
             elif decision == "SELL":
-                sl_price = entry_price + (atr_at_trade * sl_atr_mult)
+                sl_price = entry_price + stop_loss_price_distance
                 tp_price = entry_price - (atr_at_trade * tp_atr_mult)
                 # y_true: 0 (Sell), 1 (Hold), 2 (Buy). We win if y_true is 0.
                 if row['y_true'] == 0:
