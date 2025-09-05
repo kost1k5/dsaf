@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from datetime import datetime, timedelta, UTC
+from datetime import datetime, timedelta
 import time
 import argparse
 import sys
@@ -24,7 +24,7 @@ def main(days_history: int):
         # --- Configuration ---
         CRYPTO_ASSETS = ['BTC', 'ETH', 'SOL', 'LINK']
         TIMEFRAMES = ['1h', '4h', '1d']
-        end_date = datetime.now(UTC)
+        end_date = datetime.utcnow()
 
         # --- Initialize Collectors with DB Session ---
         data_collector = DataCollector(exchange_id='okx', db_session=db)
