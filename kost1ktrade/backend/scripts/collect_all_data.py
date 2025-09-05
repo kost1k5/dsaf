@@ -74,13 +74,6 @@ def main(days_history: int):
         else:
             print("Warning: No F&G data found within the specified date range after fetching.")
 
-    print("\n--- Collecting RSS News ---")
-    news_items = sentiment_collector.fetch_rss_news()
-    if news_items:
-        news_df = pd.DataFrame(news_items)
-        news_df.to_csv(os.path.join(OUTPUT_DIR, 'news_headlines.csv'), index=False)
-        print(f"Saved news_headlines.csv to {OUTPUT_DIR}")
-
     # --- 2. Collect Crypto-Specific Data ---
     for asset in CRYPTO_ASSETS:
         print(f"\n{'='*20} Collecting data for {asset} {'='*20}")
@@ -102,27 +95,75 @@ def main(days_history: int):
                 print(f"Could not fetch OHLCV for {asset} ({tf}). Error: {e}")
             time.sleep(1) # Rate limiting precaution
 
-        # --- Open Interest Data ---
+        # --- Open Interest Data (with custom forward pagination) ---
+        # NOTE: The generic `fetch_paginated_history_backwards` function from the collector
+        # was found to be incompatible with Bybit's API for open interest, leading to empty data.
+        # This custom forward-pagination loop is a more robust replacement. It iterates
+        # from the start date to the end date, fetching data in chunks.
         print(f"\n--- Collecting {asset} Open Interest (1h) ---")
-        try:
-            # CHANGE: Using the generic data_collector instance (since/end parameters are already correct)
-            oi_data = data_collector.fetch_paginated_history_backwards(
-                data_collector.fetch_open_interest_history,
-                symbol=symbol,
-                timeframe='1h',
-                since=since_ms,
-                end=end_ms
-            )
-            if oi_data:
-                oi_df = pd.DataFrame(oi_data)
-                # Ensure timestamp format is correct
-                if 'timestamp' in oi_df.columns and pd.api.types.is_numeric_dtype(oi_df['timestamp']):
-                    oi_df['timestamp'] = pd.to_datetime(oi_df['timestamp'], unit='ms')
-                oi_df.to_csv(os.path.join(OUTPUT_DIR, f'{asset}_open_interest_1h.csv'), index=False)
-                print(f"Saved {asset}_open_interest_1h.csv to {OUTPUT_DIR}")
-        except Exception as e:
-            print(f"Could not fetch Open Interest for {asset}. Error: {e}")
+        all_oi_data = []
+        current_since = since_ms
+        oi_timeframe = '1h'
+        # Calculate timeframe duration in milliseconds for advancing the timestamp
+        timeframe_duration_ms = 1 * 60 * 60 * 1000 # 1h in ms
+
+        while current_since < end_ms:
+            try:
+                print(f"  Fetching chunk since {datetime.fromtimestamp(current_since/1000)}...")
+                oi_chunk = data_collector.exchange.fetch_open_interest_history(
+                    symbol=symbol,
+                    timeframe=oi_timeframe,
+                    since=current_since,
+                    limit=500 # Bybit allows up to 500
+                )
+
+                if not oi_chunk:
+                    print("  No more Open Interest data returned, stopping.")
+                    break
+
+                # Filter out duplicates that might be returned by the API
+                last_timestamp = all_oi_data[-1]['timestamp'] if all_oi_data else 0
+                new_data = [d for d in oi_chunk if d['timestamp'] > last_timestamp]
+
+                if not new_data:
+                    print("  No new data in this chunk, advancing time to prevent loop.")
+                    current_since += timeframe_duration_ms * 500 # Advance by the limit
+                    continue
+
+                all_oi_data.extend(new_data)
+
+                # Update the 'since' parameter for the next iteration
+                last_ts_in_chunk = new_data[-1]['timestamp']
+                current_since = last_ts_in_chunk + timeframe_duration_ms # Start next chunk after the last one
+
+                print(f"  Fetched {len(new_data)} new OI points. Total: {len(all_oi_data)}. Last timestamp: {datetime.fromtimestamp(last_ts_in_chunk/1000)}")
+
+            except Exception as e:
+                print(f"  An error occurred while fetching Open Interest chunk for {asset}: {e}")
+                print("  Stopping OI collection for this asset due to error.")
+                break
+
+            time.sleep(data_collector.exchange.rateLimit / 1000) # Respect rate limits
+
+        if all_oi_data:
+            oi_df = pd.DataFrame(all_oi_data)
+            # Filter one last time to ensure we are within the date range
+            oi_df = oi_df[(oi_df['timestamp'] >= since_ms) & (oi_df['timestamp'] <= end_ms)]
+            if 'timestamp' in oi_df.columns:
+                oi_df['timestamp'] = pd.to_datetime(oi_df['timestamp'], unit='ms')
+
+            # The 'info' dict from ccxt can be very large, let's just keep the useful columns
+            # Standardized ccxt response for OI includes: 'symbol', 'timestamp', 'datetime', 'openInterestValue'
+            # We select columns that are likely to exist and be useful
+            cols_to_keep = ['symbol', 'timestamp', 'openInterestValue']
+            oi_df_filtered = oi_df[[col for col in cols_to_keep if col in oi_df.columns]]
+
+            oi_df_filtered.to_csv(os.path.join(OUTPUT_DIR, f'{asset}_open_interest_1h.csv'), index=False)
+            print(f"Saved {asset}_open_interest_1h.csv with {len(oi_df_filtered)} records to {OUTPUT_DIR}")
+        else:
+            print(f"No Open Interest data was collected for {asset}.")
         time.sleep(1)
+
 
         # --- Funding Rate Data ---
         print(f"\n--- Collecting {asset} Funding Rates ---")
