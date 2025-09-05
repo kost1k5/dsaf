@@ -37,6 +37,23 @@ class Candle(Base):
         return f"<Candle(symbol='{self.symbol}', interval='{self.interval}', open_time='{self.open_time}')>"
 
 
+class FundingRate(Base):
+    __tablename__ = "funding_rates"
+
+    id = Column(Integer, primary_key=True)
+    symbol = Column(String, nullable=False, index=True)
+    instrument_type = Column(String, nullable=False, index=True)
+    funding_time = Column(DateTime, nullable=False, index=True)
+    funding_rate = Column(Float, nullable=False)
+
+    __table_args__ = (
+        UniqueConstraint('symbol', 'funding_time', name='_symbol_funding_time_uc'),
+    )
+
+    def __repr__(self):
+        return f"<FundingRate(symbol='{self.symbol}', funding_time='{self.funding_time}', funding_rate='{self.funding_rate}')>"
+
+
 class Strategy(Base):
     __tablename__ = "strategies"
 
