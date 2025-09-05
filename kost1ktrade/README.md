@@ -1,166 +1,90 @@
-# Kost1kTrade
+# Kost1kTrade: Full Setup and Launch Guide
 
-Это проект трейдингового бота с веб-интерфейсом для управления и мониторинга.
-
-## Обзор архитектуры
-
-Проект имеет монорепозиторную структуру и разделен на две основные части:
-
--   `backend`: Серверная часть, написанная на Python. Отвечает за всю логику торговли, сбор данных, бэктестинг и предоставление API для клиентской части.
--   `frontend`: Клиентская часть, написанная на React. Отвечает за отображение пользовательского интерфейса.
+This document provides a complete, step-by-step guide to set up the project, generate the trading model, and run the application.
 
 ---
 
-## Установка и запуск
+### **Step 1: One-Time Project Setup**
 
-Это пошаговое руководство проведет вас от установки до запуска полнофункционального приложения.
+This step only needs to be performed once.
 
-### Шаг 1: Предварительные требования
-Убедитесь, что на вашей системе установлены следующие компоненты:
-- **Python 3.12**
-- **Node.js** и **npm**
-- **Pipenv**: `pip install pipenv`
-- **PM2**: `npm install pm2 -g`
+1.  **Install Dependencies:**
+    *   **Backend (Python):** Navigate to the `kost1ktrade/backend` directory and run:
+        ```bash
+        pipenv install
+        ```
+        *Note: If you encounter errors, you may need to manually install `matplotlib` by running `pipenv install matplotlib`.*
 
-### Шаг 2: Настройка проекта
-1.  **Клонируйте репозиторий** (если вы еще этого не сделали).
+    *   **Frontend (JavaScript):** Navigate to the `kost1ktrade/frontend` directory and run:
+        ```bash
+        npm install
+        ```
 
-2.  **Настройте переменные окружения**:
-    -   Перейдите в `kost1ktrade/backend`.
-    -   Скопируйте файл `.env.example` и переименуйте его в `.env`.
-    -   Откройте `.env` и заполните API-ключи для биржи и Telegram. База данных теперь использует SQLite и не требует настройки в `.env`.
+2.  **Configure Environment Variables:**
+    *   In the `kost1ktrade/backend` directory, copy the `.env.example` file to a new file named `.env`.
+    *   Open the `.env` file and fill in your API keys for the exchange and your Telegram Bot token.
 
-### Шаг 3: Установка зависимостей
-Выполните следующие команды из **корневой директории** проекта:
+3.  **Initialize the Database:**
+    *   From the `kost1ktrade/backend` directory, run the following command to create the database tables:
+        ```bash
+        pipenv run python scripts/create_tables.py
+        ```
 
--   **Установка зависимостей бэкенда**:
-    ```bash
-    cd kost1ktrade/backend;  pipenv install;  cd ../..
-    ```
--   **Установка зависимостей фронтенда**:
-    ```bash
-    cd kost1ktrade/frontend;  npm install;  cd ../..
-    ```
+---
 
-### Шаг 4: Инициализация базы данных
--   Из директории `kost1ktrade/backend` выполните команду для создания таблиц в базе данных SQLite. Эта команда создаст файл `data/local_database.db` в директории `kost1ktrade/backend`, если он не существует.
-    > **Внимание**: флаг `--recreate` удалит все существующие данные!
-    ```bash
-    cd kost1ktrade/backend
-    pipenv run python scripts/create_tables.py --recreate
-    ```
+### **Step 2: Generate the Production Trading Model**
 
-### Шаг 4.5: Обучение ML модели (опционально)
-Этот скрипт отвечает за сбор данных, их обработку и обучение модели (или моделей) машинного обучения, которые используются `MasterController`'ом.
+This is the new core workflow. This process runs the entire quantitative analysis pipeline to produce the final, production-ready model that the live bot will use.
 
--   **Запустите обучение с параметрами по умолчанию** (обучит модель для BTC/USDT за последние 2 года):
-    ```bash
-    # Запуск из директории kost1ktrade/backend
-    pipenv run python scripts/train_model.py
-    ```
--   Скрипт можно гибко настраивать, используя флаги. **Ключевой флаг `--symbols` позволяет указать один или несколько символов для обучения.**
-    ```bash
-    # Пример 1: Обучить модель только для ETH/USDT за последние 6 месяцев
-    pipenv run python scripts/train_model.py --symbols ETH/USDT --start_date "2025-03-01" --end_date "2025-08-31"
+**You should run this full sequence whenever you want to update the trading model.** All commands must be run from the `kost1ktrade/backend` directory.
 
-    # Пример 2: Обучить модели сразу для 4х символов (BTC, ETH, LINK, SOL)
-    pipenv run python scripts/train_model.py --symbols BTC/USDT ETH/USDT LINK/USDT SOL/USDT
-    ```
+```bash
+# 1. Collect all required data (e.g., for the last 30 days)
+pipenv run python scripts/collect_all_data.py --days 30
 
-### Шаг 5: Запуск приложения
+# 2. Process the raw data to generate features
+pipenv run python scripts/process_features.py --asset BTC
 
-#### Рекомендуемый способ: с помощью PM2
-Этот метод запустит и бэкенд, и фронтенд в фоновом режиме и будет автоматически их перезапускать.
+# 3. Apply labels to the feature set using the Triple-Barrier Method
+pipenv run python scripts/apply_labels.py --asset BTC
 
--   **Запустите все приложение** (из корневой директории проекта):
+# 4. Select the best features from the dataset
+pipenv run python scripts/select_features.py --asset BTC
+
+# 5. Run a walk-forward backtest for performance analysis
+pipenv run python scripts/run_backtest.py --asset BTC
+
+# 6. Evaluate the results of the backtest
+pipenv run python scripts/evaluate_model.py --asset BTC
+
+# 7. (CRITICAL STEP) Train and save the final production model
+pipenv run python scripts/create_production_model.py --asset BTC
+```
+
+After this, a new model will be saved in the `kost1ktrade/backend/models/production/` directory. The bot will automatically find and use this model.
+
+---
+
+### **Step 3: Run the Application**
+
+Once the setup is done and the model is generated, you can run the application.
+
+1.  **Navigate to the project's root directory** (the one that contains the `ecosystem.config.js` file).
+
+2.  **Start the application using PM2 (Recommended):**
     ```bash
     pm2 start ecosystem.config.js
     ```
--   **Просмотр логов и статуса**:
-    ```bash
-    pm2 logs  # Показать логи всех процессов
-    pm2 monit # Открыть панель мониторинга
-    ```
--   **Остановка приложения**:
-    ```bash
-    pm2 stop all
-    ```
 
-#### Ручной запуск (для разработки)
-Если вы хотите запустить серверы вручную для отладки:
+The trading bot and the web interface are now running. The bot will use the model you generated in Step 2.
 
--   **Запустить бэкенд** (из `kost1ktrade/backend`):
-    ```bash
-    pipenv run uvicorn src.api.main:app --reload
-    ```
--   **Запустить фронтенд** (из `kost1ktrade/frontend`):
-    ```bash
-    npm run dev
-    ```
+*   **Web Interface:** `http://localhost:5173`
+*   **To monitor logs:** `pm2 logs`
+*   **To stop the application:** `pm2 stop all`
 
-После запуска, веб-интерфейс будет доступен по адресу `http://localhost:5173`.
+#### **Alternative: Manual/Development Launch**
 
----
+You can also run the backend and frontend in separate terminals for development.
 
-## Фреймворк для количественного анализа
-
-Помимо основного функционала торгового бота, проект включает в себя комплексный фреймворк для разработки и валидации количественных торговых моделей. Этот фреймворк позволяет систематически проходить все этапы от сбора данных до оценки производительности модели.
-
-### Обзор конвейера (Pipeline)
-
-Весь процесс разделен на несколько этапов, каждый из которых представлен отдельным скриптом в директории `kost1ktrade/backend/scripts/`:
-
-1.  **Сбор данных (`collect_all_data.py`):**
-    *   Собирает рыночные данные с OKX, включая OHLCV и ставки финансирования. Реализована логика для сбора полной истории ставок финансирования из архивов биржи.
-    *   Также собирает макроэкономические данные (SPY, VIX, DXY) и данные о настроениях (индекс страха и жадности, новости).
-    *   Сохраняет сырые данные в `data/raw/`.
-
-2.  **Генерация признаков (`process_features.py`):**
-    *   Загружает сырые данные.
-    *   Генерирует более 25 признаков, включая технические индикаторы, признаки деривативов, сентимента и межрыночные данные.
-    *   Проверяет все признаки на стационарность и применяет преобразования при необходимости.
-    *   Сохраняет обработанный набор данных в `data/processed/` в формате Parquet.
-
-3.  **Разметка данных (`apply_labels.py`):**
-    *   Применяет Метод Тройного Барьера для создания целевой переменной (`label`). Это позволяет динамически определять цели для взятия прибыли и ограничения убытков на основе волатильности (ATR).
-    *   Сохраняет размеченные данные в `data/labeled/`.
-
-4.  **Отбор признаков (`select_features.py`):**
-    *   Использует двухэтапный процесс для выбора наиболее важных и не избыточных признаков:
-        1.  Ранжирование по важности с помощью SHAP.
-        2.  Отсев высококоррелированных признаков.
-    *   Сохраняет итоговый список признаков и SHAP-диаграмму в `reports/`.
-
-5.  **Бэктестирование (`run_backtest.py`):**
-    *   Проводит строгую Walk-Forward валидацию с использованием `TimeSeriesSplit`.
-    *   Включает вложенную настройку гиперпараметров модели `LightGBM` с помощью Optuna на каждом шаге.
-    *   Сохраняет out-of-sample предсказания в `results/`.
-
-6.  **Оценка модели (`evaluate_model.py`):**
-    *   Загружает out-of-sample предсказания.
-    *   Находит оптимальный порог вероятности для максимизации финансовой метрики (например, коэффициента Шарпа).
-    *   Генерирует финальный отчет с ключевыми метриками (Profit Factor, Sharpe Ratio, MDD, Win Rate, Precision, etc.) и сохраняет его в `reports/`.
-
-### Порядок запуска
-
-Для полного цикла от начала до конца, запускайте скрипты в следующем порядке из директории `kost1ktrade/backend/`:
-
-```bash
-# 1. Собрать данные (например, за последние 180 дней)
-pipenv run python scripts/collect_all_data.py --days 30
-
-# 2. Сгенерировать признаки для актива (например, BTC)
-pipenv run python scripts/process_features.py --asset BTC
-
-# 3. Применить разметку
-pipenv run python scripts/apply_labels.py --asset BTC
-
-# 4. Выбрать лучшие признаки
-pipenv run python scripts/select_features.py --asset BTC
-
-# 5. Запустить бэктест
-pipenv run python scripts/run_backtest.py --asset BTC
-
-# 6. Оценить результаты
-pipenv run python scripts/evaluate_model.py --asset BTC
-```
+*   **Backend:** In `kost1ktrade/backend`, run `pipenv run uvicorn src.api.main:app --reload`
+*   **Frontend:** In `kost1ktrade/frontend`, run `npm run dev`
