@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import time
 import argparse
 import sys
@@ -32,7 +32,7 @@ def main(days_history: int):
 
     # Define date range
     # Using UTC for consistency with exchange times
-    end_date = datetime.utcnow() 
+    end_date = datetime.now(UTC)
     start_date = end_date - timedelta(days=days_history)
     start_date_str = start_date.strftime('%Y-%m-%d')
     end_date_str = end_date.strftime('%Y-%m-%d')
