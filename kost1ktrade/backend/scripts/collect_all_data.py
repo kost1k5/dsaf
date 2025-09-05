@@ -103,74 +103,112 @@ def main(days_history: int):
                 print(f"Could not fetch OHLCV for {asset} ({tf}). Error: {e}")
             time.sleep(1) # Rate limiting precaution
 
-        # --- Open Interest Data (Append-Only Logic) ---
+        # --- Open Interest Data (with custom forward pagination) ---
         print(f"\n--- Collecting {asset} Open Interest (1h) ---")
-        oi_filepath = os.path.join(OUTPUT_DIR, f'{asset}_open_interest_1h.csv')
-        try:
-            # 1. Fetch the single most recent OI data point from the exchange.
-            latest_point = data_collector.exchange.fetch_open_interest_history(symbol, '1h', limit=1)
-            if not latest_point:
-                print(f"  -> No OI data returned from exchange for {asset}.")
-                continue
+        all_oi_data = []
+        current_since = since_ms
+        oi_timeframe = '1h'
+        timeframe_duration_ms = 1 * 60 * 60 * 1000 # 1h in ms
 
-            # 2. Extract and format the new data.
-            new_data_point = latest_point[0]
-            new_timestamp = pd.to_datetime(new_data_point['timestamp'], unit='ms', utc=True)
-            new_value = new_data_point.get('openInterestValue') or new_data_point.get('openInterest')
+        while current_since < end_ms:
+            try:
+                print(f"  Fetching open interest chunk since {datetime.fromtimestamp(current_since/1000)}...")
+                oi_chunk = data_collector.exchange.fetch_open_interest_history(
+                    symbol=symbol,
+                    timeframe=oi_timeframe,
+                    since=current_since,
+                    limit=100 # OKX limit is 100
+                )
 
-            if new_value is None:
-                print(f"  -> OI value not found in response for {asset}.")
-                continue
+                if not oi_chunk:
+                    print("  No more Open Interest data returned, stopping pagination.")
+                    break
 
-            # 3. Check for duplicates by reading the last line of the existing file.
-            file_exists = os.path.exists(oi_filepath)
-            if file_exists:
-                with open(oi_filepath, 'r', encoding='utf-8') as f:
-                    # Find the last line to get the last timestamp
-                    try:
-                        last_line = f.readlines()[-1]
-                        last_timestamp_str = last_line.split(',')[0]
-                        last_timestamp = pd.to_datetime(last_timestamp_str, utc=True)
-                        if new_timestamp <= last_timestamp:
-                            print(f"  -> Latest OI data for {asset} is already recorded. No changes made.")
-                            continue
-                    except (IndexError, pd.errors.ParserError):
-                        # Handle case where file is empty or corrupt
-                        file_exists = False # Treat as a new file
+                # Sort and filter out duplicates
+                oi_chunk_sorted = sorted(oi_chunk, key=lambda x: x['timestamp'])
+                last_timestamp_in_all_data = all_oi_data[-1]['timestamp'] if all_oi_data else 0
+                new_data = [d for d in oi_chunk_sorted if d['timestamp'] > last_timestamp_in_all_data]
 
-            # 4. If the data is new, append it to the CSV.
-            print(f"  -> New OI data found for {asset} at {new_timestamp}. Appending to file.")
-            with open(oi_filepath, 'a', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                # Write header only if the file is brand new
-                if not file_exists:
-                    writer.writerow(['timestamp', 'openInterestValue'])
+                if not new_data:
+                    print("  No new data in this chunk (all records were duplicates). Advancing time.")
+                    current_since = oi_chunk_sorted[-1]['timestamp'] + timeframe_duration_ms
+                    continue
 
-                # Write the new data row
-                writer.writerow([new_timestamp.isoformat(), new_value])
+                all_oi_data.extend(new_data)
 
-        except Exception as e:
-            print(f"  -> An error occurred while collecting latest Open Interest for {asset}: {e}")
+                last_ts_in_chunk = new_data[-1]['timestamp']
+                current_since = last_ts_in_chunk + 1 # Increment by 1ms to avoid fetching the same record
+
+                first_ts_str = datetime.fromtimestamp(new_data[0]['timestamp']/1000)
+                last_ts_str = datetime.fromtimestamp(new_data[-1]['timestamp']/1000)
+                print(f"  Fetched {len(new_data)} new OI points. Total: {len(all_oi_data)}. Chunk range: {first_ts_str} to {last_ts_str}")
+
+            except Exception as e:
+                print(f"  An error occurred while fetching Open Interest chunk for {asset}: {e}")
+                break
+
+            time.sleep(data_collector.exchange.rateLimit / 1000)
+
+        if all_oi_data:
+            oi_df = pd.DataFrame(all_oi_data)
+            oi_df['timestamp'] = pd.to_datetime(oi_df['timestamp'], unit='ms')
+            oi_df.to_csv(os.path.join(OUTPUT_DIR, f'{asset}_open_interest_1h.csv'), index=False)
+            print(f"Saved {asset}_open_interest_1h.csv with {len(oi_df)} records to {OUTPUT_DIR}")
+        else:
+            print(f"No Open Interest data was collected for {asset}.")
         time.sleep(1)
 
-        # --- Funding Rate Data ---
+        # --- Funding Rate Data (with custom forward pagination) ---
         print(f"\n--- Collecting {asset} Funding Rates ---")
-        try:
-            # CHANGE: Using the generic data_collector instance
-            fr_data = data_collector.fetch_paginated_history_backwards(
-                data_collector.fetch_funding_rate_history,
-                symbol=symbol,
-                since=since_ms,
-                end=end_ms
-            )
-            if fr_data:
-                fr_df = pd.DataFrame(fr_data)
-                if 'timestamp' in fr_df.columns and pd.api.types.is_numeric_dtype(fr_df['timestamp']):
-                    fr_df['timestamp'] = pd.to_datetime(fr_df['timestamp'], unit='ms')
-                fr_df.to_csv(os.path.join(OUTPUT_DIR, f'{asset}_funding_rates.csv'), index=False)
-                print(f"Saved {asset}_funding_rates.csv to {OUTPUT_DIR}")
-        except Exception as e:
-            print(f"Could not fetch Funding Rates for {asset}. Error: {e}")
+        all_fr_data = []
+        current_since = since_ms
+        timeframe_duration_ms = 1 * 60 * 60 * 1000 # Assume 1h for safety, though FR is often 8h
+
+        while current_since < end_ms:
+            try:
+                print(f"  Fetching funding rate chunk since {datetime.fromtimestamp(current_since/1000)}...")
+                fr_chunk = data_collector.exchange.fetch_funding_rate_history(
+                    symbol=symbol,
+                    since=current_since,
+                    limit=100 # OKX limit is 100
+                )
+
+                if not fr_chunk:
+                    print("  No more Funding Rate data returned, stopping pagination.")
+                    break
+
+                # Sort and filter out duplicates
+                fr_chunk_sorted = sorted(fr_chunk, key=lambda x: x['timestamp'])
+                last_timestamp_in_all_data = all_fr_data[-1]['timestamp'] if all_fr_data else 0
+                new_data = [d for d in fr_chunk_sorted if d['timestamp'] > last_timestamp_in_all_data]
+
+                if not new_data:
+                    print("  No new data in this chunk (all records were duplicates). Advancing time.")
+                    current_since = fr_chunk_sorted[-1]['timestamp'] + timeframe_duration_ms
+                    continue
+
+                all_fr_data.extend(new_data)
+
+                last_ts_in_chunk = new_data[-1]['timestamp']
+                current_since = last_ts_in_chunk + 1 # Increment by 1ms to avoid fetching the same record
+
+                first_ts_str = datetime.fromtimestamp(new_data[0]['timestamp']/1000)
+                last_ts_str = datetime.fromtimestamp(new_data[-1]['timestamp']/1000)
+                print(f"  Fetched {len(new_data)} new FR points. Total: {len(all_fr_data)}. Chunk range: {first_ts_str} to {last_ts_str}")
+
+            except Exception as e:
+                print(f"  An error occurred while fetching Funding Rate chunk for {asset}: {e}")
+                break
+
+            time.sleep(data_collector.exchange.rateLimit / 1000)
+
+        if all_fr_data:
+            fr_df = pd.DataFrame(all_fr_data)
+            fr_df['timestamp'] = pd.to_datetime(fr_df['timestamp'], unit='ms')
+            fr_df.to_csv(os.path.join(OUTPUT_DIR, f'{asset}_funding_rates.csv'), index=False)
+            print(f"Saved {asset}_funding_rates.csv with {len(fr_df)} records to {OUTPUT_DIR}")
+        else:
+            print(f"No Funding Rate data was collected for {asset}.")
         time.sleep(1)
 
     print("\n--- Data collection complete! ---")
