@@ -69,14 +69,11 @@ def main():
                 run_command(step_command)
             print(f"\n=== SUCCESSFULLY COMPLETED PIPELINE FOR {asset} ===")
         except Exception as e:
+            # (A) Do not ask for interactive input. Log the error and continue by default.
             print(f"\n---!!! PIPELINE FAILED FOR ASSET: {asset} !!!---")
-            # Ask user if they want to continue with the next asset
-            user_input = input(f"Do you want to continue with the next asset? (y/n): ").lower()
-            if user_input != 'y':
-                print("Aborting full pipeline run.")
-                sys.exit(1)
-            else:
-                continue # Go to the next symbol in the loop
+            print(f"---!!! Error was: {e} !!!---")
+            print(f"---!!! Continuing to the next asset. !!!---")
+            continue # Go to the next symbol in the loop
 
     print("\n======================================================")
     print("===      FULL PIPELINE RUN COMPLETED             ===")
