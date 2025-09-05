@@ -15,7 +15,7 @@ class DBSettings(BaseModel):
     def DATABASE_URL(self) -> str:
         """Constructs the full database URL."""
         # return f"postgresql+psycopg2://{self.USER}:{self.PASS}@{self.HOST}:{self.PORT}/{self.NAME}"
-        return "sqlite:////app/kost1ktrade/backend/data/local_database.db"
+        return "sqlite:///data/local_database.db"
 
 class OKXKeys(BaseModel):
     API_KEY: str

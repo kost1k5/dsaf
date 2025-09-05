@@ -11,7 +11,7 @@ This document provides instructions for developing the Kost1kTrade project.
 - All backend source code should be placed within the `kost1ktrade/backend/src` directory, following the existing modular structure (`api`, `database`, `core`, etc.).
 - When adding new dependencies, use `pipenv install <package_name>`.
 - To run commands within the project's virtual environment, use `pipenv run <command>`.
-- The database is PostgreSQL. All database models are defined using SQLAlchemy in `kost1ktrade/backend/src/database/models.py`.
+- The database is SQLite, with the database file located at `kost1ktrade/backend/data/local_database.db`. All database models are defined using SQLAlchemy in `kost1ktrade/backend/src/database/models.py`.
 - The API is built with FastAPI. New endpoints should be added logically within the `kost1ktrade/backend/src/api` module.
 - Notifications are handled in the `src/notifications` module.
 - The project now supports two types of bots, managed by separate controllers:
@@ -19,6 +19,12 @@ This document provides instructions for developing the Kost1kTrade project.
   - `src/core/grid_bot_controller.py` for grid trading logic.
 - Signal-based strategies should be created in `src/strategies` and inherit from `BaseStrategy`. Grid strategies are self-contained.
 - The `src/optimization` module contains the `Optimizer` class and the `walk_forward.py` splitter for advanced backtesting.
+
+## Data Collection
+- The `DataCollector` class in `kost1ktrade/backend/src/data_collector/collector.py` is responsible for fetching data from exchanges.
+- A new method `fetch_funding_rate_history_from_archive` has been implemented to collect historical funding rate data from OKX.
+- This method fetches a list of ZIP archives from the `/api/v5/public/market-data-history` endpoint, downloads them, extracts the CSV files, and parses the data.
+- **Important Note:** As of September 2025, the OKX API is not returning any data for funding rate history requests via this endpoint. The implementation is in place for when the API starts providing the data.
 
 ## Frontend
 - The frontend will be a modern JavaScript application (e.g., React, Vue).
