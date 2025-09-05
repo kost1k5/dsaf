@@ -113,9 +113,14 @@ class DataCollector:
                 print(f"A general error occurred while fetching a chunk of data: {e}")
                 break # Also stop on general errors
 
-        # Filter out any candles that might be outside the end date
-        final_candles = [c for c in all_candles if c[0] <= end]
-        print(f"Total candles fetched: {len(final_candles)}")
+        # Filter out any candles that might be outside the end date and remove duplicates
+        df = pd.DataFrame(all_candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        if not df.empty:
+            df = df[df['timestamp'] <= end]
+            df.drop_duplicates(subset=['timestamp'], keep='first', inplace=True)
+
+        final_candles = df.values.tolist()
+        print(f"Total unique candles fetched: {len(final_candles)}")
         return final_candles
 
     def get_latest_candle_timestamp(self, symbol: str, interval: str) -> int:
@@ -125,13 +130,16 @@ class DataCollector:
         if not self.db:
             return None
 
-        latest_candle = (
+        latest_candle_time = (
             self.db.query(func.max(Candle.open_time))
             .filter(Candle.symbol == symbol, Candle.interval == interval)
             .scalar()
         )
-        if latest_candle:
-            return int(latest_candle.timestamp() * 1000)
+        if latest_candle_time:
+            # Ensure the datetime object is timezone-aware before getting the timestamp
+            if latest_candle_time.tzinfo is None:
+                latest_candle_time = latest_candle_time.replace(tzinfo=datetime.timezone.utc)
+            return int(latest_candle_time.timestamp() * 1000)
         return None
 
 
@@ -152,22 +160,35 @@ class DataCollector:
         from sqlalchemy.dialects.postgresql import insert
 
         candle_dicts = []
+        unique_timestamps = set()
+
         for c in candles:
-            candle_dicts.append(
-                {
-                    "symbol": symbol,
-                    "interval": interval,
-                        "open_time": datetime.datetime.fromtimestamp(c[0] / 1000),
-                    "open": c[1],
-                    "high": c[2],
-                    "low": c[3],
-                    "close": c[4],
-                    "volume": c[5],
-                }
-            )
+            # ccxt returns timestamp in milliseconds, convert to timezone-aware datetime
+            ts = datetime.datetime.fromtimestamp(c[0] / 1000, tz=datetime.timezone.utc)
+            if ts not in unique_timestamps:
+                candle_dicts.append(
+                    {
+                        "symbol": symbol,
+                        "interval": interval,
+                        "open_time": ts,
+                        "open": c[1],
+                        "high": c[2],
+                        "low": c[3],
+                        "close": c[4],
+                        "volume": c[5],
+                    }
+                )
+                unique_timestamps.add(ts)
 
         if not candle_dicts:
+            # print("No new unique candles to save.") # Too verbose
             return
+
+        original_count = len(candles)
+        new_count = len(candle_dicts)
+        if original_count > new_count:
+            print(f"Filtered out {original_count - new_count} duplicate candles from the batch.")
+
 
         # Create an insert statement with ON CONFLICT DO NOTHING
         stmt = insert(Candle).values(candle_dicts)
@@ -214,13 +235,15 @@ class DataCollector:
         if not self.db:
             return None
 
-        latest_fr = (
+        latest_fr_time = (
             self.db.query(func.max(FundingRate.funding_time))
             .filter(FundingRate.symbol == symbol)
             .scalar()
         )
-        if latest_fr:
-            return int(latest_fr.timestamp() * 1000)
+        if latest_fr_time:
+            if latest_fr_time.tzinfo is None:
+                latest_fr_time = latest_fr_time.replace(tzinfo=datetime.timezone.utc)
+            return int(latest_fr_time.timestamp() * 1000)
         return None
 
     def save_funding_rates_to_db(self, funding_rates: List[dict], symbol: str):
@@ -235,13 +258,18 @@ class DataCollector:
         from sqlalchemy.dialects.postgresql import insert
 
         fr_dicts = []
+        unique_timestamps = set()
+
         for fr in funding_rates:
-            fr_dicts.append({
-                "symbol": symbol,
-                "instrument_type": fr.get('info', {}).get('instType', 'SWAP'),
-                "funding_time": datetime.datetime.fromtimestamp(fr['timestamp'] / 1000),
-                "funding_rate": fr['fundingRate']
-            })
+            ts = datetime.datetime.fromtimestamp(fr['timestamp'] / 1000, tz=datetime.timezone.utc)
+            if ts not in unique_timestamps:
+                fr_dicts.append({
+                    "symbol": symbol,
+                    "instrument_type": fr.get('info', {}).get('instType', 'SWAP'),
+                    "funding_time": ts,
+                    "funding_rate": fr['fundingRate']
+                })
+                unique_timestamps.add(ts)
 
         if not fr_dicts:
             return
