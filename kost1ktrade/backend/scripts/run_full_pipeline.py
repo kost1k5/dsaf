@@ -2,6 +2,10 @@ import subprocess
 import sys
 import os
 import multiprocessing
+
+# Adjust the path to allow imports from the 'src' directory
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from src.core.config import settings
 from src.core.utils import parse_asset_from_symbol
 
