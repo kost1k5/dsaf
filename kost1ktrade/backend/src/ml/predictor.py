@@ -6,18 +6,11 @@ from typing import Dict, List, Any
 
 # Import global settings to access the timeframe
 from src.core.config import settings
+from src.core.utils import sanitize_symbol, parse_asset_from_symbol
 
 # --- Constants for model directories ---
 PROD_MODEL_DIR = "models/production"
 OLD_MODEL_DIR = "src/ml/models"
-
-def sanitize_symbol(symbol: str) -> str:
-    """Converts a symbol like 'BTC/USDT' to 'BTC_USDT' for filenames."""
-    return symbol.replace('/', '_')
-
-def parse_asset_from_symbol(symbol: str) -> str:
-    """Converts 'BTC/USDT' or 'BTC-USDT' to 'BTC'."""
-    return symbol.split('/')[0].split('-')[0]
 
 
 class Predictor:
