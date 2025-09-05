@@ -233,6 +233,116 @@ def main(asset: str, timeframe: str, metric: str):
     print(f"\nOut-of-sample predictions saved to: {output_path}")
     print(oos_predictions.head())
 
+    # (A) Run the new detailed backtest for logging and dynamic sizing
+    run_detailed_backtest(oos_predictions, asset, timeframe)
+
+
+def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str, initial_capital=10000.0):
+    """
+    Runs a detailed backtest simulation based on model predictions,
+    implements dynamic position sizing, and logs the last 100 trades.
+    """
+    print("\n--- Running Detailed Backtest Simulation ---")
+    log_path = os.path.join(os.path.dirname(__file__), '..', 'full_log.txt')
+
+    capital = initial_capital
+    equity_curve = [initial_capital]
+    trades = []
+
+    # These would typically come from config, but are fixed here for simplicity
+    # as per the triple-barrier method used in labeling.
+    tp_atr_mult = 1.5
+    sl_atr_mult = 1.0
+
+    for _, row in predictions.iterrows():
+        if capital <= 0:
+            print("  - Backtest ended: Capital reached zero.")
+            break
+
+        confidence = 0
+        decision = "HOLD"
+        pnl = 0
+
+        # Determine trade direction based on highest probability
+        if row['proba_buy'] > row['proba_sell'] and row['proba_buy'] > row['proba_hold']:
+            confidence = row['proba_buy']
+            decision = "BUY"
+        elif row['proba_sell'] > row['proba_buy'] and row['proba_sell'] > row['proba_hold']:
+            confidence = row['proba_sell']
+            decision = "SELL"
+
+        # Apply dynamic position sizing based on confidence
+        if confidence > 0.6:
+            if confidence > 0.8:
+                risk_percentage = 0.15 # 15%
+            elif confidence > 0.7:
+                risk_percentage = 0.05 # 5%
+            else:
+                risk_percentage = 0.03 # 3%
+
+            # Calculate position size and PnL
+            amount_to_risk = capital * risk_percentage
+            # Position size is determined by how much we can buy/sell before hitting SL
+            position_size_usd = amount_to_risk / sl_atr_mult # Simplified for this context
+
+            entry_price = row['close']
+            atr_at_trade = row['atr'] * entry_price # Convert relative ATR to absolute price value
+
+            if decision == "BUY":
+                sl_price = entry_price - (atr_at_trade * sl_atr_mult)
+                tp_price = entry_price + (atr_at_trade * tp_atr_mult)
+                # y_true: 0 (Sell), 1 (Hold), 2 (Buy). We win if y_true is 2.
+                if row['y_true'] == 2:
+                    pnl = amount_to_risk * (tp_atr_mult / sl_atr_mult) # Reward/Risk
+                else:
+                    pnl = -amount_to_risk
+            elif decision == "SELL":
+                sl_price = entry_price + (atr_at_trade * sl_atr_mult)
+                tp_price = entry_price - (atr_at_trade * tp_atr_mult)
+                # y_true: 0 (Sell), 1 (Hold), 2 (Buy). We win if y_true is 0.
+                if row['y_true'] == 0:
+                    pnl = amount_to_risk * (tp_atr_mult / sl_atr_mult) # Reward/Risk
+                else:
+                    pnl = -amount_to_risk
+
+            capital += pnl
+            equity_curve.append(capital)
+
+            # Log the trade
+            trades.append({
+                "entry_time": row['timestamp'],
+                "exit_time": row['timestamp'] + pd.Timedelta(hours=1), # Simplified exit time
+                "asset": asset,
+                "timeframe": timeframe,
+                "decision": decision,
+                "confidence": f"{confidence:.2%}",
+                "entry_price": f"{entry_price:.4f}",
+                "take_profit": f"{tp_price:.4f}",
+                "stop_loss": f"{sl_price:.4f}",
+                "position_size_usd": f"{position_size_usd:.2f}",
+                "pnl_usd": f"{pnl:.2f}",
+                "capital_after_trade": f"{capital:.2f}"
+            })
+
+    print(f"  - Backtest complete. Final Capital: ${capital:.2f}")
+    print(f"  - Total trades taken: {len(trades)}")
+
+    # Write the last 100 trades to the log file
+    if trades:
+        print(f"  - Writing last 100 trades to {log_path}")
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write(f"--- Trade Log for {asset} ({timeframe}) ---\n")
+            f.write(f"--- Final Capital: ${capital:.2f} ---\n\n")
+
+            log_trades = trades[-100:]
+            for i, trade in enumerate(log_trades):
+                f.write(f"Trade #{len(trades) - len(log_trades) + i + 1}\n")
+                for key, value in trade.items():
+                    f.write(f"  {key.replace('_', ' ').title()}: {value}\n")
+                f.write("-" * 30 + "\n")
+    else:
+        print("  - No trades were taken, log file not written.")
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Walk-Forward Validation Orchestrator")

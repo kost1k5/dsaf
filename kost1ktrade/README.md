@@ -66,6 +66,26 @@ The trading bot and the web interface are now running. The bot will use the mode
 *   **To monitor logs:** `pm2 logs`
 *   **To stop the application:** `pm2 stop all`
 
+---
+
+### **Step 4: Reviewing Logs**
+
+After running the `run_full_pipeline.py` script, two new log files are generated in the `kost1ktrade/backend` directory. These files provide detailed insights into the model generation and backtesting process.
+
+1.  **`indicator_log.txt`**:
+    *   **Purpose:** This file details the entire feature generation process. It shows which technical indicators were calculated, what parameters were used (e.g., RSI with a length of 14), and how other data sources like sentiment and macro data were merged.
+    *   **Use Case:** Use this log to understand exactly how the data for the model is being prepared.
+
+2.  **`full_log.txt`**:
+    *   **Purpose:** This file contains a detailed backtest report of the last 100 simulated trades based on the generated model's predictions.
+    *   **Key Features:**
+        *   **Dynamic Position Sizing:** The backtest uses a dynamic position sizing strategy based on the model's confidence:
+            *   **> 80% confidence:** 15% of capital is risked.
+            *   **> 70% confidence:** 5% of capital is risked.
+            *   **> 60% confidence:** 3% of capital is risked.
+        *   **Detailed Trade Info:** For each trade, the log includes the entry/exit times, Take Profit and Stop Loss levels, the model's confidence for the trade, and the resulting PnL.
+    *   **Use Case:** Analyze this log to evaluate the trading performance of the model and understand how the dynamic risk management works.
+
 #### **Alternative: Manual/Development Launch**
 
 You can also run the backend and frontend in separate terminals for development.
