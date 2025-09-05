@@ -92,9 +92,9 @@ class FeatureGenerator:
         Uses merge_asof for robust joining of sparse data.
         """
         print("Adding derivative features...")
-        if self.open_interest is not None and not self.open_interest.empty:
-            oi_series = self.open_interest[['openInterestValue']].rename(columns={'openInterestValue': 'oi_value'})
-            self.df = pd.merge_asof(self.df, oi_series, left_index=True, right_index=True, direction='backward')
+        if self.open_interest is not None and not self.open_interest.empty and 'oi_value' in self.open_interest.columns:
+            # The 'oi_value' column is already standardized by the collection script.
+            self.df = pd.merge_asof(self.df, self.open_interest[['oi_value']], left_index=True, right_index=True, direction='backward')
             # Forward-fill is okay to propagate last known value, but back-filling introduces lookahead bias.
             # The model will learn to handle NaNs for periods where no data was available.
             self.df['oi_value'] = self.df['oi_value'].ffill()
@@ -216,8 +216,14 @@ class FeatureGenerator:
         # Iterate over a copy of column names as we might modify the dataframe
         for col in self.df.columns.copy():
             if col not in exclude_cols and pd.api.types.is_numeric_dtype(self.df[col]):
+                # A constant series will cause the ADF test to fail and should not be transformed.
+                # We skip it here entirely.
+                if self.df[col].nunique() < 2:
+                    print(f"  -> WARNING: Column '{col}' is constant. Skipping stationarity test and transformation.")
+                    continue
+
                 print(f"Testing stationarity of: {col}")
-                p_value = self.test_stationarity(self.df[col])
+                p_value = self.test_stationarity(self.df[col].dropna())
                 if p_value > 0.05:
                     print(f"  -> Column '{col}' is not stationary (p-value: {p_value:.4f}). Applying transformation.")
                     self.df[f'{col}_pct_change'] = self.df[col].pct_change()
@@ -227,16 +233,11 @@ class FeatureGenerator:
     def test_stationarity(self, series: pd.Series):
         """
         Performs the Augmented Dickey-Fuller test on a series.
+        Assumes NaNs and constant series have already been handled.
         Returns the p-value.
         """
-        series = series.dropna()
         if len(series) < 20: # Not enough data to test
             return 0.0 # Assume stationary if not enough data
-
-        # If the series is constant, ADF test will fail. A constant series is non-stationary.
-        if series.nunique() < 2:
-            print(f"  -> Series is constant. Marking as non-stationary.")
-            return 1.0 # p-value of 1 indicates non-stationarity
 
         try:
             result = adfuller(series)
