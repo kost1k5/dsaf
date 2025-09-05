@@ -118,25 +118,42 @@ def main(days_history: int):
                 )
 
                 if not oi_chunk:
-                    print("  No more Open Interest data returned, stopping.")
+                    print("  No more Open Interest data returned, stopping pagination.")
                     break
 
-                # Filter out duplicates that might be returned by the API
-                last_timestamp = all_oi_data[-1]['timestamp'] if all_oi_data else 0
-                new_data = [d for d in oi_chunk if d['timestamp'] > last_timestamp]
+                # --- Data Validation and Cleaning ---
+                # 1. Sort chunk by timestamp ascending, as exchange order is not guaranteed.
+                oi_chunk_sorted = sorted(oi_chunk, key=lambda x: x['timestamp'])
+
+                # 2. Filter out data with future timestamps to prevent data corruption.
+                valid_data = [d for d in oi_chunk_sorted if d['timestamp'] <= end_ms]
+
+                if not valid_data:
+                    print("  No valid (non-future) data in this chunk. Advancing time to prevent loop.")
+                    current_since += timeframe_duration_ms * 500 # Advance by the request limit
+                    continue
+
+                # 3. Filter out duplicates that might already be in our list
+                last_timestamp_in_all_data = all_oi_data[-1]['timestamp'] if all_oi_data else 0
+                new_data = [d for d in valid_data if d['timestamp'] > last_timestamp_in_all_data]
 
                 if not new_data:
-                    print("  No new data in this chunk, advancing time to prevent loop.")
-                    current_since += timeframe_duration_ms * 500 # Advance by the limit
+                    print("  No new data in this chunk (all records were duplicates). Advancing time.")
+                    # Advance from the last known timestamp to avoid getting stuck
+                    current_since = valid_data[-1]['timestamp'] + timeframe_duration_ms
                     continue
 
                 all_oi_data.extend(new_data)
 
-                # Update the 'since' parameter for the next iteration
+                # --- Update Pagination Timestamp ---
+                # Correctly update 'since' for the next iteration from the last valid record.
                 last_ts_in_chunk = new_data[-1]['timestamp']
-                current_since = last_ts_in_chunk + timeframe_duration_ms # Start next chunk after the last one
+                current_since = last_ts_in_chunk + timeframe_duration_ms
 
-                print(f"  Fetched {len(new_data)} new OI points. Total: {len(all_oi_data)}. Last timestamp: {datetime.fromtimestamp(last_ts_in_chunk/1000)}")
+                # --- Enhanced Logging ---
+                first_ts_str = datetime.fromtimestamp(new_data[0]['timestamp']/1000)
+                last_ts_str = datetime.fromtimestamp(new_data[-1]['timestamp']/1000)
+                print(f"  Fetched {len(new_data)} new OI points. Total: {len(all_oi_data)}. Chunk range: {first_ts_str} to {last_ts_str}")
 
             except Exception as e:
                 print(f"  An error occurred while fetching Open Interest chunk for {asset}: {e}")
@@ -152,14 +169,21 @@ def main(days_history: int):
             if 'timestamp' in oi_df.columns:
                 oi_df['timestamp'] = pd.to_datetime(oi_df['timestamp'], unit='ms')
 
-            # The 'info' dict from ccxt can be very large, let's just keep the useful columns
-            # Standardized ccxt response for OI includes: 'symbol', 'timestamp', 'datetime', 'openInterestValue'
-            # We select columns that are likely to exist and be useful
-            cols_to_keep = ['symbol', 'timestamp', 'openInterestValue']
-            oi_df_filtered = oi_df[[col for col in cols_to_keep if col in oi_df.columns]]
+            # Standardize the Open Interest column name to 'oi_value' to prevent KeyErrors downstream.
+            # CCXT responses can vary between exchanges ('openInterest' vs 'openInterestValue').
+            if 'openInterestValue' in oi_df.columns:
+                oi_df.rename(columns={'openInterestValue': 'oi_value'}, inplace=True)
+            elif 'openInterest' in oi_df.columns:
+                oi_df.rename(columns={'openInterest': 'oi_value'}, inplace=True)
+            else:
+                print(f"  -> WARNING: Neither 'openInterestValue' nor 'openInterest' found in OI data for {asset}. Cannot save OI.")
+                oi_df['oi_value'] = None # Create an empty column to avoid breaking the save logic
 
-            oi_df_filtered.to_csv(os.path.join(OUTPUT_DIR, f'{asset}_open_interest_1h.csv'), index=False)
-            print(f"Saved {asset}_open_interest_1h.csv with {len(oi_df_filtered)} records to {OUTPUT_DIR}")
+            # Select only the essential columns for saving.
+            if 'oi_value' in oi_df.columns:
+                oi_df_to_save = oi_df[['timestamp', 'oi_value']]
+                oi_df_to_save.to_csv(os.path.join(OUTPUT_DIR, f'{asset}_open_interest_1h.csv'), index=False)
+                print(f"Saved {asset}_open_interest_1h.csv with {len(oi_df_to_save)} records to {OUTPUT_DIR}")
         else:
             print(f"No Open Interest data was collected for {asset}.")
         time.sleep(1)
