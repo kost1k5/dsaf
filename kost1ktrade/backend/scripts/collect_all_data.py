@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import time
 import argparse
 import sys
+import csv
 
 # Adjust the path to allow imports from the 'src' directory
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -44,9 +45,9 @@ def main(days_history: int):
     print(f" - All data will be fetched for {days_history} days (from {start_date_str} to {end_date_str}).")
 
     # --- Initialize Collectors ---
-    # CHANGE: Switched from OKX (previous default) to Bybit for better historical data depth
-    print("\nInitializing Bybit Data Collector...")
-    data_collector = DataCollector(exchange_id='bybit') 
+    # Using OKX as the primary exchange as requested by the user.
+    print("\nInitializing OKX Data Collector...")
+    data_collector = DataCollector(exchange_id='okx')
     
     macro_collector = MacroDataCollector()
     sentiment_collector = SentimentCollector()
@@ -74,6 +75,13 @@ def main(days_history: int):
         else:
             print("Warning: No F&G data found within the specified date range after fetching.")
 
+    print("\n--- Collecting RSS News ---")
+    news_items = sentiment_collector.fetch_rss_news()
+    if news_items:
+        news_df = pd.DataFrame(news_items)
+        news_df.to_csv(os.path.join(OUTPUT_DIR, 'news_headlines.csv'), index=False)
+        print(f"Saved news_headlines.csv to {OUTPUT_DIR}")
+
     # --- 2. Collect Crypto-Specific Data ---
     for asset in CRYPTO_ASSETS:
         print(f"\n{'='*20} Collecting data for {asset} {'='*20}")
@@ -95,99 +103,55 @@ def main(days_history: int):
                 print(f"Could not fetch OHLCV for {asset} ({tf}). Error: {e}")
             time.sleep(1) # Rate limiting precaution
 
-        # --- Open Interest Data (with custom forward pagination) ---
-        # NOTE: The generic `fetch_paginated_history_backwards` function from the collector
-        # was found to be incompatible with Bybit's API for open interest, leading to empty data.
-        # This custom forward-pagination loop is a more robust replacement. It iterates
-        # from the start date to the end date, fetching data in chunks.
+        # --- Open Interest Data (Append-Only Logic) ---
         print(f"\n--- Collecting {asset} Open Interest (1h) ---")
-        all_oi_data = []
-        current_since = since_ms
-        oi_timeframe = '1h'
-        # Calculate timeframe duration in milliseconds for advancing the timestamp
-        timeframe_duration_ms = 1 * 60 * 60 * 1000 # 1h in ms
+        oi_filepath = os.path.join(OUTPUT_DIR, f'{asset}_open_interest_1h.csv')
+        try:
+            # 1. Fetch the single most recent OI data point from the exchange.
+            latest_point = data_collector.exchange.fetch_open_interest_history(symbol, '1h', limit=1)
+            if not latest_point:
+                print(f"  -> No OI data returned from exchange for {asset}.")
+                continue
 
-        while current_since < end_ms:
-            try:
-                print(f"  Fetching chunk since {datetime.fromtimestamp(current_since/1000)}...")
-                oi_chunk = data_collector.exchange.fetch_open_interest_history(
-                    symbol=symbol,
-                    timeframe=oi_timeframe,
-                    since=current_since,
-                    limit=500 # Bybit allows up to 500
-                )
+            # 2. Extract and format the new data.
+            new_data_point = latest_point[0]
+            new_timestamp = pd.to_datetime(new_data_point['timestamp'], unit='ms', utc=True)
+            new_value = new_data_point.get('openInterestValue') or new_data_point.get('openInterest')
 
-                if not oi_chunk:
-                    print("  No more Open Interest data returned, stopping pagination.")
-                    break
+            if new_value is None:
+                print(f"  -> OI value not found in response for {asset}.")
+                continue
 
-                # --- Data Validation and Cleaning ---
-                # 1. Sort chunk by timestamp ascending, as exchange order is not guaranteed.
-                oi_chunk_sorted = sorted(oi_chunk, key=lambda x: x['timestamp'])
+            # 3. Check for duplicates by reading the last line of the existing file.
+            file_exists = os.path.exists(oi_filepath)
+            if file_exists:
+                with open(oi_filepath, 'r', encoding='utf-8') as f:
+                    # Find the last line to get the last timestamp
+                    try:
+                        last_line = f.readlines()[-1]
+                        last_timestamp_str = last_line.split(',')[0]
+                        last_timestamp = pd.to_datetime(last_timestamp_str, utc=True)
+                        if new_timestamp <= last_timestamp:
+                            print(f"  -> Latest OI data for {asset} is already recorded. No changes made.")
+                            continue
+                    except (IndexError, pd.errors.ParserError):
+                        # Handle case where file is empty or corrupt
+                        file_exists = False # Treat as a new file
 
-                # 2. Filter out data with future timestamps to prevent data corruption.
-                valid_data = [d for d in oi_chunk_sorted if d['timestamp'] <= end_ms]
+            # 4. If the data is new, append it to the CSV.
+            print(f"  -> New OI data found for {asset} at {new_timestamp}. Appending to file.")
+            with open(oi_filepath, 'a', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                # Write header only if the file is brand new
+                if not file_exists:
+                    writer.writerow(['timestamp', 'openInterestValue'])
 
-                if not valid_data:
-                    print("  No valid (non-future) data in this chunk. Advancing time to prevent loop.")
-                    current_since += timeframe_duration_ms * 500 # Advance by the request limit
-                    continue
+                # Write the new data row
+                writer.writerow([new_timestamp.isoformat(), new_value])
 
-                # 3. Filter out duplicates that might already be in our list
-                last_timestamp_in_all_data = all_oi_data[-1]['timestamp'] if all_oi_data else 0
-                new_data = [d for d in valid_data if d['timestamp'] > last_timestamp_in_all_data]
-
-                if not new_data:
-                    print("  No new data in this chunk (all records were duplicates). Advancing time.")
-                    # Advance from the last known timestamp to avoid getting stuck
-                    current_since = valid_data[-1]['timestamp'] + timeframe_duration_ms
-                    continue
-
-                all_oi_data.extend(new_data)
-
-                # --- Update Pagination Timestamp ---
-                # Correctly update 'since' for the next iteration from the last valid record.
-                last_ts_in_chunk = new_data[-1]['timestamp']
-                current_since = last_ts_in_chunk + timeframe_duration_ms
-
-                # --- Enhanced Logging ---
-                first_ts_str = datetime.fromtimestamp(new_data[0]['timestamp']/1000)
-                last_ts_str = datetime.fromtimestamp(new_data[-1]['timestamp']/1000)
-                print(f"  Fetched {len(new_data)} new OI points. Total: {len(all_oi_data)}. Chunk range: {first_ts_str} to {last_ts_str}")
-
-            except Exception as e:
-                print(f"  An error occurred while fetching Open Interest chunk for {asset}: {e}")
-                print("  Stopping OI collection for this asset due to error.")
-                break
-
-            time.sleep(data_collector.exchange.rateLimit / 1000) # Respect rate limits
-
-        if all_oi_data:
-            oi_df = pd.DataFrame(all_oi_data)
-            # Filter one last time to ensure we are within the date range
-            oi_df = oi_df[(oi_df['timestamp'] >= since_ms) & (oi_df['timestamp'] <= end_ms)]
-            if 'timestamp' in oi_df.columns:
-                oi_df['timestamp'] = pd.to_datetime(oi_df['timestamp'], unit='ms')
-
-            # Standardize the Open Interest column name to 'oi_value' to prevent KeyErrors downstream.
-            # CCXT responses can vary between exchanges ('openInterest' vs 'openInterestValue').
-            if 'openInterestValue' in oi_df.columns:
-                oi_df.rename(columns={'openInterestValue': 'oi_value'}, inplace=True)
-            elif 'openInterest' in oi_df.columns:
-                oi_df.rename(columns={'openInterest': 'oi_value'}, inplace=True)
-            else:
-                print(f"  -> WARNING: Neither 'openInterestValue' nor 'openInterest' found in OI data for {asset}. Cannot save OI.")
-                oi_df['oi_value'] = None # Create an empty column to avoid breaking the save logic
-
-            # Select only the essential columns for saving.
-            if 'oi_value' in oi_df.columns:
-                oi_df_to_save = oi_df[['timestamp', 'oi_value']]
-                oi_df_to_save.to_csv(os.path.join(OUTPUT_DIR, f'{asset}_open_interest_1h.csv'), index=False)
-                print(f"Saved {asset}_open_interest_1h.csv with {len(oi_df_to_save)} records to {OUTPUT_DIR}")
-        else:
-            print(f"No Open Interest data was collected for {asset}.")
+        except Exception as e:
+            print(f"  -> An error occurred while collecting latest Open Interest for {asset}: {e}")
         time.sleep(1)
-
 
         # --- Funding Rate Data ---
         print(f"\n--- Collecting {asset} Funding Rates ---")
