@@ -18,54 +18,93 @@ class FeatureGenerator:
         Initializes the FeatureGenerator with all necessary dataframes.
         The main dataframe `self.df` is based on the ohlcv data.
         """
-        # (A) Setup logging - Moved up to be available for helper
+        # (A) Setup logging
         log_file_path = os.path.join(os.path.dirname(__file__), '..', '..', 'indicator_log.txt')
         # Use 'a' to append, which is safer for parallel script execution
         self.log_file = open(log_file_path, 'a', encoding='utf-8')
         self._log("--- Starting Feature Generation ---")
 
-        def _standardize_df(df, df_name):
-            if df is None or df.empty:
-                self._log(f"  - DataFrame '{df_name}' is None or empty. Skipping.")
-                return None
-
-            # The dataframe from `load_data_from_db` already has a DatetimeIndex.
-            # We just need to ensure its name is 'timestamp' for consistency.
-            if isinstance(df.index, pd.DatetimeIndex):
-                df.index.name = 'timestamp'
-                return df.sort_index()
-
-            # Fallback for dataframes that might not be indexed yet
-            time_col_names = ['timestamp', 'open_time', 'funding_time', 'Date', 'published_at', 'published']
-            time_col = next((col for col in time_col_names if col in df.columns), None)
-
-            if time_col:
-                self._log(f"  - Standardizing DataFrame '{df_name}' using column '{time_col}'.")
-                # Ensure the time column is in datetime format before setting as index
-                df[time_col] = pd.to_datetime(df[time_col], utc=True)
-                df = df.set_index(time_col)
-                df.index.name = 'timestamp'
-                return df.sort_index()
-
-            self._log(f"Error: Could not find a suitable time column or index for '{df_name}'.")
-            raise KeyError(f"DataFrame '{df_name}' must contain a time column or be a DatetimeIndex.")
-
         self.timeframe = timeframe
 
-        # Standardize all dataframes
-        self.df = _standardize_df(ohlcv_df, "ohlcv_df").copy()
+        # Standardize the main OHLCV dataframe
+        self.df = self._standardize_ohlcv(ohlcv_df, "ohlcv_df").copy()
         if self.df is None:
-             raise ValueError("Primary OHLCV dataframe is missing or invalid.")
+            raise ValueError("Primary OHLCV dataframe is missing or invalid.")
 
-        self.ohlcv_4h = _standardize_df(ohlcv_df_4h, "ohlcv_df_4h")
-        self.ohlcv_1d = _standardize_df(ohlcv_df_1d, "ohlcv_df_1d")
-        self.eth_ohlcv = _standardize_df(eth_ohlcv_df, "eth_ohlcv_df")
-        self.funding_rate = _standardize_df(funding_rate_df, "funding_rate_df")
-        self.macro = _standardize_df(macro_df, "macro_df")
-        self.fng = _standardize_df(fng_df, "fng_df")
-        self.news = _standardize_df(news_df, "news_df")
+        # Standardize all other optional dataframes
+        self.ohlcv_4h = self._standardize_ohlcv(ohlcv_df_4h, "ohlcv_4h")
+        self.ohlcv_1d = self._standardize_ohlcv(ohlcv_df_1d, "ohlcv_1d")
+        self.eth_ohlcv = self._standardize_ohlcv(eth_ohlcv_df, "eth_ohlcv")
+        self.funding_rate = self._standardize_funding_rate(funding_rate_df)
+        self.macro = self._standardize_generic(macro_df, "macro_df", ['Date', 'timestamp'])
+        self.fng = self._standardize_generic(fng_df, "fng_df", ['timestamp'])
+        self.news = self._standardize_generic(news_df, "news_df", ['published_at', 'published', 'timestamp'])
 
         self.open_interest = None # OI feature remains removed
+
+    def _standardize_generic(self, df, name, time_cols):
+        """Standardizes a generic dataframe to have a 'timestamp' DatetimeIndex."""
+        if df is None or df.empty:
+            self._log(f"  - DataFrame '{name}' is None or empty. Skipping.")
+            return None
+
+        df = df.copy()
+
+        # If index is already datetime, just ensure name is correct
+        if isinstance(df.index, pd.DatetimeIndex):
+            df.index.name = 'timestamp' # Standardize name
+            return df.sort_index()
+
+        # Find the time column
+        time_col = next((col for col in time_cols if col in df.columns), None)
+        if time_col:
+            df = df.set_index(time_col)
+            df.index = pd.to_datetime(df.index, utc=True)
+            df.index.name = 'timestamp'
+            return df.sort_index()
+
+        self._log(f"Warning: Could not find a suitable time column in '{name}'. Columns: {df.columns}. Skipping.")
+        return None
+
+    def _standardize_ohlcv(self, df, name):
+        """Standardizes an OHLCV dataframe."""
+        if df is None or df.empty:
+            return None
+        # In our pipeline, OHLCV data comes pre-indexed from the DB loader.
+        if isinstance(df.index, pd.DatetimeIndex):
+            df.index.name = 'timestamp'
+            return df.sort_index()
+        # Fallback if it's not indexed
+        return self._standardize_generic(df, name, ['open_time', 'timestamp'])
+
+    def _standardize_funding_rate(self, df):
+        """Helper method to standardize the funding rate dataframe index and columns."""
+        if df is None or df.empty:
+            self._log("  - DataFrame 'funding_rate' is None or empty. Skipping.")
+            return None
+
+        temp_df = self._standardize_generic(df, "funding_rate", ['funding_time', 'timestamp'])
+        if temp_df is None:
+            return None
+
+        # Standardize the Rate Value Column
+        rate_col = None
+        possible_rate_cols = ['funding_rate', 'fundingRate', 'rate']
+        for col in possible_rate_cols:
+            if col in temp_df.columns:
+                rate_col = col
+                break
+
+        if rate_col:
+            # Rename to the standardized internal name 'funding_rate'
+            if rate_col != 'funding_rate':
+                temp_df.rename(columns={rate_col: 'funding_rate'}, inplace=True)
+
+            # Return the standardized DataFrame, keeping only the necessary column
+            return temp_df[['funding_rate']]
+        else:
+            self._log(f"Error: Could not identify the funding rate value column. Available columns: {temp_df.columns.tolist()}. Skipping funding data.")
+            return None
 
     def _log(self, message: str):
         """Logs a message to the console and the designated log file."""
@@ -140,16 +179,32 @@ class FeatureGenerator:
         Uses merge_asof for robust joining of sparse data.
         """
         self._log("\n[Step 3/8] Adding Derivative Features")
-        if self.funding_rate is not None and not self.funding_rate.empty:
-            self._log("  - Merging funding rate data.")
-            fr_series = self.funding_rate[['fundingRate']].rename(columns={'fundingRate': 'funding_rate'})
-            self.df = pd.merge_asof(self.df, fr_series, left_index=True, right_index=True, direction='backward')
-            # Forward-fill is okay, back-filling is not.
-            self.df['funding_rate'] = self.df['funding_rate'].ffill()
-            self._log("  - Calculating funding rate momentum (3-period diff).")
-            self.df['funding_rate_mom'] = self.df['funding_rate'].diff(periods=3)
-        else:
-            self._log("  - No funding rate data available.")
+
+        # Check if standardization in __init__ was successful
+        if self.funding_rate is None or self.funding_rate.empty:
+            self._log("  - Funding rate data not available or standardized. Skipping derivative features.")
+            return self
+
+        self._log("  - Merging funding rate data.")
+
+        # Ensure the main DF is sorted (required for merge_asof).
+        if not self.df.index.is_monotonic_increasing:
+             self.df.sort_index(inplace=True)
+
+        # Replace the original selection/rename logic (Line 145) with this merge.
+        # self.funding_rate is already sorted and standardized.
+        self.df = pd.merge_asof(
+            self.df,
+            self.funding_rate, # Already standardized to have 'funding_rate' column
+            left_index=True,
+            right_index=True,
+            direction='backward' # Use the most recent past value
+        )
+
+        # Forward-fill is okay, back-filling is not.
+        self.df['funding_rate'] = self.df['funding_rate'].ffill()
+        self._log("  - Calculating funding rate momentum (3-period diff).")
+        self.df['funding_rate_mom'] = self.df['funding_rate'].diff(periods=3)
 
         return self
 
