@@ -157,7 +157,7 @@ class DataCollector:
         if not self.db:
             raise Exception("Database session not provided to DataCollector.")
 
-        from sqlalchemy.dialects.postgresql import insert
+        from sqlalchemy.dialects.sqlite import insert
 
         # 1. Prepare and de-duplicate the data
         unique_candles = {}
@@ -257,7 +257,7 @@ class DataCollector:
         if not self.db:
             raise Exception("Database session not provided to DataCollector.")
 
-        from sqlalchemy.dialects.postgresql import insert
+        from sqlalchemy.dialects.sqlite import insert
 
         unique_rates = {}
         for fr in funding_rates:
