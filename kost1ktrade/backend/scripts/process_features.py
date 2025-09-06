@@ -110,6 +110,13 @@ def main(asset: str, timeframe: str):
         # 1. Load all data from DB
         raw_data = load_data_from_db(db, asset, timeframe)
 
+        # --- CRITICAL DATA CHECK ---
+        # Ensure the primary OHLCV data is present before proceeding.
+        main_ohlcv_df = raw_data.get('ohlcv')
+        if main_ohlcv_df is None or main_ohlcv_df.empty:
+            print(f"CRITICAL ERROR: Input OHLCV DataFrame for {asset} on timeframe {timeframe} is empty or missing. Halting execution for this asset.")
+            sys.exit(1) # Exit with a non-zero status code to indicate failure
+
         # 2. Instantiate Feature Generator
         feature_generator = FeatureGenerator(
             asset=asset,
