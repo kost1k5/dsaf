@@ -106,6 +106,7 @@ def main(asset: str, timeframe: str):
 
         # 2. Instantiate Feature Generator
         feature_generator = FeatureGenerator(
+            asset=asset,
             ohlcv_df=raw_data['ohlcv'],
             timeframe=timeframe,
             ohlcv_df_4h=raw_data.get('ohlcv_4h'),

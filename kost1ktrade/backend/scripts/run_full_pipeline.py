@@ -59,16 +59,25 @@ def main():
     Main script to run the entire quantitative pipeline.
     It runs data collection serially, then processes all assets in parallel.
     """
-    # --- (FIX) Log File Management ---
-    FULL_LOG_PATH = os.path.join(os.path.dirname(__file__), '..', 'full_log.txt')
-    INDICATOR_LOG_PATH = os.path.join(os.path.dirname(__file__), '..', 'indicator_log.txt')
-    RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
+    # --- Log File Management ---
+    BASE_DIR = os.path.join(os.path.dirname(__file__), '..')
+    FULL_LOG_PATH = os.path.join(BASE_DIR, 'full_log.txt')
 
-    # Clear previous log files at the start of a full run
-    for log_file in [FULL_LOG_PATH, INDICATOR_LOG_PATH]:
-        if os.path.exists(log_file):
-            open(log_file, 'w').close()
-            print(f"Cleared log file: {log_file}")
+    # Clear the main pipeline log
+    if os.path.exists(FULL_LOG_PATH):
+        open(FULL_LOG_PATH, 'w').close()
+        print(f"Cleared log file: {FULL_LOG_PATH}")
+
+    # Remove previous asset-specific indicator logs to prevent stale logs
+    for symbol in settings.SYMBOLS:
+        asset = parse_asset_from_symbol(symbol)
+        indicator_log_path = os.path.join(BASE_DIR, f'indicator_log_{asset}.txt')
+        if os.path.exists(indicator_log_path):
+            try:
+                os.remove(indicator_log_path)
+                print(f"Removed stale indicator log: {indicator_log_path}")
+            except OSError as e:
+                print(f"Error removing file {indicator_log_path}: {e}")
     # ---
 
     print("======================================================")

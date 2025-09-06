@@ -9,7 +9,7 @@ class FeatureGenerator:
     A class to generate a wide array of features for the trading model.
     It takes various dataframes as input and produces a single dataframe with all features.
     """
-    def __init__(self, ohlcv_df: pd.DataFrame, timeframe: str,
+    def __init__(self, asset: str, ohlcv_df: pd.DataFrame, timeframe: str,
                  ohlcv_df_4h: pd.DataFrame = None, ohlcv_df_1d: pd.DataFrame = None,
                  funding_rate_df: pd.DataFrame = None,
                  macro_df: pd.DataFrame = None, fng_df: pd.DataFrame = None, news_df: pd.DataFrame = None,
@@ -18,9 +18,10 @@ class FeatureGenerator:
         Initializes the FeatureGenerator with all necessary dataframes.
         The main dataframe `self.df` is based on the ohlcv data.
         """
-        log_file_path = os.path.join(os.path.dirname(__file__), '..', '..', 'indicator_log.txt')
-        self.log_file = open(log_file_path, 'a', encoding='utf-8')
-        self._log("--- Starting Feature Generation ---")
+        log_file_path = os.path.join(os.path.dirname(__file__), '..', '..', f'indicator_log_{asset}.txt')
+        # Open in 'w' mode to clear the log for this specific asset on each run
+        self.log_file = open(log_file_path, 'w', encoding='utf-8')
+        self._log(f"--- Starting Feature Generation for {asset} ---")
 
         self.timeframe = timeframe
 

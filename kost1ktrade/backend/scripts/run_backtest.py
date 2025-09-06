@@ -7,6 +7,7 @@ import argparse
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import f1_score
 from sklearn.calibration import CalibratedClassifierCV
+from zoneinfo import ZoneInfo
 
 # Adjust the path to allow imports from the 'src' directory
 import sys
@@ -237,13 +238,19 @@ def main(asset: str, timeframe: str, metric: str):
     run_detailed_backtest(oos_predictions, asset, timeframe)
 
 
-def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str, initial_capital=10000.0):
+def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str, initial_capital=10000.0, max_leverage=10.0, commission_rate=0.001):
     """
-    Runs a detailed backtest simulation based on model predictions,
-    implements dynamic position sizing, and logs the last 100 trades.
+    Runs a detailed backtest simulation with realistic constraints.
+
+    This function simulates trading based on model predictions, incorporating:
+    - Dynamic position sizing based on model confidence and a percentage of capital.
+    - A hard cap on leverage to prevent unrealistic position sizes.
+    - Commission costs for both entering and exiting a position.
+    - PnL calculation based on a fixed risk/reward ratio derived from ATR multipliers.
+    - Detailed logging of each trade with timestamps converted to a specific timezone.
     """
-    print("\n--- Running Detailed Backtest Simulation ---")
-    # FIX: Log to a temporary, asset-specific file to avoid parallel write conflicts.
+    print("\n--- Running Detailed Backtest Simulation with Realistic Constraints ---")
+
     RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
     os.makedirs(RESULTS_DIR, exist_ok=True)
     log_path = os.path.join(RESULTS_DIR, f'backtest_log_{asset}_{timeframe}.txt')
@@ -251,29 +258,23 @@ def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str,
     capital = initial_capital
     equity_curve = [initial_capital]
     trades = []
+    minsk_tz = ZoneInfo("Europe/Minsk")
 
-    # These would typically come from config, but are fixed here for simplicity
-    # as per the triple-barrier method used in labeling.
+    # Strategy parameters
     tp_atr_mult = 1.5
     sl_atr_mult = 1.0
-
-    # More realistic risk percentages
     confidence_threshold = 0.6
     high_confidence_threshold = 0.8
-    high_risk_pct = 0.02 # 2% for high confidence
-    med_risk_pct = 0.01 # 1% for medium confidence
-    low_risk_pct = 0.005 # 0.5% for low confidence
+    high_risk_pct = 0.02
+    med_risk_pct = 0.01
+    low_risk_pct = 0.005
 
     for _, row in predictions.iterrows():
         if capital <= 0:
             print("  - Backtest ended: Capital reached zero.")
             break
 
-        confidence = 0
         decision = "HOLD"
-        pnl = 0
-
-        # Determine trade direction based on highest probability
         if row['proba_buy'] > row['proba_sell'] and row['proba_buy'] > row['proba_hold']:
             confidence = row['proba_buy']
             decision = "BUY"
@@ -281,7 +282,6 @@ def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str,
             confidence = row['proba_sell']
             decision = "SELL"
 
-        # Apply dynamic position sizing based on confidence
         if confidence > confidence_threshold:
             if confidence > high_confidence_threshold:
                 risk_percentage = high_risk_pct
@@ -290,54 +290,55 @@ def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str,
             else:
                 risk_percentage = low_risk_pct
 
-            # FIX: The core logical error was here. PnL is calculated based on a fixed risk amount,
-            # not a compounding capital figure that includes the current trade's hypothetical outcome.
-            # This simulates risking a percentage of the *current* capital at the time of the trade decision.
-            amount_to_risk = capital * risk_percentage
+            intended_amount_to_risk = capital * risk_percentage
             entry_price = row['close']
             atr_at_trade = row['atr']
 
-            if atr_at_trade is None or atr_at_trade == 0:
-                continue # Cannot calculate position size if ATR is zero, skip trade
+            if atr_at_trade is None or atr_at_trade <= 0 or entry_price is None or entry_price <= 0:
+                continue
 
-            # Determine PnL based on whether the trade was correct (y_true matches the barrier hit)
-            if decision == "BUY":
-                # y_true: 0 (Sell), 1 (Hold), 2 (Buy). We win if y_true is 2.
-                if row['y_true'] == 2:
-                    pnl = amount_to_risk * tp_atr_mult # Simplified Reward
-                else:
-                    pnl = -amount_to_risk # Loss
-            elif decision == "SELL":
-                # y_true: 0 (Sell), 1 (Hold), 2 (Buy). We win if y_true is 0.
-                if row['y_true'] == 0:
-                    pnl = amount_to_risk * tp_atr_mult # Simplified Reward
-                else:
-                    pnl = -amount_to_risk # Loss
-
-            # This is a more realistic position size for logging purposes
             stop_loss_price_distance = atr_at_trade * sl_atr_mult
-            position_size_asset = amount_to_risk / stop_loss_price_distance
+            position_size_asset = intended_amount_to_risk / stop_loss_price_distance
             position_size_usd = position_size_asset * entry_price
 
-            sl_price = entry_price - stop_loss_price_distance if decision == "BUY" else entry_price + stop_loss_price_distance
-            tp_price = entry_price + (atr_at_trade * tp_atr_mult) if decision == "BUY" else entry_price - (atr_at_trade * tp_atr_mult)
+            if position_size_usd > capital * max_leverage:
+                position_size_usd = capital * max_leverage
+                position_size_asset = position_size_usd / entry_price
 
+            actual_amount_risked = position_size_asset * stop_loss_price_distance
 
+            reward_to_risk_ratio = tp_atr_mult / sl_atr_mult
+            pnl = 0
+            if decision == "BUY":
+                if row['y_true'] == 2: pnl = actual_amount_risked * reward_to_risk_ratio
+                else: pnl = -actual_amount_risked
+            elif decision == "SELL":
+                if row['y_true'] == 0: pnl = actual_amount_risked * reward_to_risk_ratio
+                else: pnl = -actual_amount_risked
+
+            commission = position_size_usd * commission_rate * 2
+            pnl -= commission
             capital += pnl
             equity_curve.append(capital)
 
-            # Log the trade
+            # Log the trade with enhanced details and timezone conversion
+            entry_time_minsk = row['timestamp'].tz_localize('UTC').tz_convert(minsk_tz)
+            exit_time_minsk = (row['timestamp'] + pd.Timedelta(hours=1)).tz_localize('UTC').tz_convert(minsk_tz)
+
             trades.append({
-                "entry_time": row['timestamp'],
-                "exit_time": row['timestamp'] + pd.Timedelta(hours=1), # Simplified exit time
+                "entry_time_minsk": entry_time_minsk.strftime('%Y-%m-%d %H:%M:%S %Z'),
+                "exit_time_minsk": exit_time_minsk.strftime('%Y-%m-%d %H:%M:%S %Z'),
                 "asset": asset,
                 "timeframe": timeframe,
                 "decision": decision,
                 "confidence": f"{confidence:.2%}",
+                "risk_percentage": f"{risk_percentage:.3%}",
                 "entry_price": f"{entry_price:.4f}",
-                "take_profit": f"{tp_price:.4f}",
-                "stop_loss": f"{sl_price:.4f}",
+                "stop_loss": f"{entry_price - stop_loss_price_distance if decision == 'BUY' else entry_price + stop_loss_price_distance:.4f}",
+                "take_profit": f"{entry_price + (atr_at_trade * tp_atr_mult) if decision == 'BUY' else entry_price - (atr_at_trade * tp_atr_mult):.4f}",
                 "position_size_usd": f"{position_size_usd:.2f}",
+                "actual_amount_risked_usd": f"{actual_amount_risked:.2f}",
+                "commission_usd": f"{commission:.2f}",
                 "pnl_usd": f"{pnl:.2f}",
                 "capital_after_trade": f"{capital:.2f}"
             })
