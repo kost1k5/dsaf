@@ -61,6 +61,12 @@ def load_data_from_db(db: Session, asset: str, timeframe: str) -> dict:
     if data.get('ohlcv') is None or data.get('ohlcv').empty:
         raise FileNotFoundError(f"Critical data 'ohlcv' not found for asset {asset}. Cannot proceed.")
 
+    # --- Clean up database IDs ---
+    # Remove the 'id' column from all loaded dataframes to prevent it from being used as a feature
+    for name, df in data.items():
+        if df is not None and 'id' in df.columns:
+            df.drop(columns='id', inplace=True)
+
     print("Finished loading raw data from database.")
     return data
 
