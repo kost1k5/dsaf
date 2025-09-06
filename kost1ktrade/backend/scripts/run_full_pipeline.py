@@ -59,6 +59,18 @@ def main():
     Main script to run the entire quantitative pipeline.
     It runs data collection serially, then processes all assets in parallel.
     """
+    # --- (FIX) Log File Management ---
+    FULL_LOG_PATH = os.path.join(os.path.dirname(__file__), '..', 'full_log.txt')
+    INDICATOR_LOG_PATH = os.path.join(os.path.dirname(__file__), '..', 'indicator_log.txt')
+    RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
+
+    # Clear previous log files at the start of a full run
+    for log_file in [FULL_LOG_PATH, INDICATOR_LOG_PATH]:
+        if os.path.exists(log_file):
+            open(log_file, 'w').close()
+            print(f"Cleared log file: {log_file}")
+    # ---
+
     print("======================================================")
     print("===  STARTING FULL QUANTITATIVE PIPELINE           ===")
     print("======================================================")
