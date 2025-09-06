@@ -1,18 +1,17 @@
 import os
 import sys
-from sqlalchemy import create_engine, inspect, func
+from sqlalchemy import inspect, func
 from sqlalchemy.orm import sessionmaker
 
 # Adjust path to import from src
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.database.session import DATABASE_URL, SessionLocal
+from src.database.session import engine, SessionLocal
 from src.database.models import Base # Import Base to get metadata
 
 def inspect_database():
     """
     Connects to the database, lists all tables, and prints the row count for each.
     """
-    engine = create_engine(DATABASE_URL)
     db = SessionLocal()
     inspector = inspect(engine)
 
