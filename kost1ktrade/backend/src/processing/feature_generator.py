@@ -103,26 +103,50 @@ class FeatureGenerator:
 
         expected_metrics = ['SPY', 'VIX', 'DXY']
 
-        available_wide_cols = {col: str(col).upper() for col in temp_df.columns if str(col).upper() in expected_metrics}
+        # --- Enhanced Wide Format Detection ---
+        # New logic to find metrics even with suffixes like '_close'
+        rename_map = {}
+        for col in temp_df.columns:
+            col_upper = str(col).upper()
+            for metric in expected_metrics:
+                if metric in col_upper:
+                    rename_map[col] = metric
+                    break # Move to the next column once a match is found
 
-        if len(available_wide_cols) > 0:
-             temp_df.rename(columns=available_wide_cols, inplace=True)
-             return temp_df[[metric for metric in expected_metrics if metric in temp_df.columns]]
+        if rename_map:
+             self._log(f"  - Found wide-format macro columns: {list(rename_map.keys())}. Renaming to standard format.")
+             temp_df.rename(columns=rename_map, inplace=True)
+             # Filter to only keep the expected metrics that were actually found
+             available_metrics = [metric for metric in expected_metrics if metric in temp_df.columns]
+             return temp_df[available_metrics]
 
+
+        # --- Fallback to Long (EAV) Format Detection ---
         metric_col = next((col for col in ['metric', 'name', 'symbol', 'ticker', 'indicator'] if col in temp_df.columns), None)
         value_col = next((col for col in ['value', 'price', 'close'] if col in temp_df.columns), None)
 
         if metric_col and value_col:
             try:
+                self._log("  - Attempting to pivot long-format macro data.")
                 pivoted_df = temp_df.pivot_table(index='timestamp', columns=metric_col, values=value_col, aggfunc='mean')
-                rename_map = {col: str(col).upper() for col in pivoted_df.columns if str(col).upper() in expected_metrics}
-                pivoted_df.rename(columns=rename_map, inplace=True)
+
+                # The pivot might create columns like 'spy' (lowercase), so we do the same rename logic as above
+                pivot_rename_map = {}
+                for col in pivoted_df.columns:
+                    col_upper = str(col).upper()
+                    for metric in expected_metrics:
+                        if metric in col_upper:
+                            pivot_rename_map[col] = metric
+                            break
+
+                pivoted_df.rename(columns=pivot_rename_map, inplace=True)
 
                 available_metrics = [m for m in expected_metrics if m in pivoted_df.columns]
                 if not available_metrics:
                     self._log("Warning: After pivoting macro data, none of the expected metrics were found. Skipping.")
                     return None
 
+                self._log(f"  - Successfully pivoted macro data. Found metrics: {available_metrics}")
                 return pivoted_df[available_metrics]
             except Exception as e:
                 self._log(f"Error during pivoting macro data: {e}. Skipping.")
