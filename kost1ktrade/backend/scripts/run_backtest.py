@@ -349,11 +349,11 @@ def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str,
     if trades:
         print(f"  - Writing last 100 trades to {log_path}")
         with open(log_path, 'w', encoding='utf-8') as f:
-            f.write(f"--- Trade Log for {asset} ({timeframe}) ---
-")
-            f.write(f"--- Final Capital: ${capital:.2f} ---
+            f.write(f"""--- Trade Log for {asset} ({timeframe}) ---
+""")
+            f.write(f"""--- Final Capital: ${capital:.2f} ---
 
-")
+""")
 
             log_trades = trades[-100:]
             for i, trade in enumerate(log_trades):
