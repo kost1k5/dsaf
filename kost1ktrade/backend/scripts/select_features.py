@@ -17,29 +17,45 @@ def select_features(X: pd.DataFrame, y: pd.Series, shap_threshold=0.01, corr_thr
     # ===================================================================
     # Preprocessing and Cleaning (Essential)
     # ===================================================================
-    X_cleaned = X.copy()
+    # (FIX) Ensure only numeric features are retained for the model
+    X_numeric = X.select_dtypes(include=np.number)
 
-    # A. Handle Sparse Columns (e.g., 'news_sentiment', 'oi_pct_change', derivatives data)
-    min_required_data = 100 # Define a minimum threshold for data presence
-    X_cleaned = X_cleaned.dropna(axis=1, how='all')
+    # Align y with the numeric features before any more cleaning
+    y_aligned = y.loc[X_numeric.index]
 
-    insufficient_data_cols = X_cleaned.columns[X_cleaned.isnull().sum() > (len(X_cleaned) - min_required_data)]
-    if len(insufficient_data_cols) > 0:
-        # print(f"Dropping columns with insufficient data: {list(insufficient_data_cols)}")
-        X_cleaned = X_cleaned.drop(columns=insufficient_data_cols)
+    # Data Cleaning: Handle potential infinities and NaNs
+    X_numeric.replace([np.inf, -np.inf], np.nan, inplace=True)
 
-    # B. Impute remaining NaNs (e.g., from indicator calculations or lags)
-    X_cleaned = X_cleaned.fillna(0)
+    # A. Handle Sparse Columns
+    min_required_data = 100 # Minimum number of non-NaN values for a column to be kept
+    cols_before = X_numeric.columns
+    X_numeric = X_numeric.dropna(axis=1, thresh=min_required_data)
+    cols_after = X_numeric.columns
+    dropped_cols = set(cols_before) - set(cols_after)
+    if dropped_cols:
+        print(f"Dropped columns with less than {min_required_data} data points: {list(dropped_cols)}")
+
+    # B. Handle Sparse Rows
+    # Important: Align X and y after dropping rows with NaNs.
+    rows_to_drop = X_numeric.isnull().any(axis=1)
+
+    X_cleaned = X_numeric[~rows_to_drop]
+    y_cleaned = y_aligned[~rows_to_drop]
+
+    # C. Impute any remaining NaNs (should be few, if any)
+    X_cleaned.fillna(0, inplace=True)
 
     if X_cleaned.isnull().sum().sum() > 0:
         raise ValueError("NaN values remain in X after preprocessing.")
+    if len(X_cleaned) != len(y_cleaned):
+        raise ValueError("X and y have mismatched lengths after cleaning.")
 
     # ===================================================================
     # Label Encoding (Essential for LGBM Multi-class)
     # ===================================================================
     # Converts labels (e.g., -1, 0, 1) to (0, 1, 2)
     le = LabelEncoder()
-    y_encoded = le.fit_transform(y)
+    y_encoded = le.fit_transform(y_cleaned)
 
     print("Stage 1: Calculating SHAP values for multi-class model...")
 
