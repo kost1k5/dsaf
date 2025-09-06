@@ -18,22 +18,54 @@ class FeatureGenerator:
         Initializes the FeatureGenerator with all necessary dataframes.
         The main dataframe `self.df` is based on the ohlcv data.
         """
-        self.timeframe = timeframe
-        # Ensure dataframes are sorted by time and have a timestamp index
-        self.df = ohlcv_df.set_index('timestamp').sort_index().copy()
-        self.ohlcv_4h = ohlcv_df_4h.set_index('timestamp').sort_index() if ohlcv_df_4h is not None else None
-        self.ohlcv_1d = ohlcv_df_1d.set_index('timestamp').sort_index() if ohlcv_df_1d is not None else None
-        self.eth_ohlcv = eth_ohlcv_df.set_index('timestamp').sort_index() if eth_ohlcv_df is not None else None
-        self.open_interest = None # OI feature removed
-        self.funding_rate = funding_rate_df.set_index('timestamp').sort_index() if funding_rate_df is not None else None
-        self.macro = macro_df.set_index(pd.to_datetime(macro_df['Date'])).sort_index() if macro_df is not None else None
-        self.fng = fng_df.set_index(pd.to_datetime(fng_df.index)).sort_index() if fng_df is not None else None
-        self.news = news_df.set_index(pd.to_datetime(news_df['published'])).sort_index() if news_df is not None else None
-
-        # (A) Setup logging
+        # (A) Setup logging - Moved up to be available for helper
         log_file_path = os.path.join(os.path.dirname(__file__), '..', '..', 'indicator_log.txt')
-        self.log_file = open(log_file_path, 'w', encoding='utf-8')
+        # Use 'a' to append, which is safer for parallel script execution
+        self.log_file = open(log_file_path, 'a', encoding='utf-8')
         self._log("--- Starting Feature Generation ---")
+
+        def _standardize_df(df, df_name):
+            if df is None or df.empty:
+                self._log(f"  - DataFrame '{df_name}' is None or empty. Skipping.")
+                return None
+
+            # The dataframe from `load_data_from_db` already has a DatetimeIndex.
+            # We just need to ensure its name is 'timestamp' for consistency.
+            if isinstance(df.index, pd.DatetimeIndex):
+                df.index.name = 'timestamp'
+                return df.sort_index()
+
+            # Fallback for dataframes that might not be indexed yet
+            time_col_names = ['timestamp', 'open_time', 'funding_time', 'Date', 'published_at', 'published']
+            time_col = next((col for col in time_col_names if col in df.columns), None)
+
+            if time_col:
+                self._log(f"  - Standardizing DataFrame '{df_name}' using column '{time_col}'.")
+                # Ensure the time column is in datetime format before setting as index
+                df[time_col] = pd.to_datetime(df[time_col], utc=True)
+                df = df.set_index(time_col)
+                df.index.name = 'timestamp'
+                return df.sort_index()
+
+            self._log(f"Error: Could not find a suitable time column or index for '{df_name}'.")
+            raise KeyError(f"DataFrame '{df_name}' must contain a time column or be a DatetimeIndex.")
+
+        self.timeframe = timeframe
+
+        # Standardize all dataframes
+        self.df = _standardize_df(ohlcv_df, "ohlcv_df").copy()
+        if self.df is None:
+             raise ValueError("Primary OHLCV dataframe is missing or invalid.")
+
+        self.ohlcv_4h = _standardize_df(ohlcv_df_4h, "ohlcv_df_4h")
+        self.ohlcv_1d = _standardize_df(ohlcv_df_1d, "ohlcv_df_1d")
+        self.eth_ohlcv = _standardize_df(eth_ohlcv_df, "eth_ohlcv_df")
+        self.funding_rate = _standardize_df(funding_rate_df, "funding_rate_df")
+        self.macro = _standardize_df(macro_df, "macro_df")
+        self.fng = _standardize_df(fng_df, "fng_df")
+        self.news = _standardize_df(news_df, "news_df")
+
+        self.open_interest = None # OI feature remains removed
 
     def _log(self, message: str):
         """Logs a message to the console and the designated log file."""
