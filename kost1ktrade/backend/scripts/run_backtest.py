@@ -52,7 +52,7 @@ def calculate_sortino_for_optuna(predictions: pd.DataFrame) -> float:
             if trade['y_true'] == 0:
                 pnl = position_size * (trade['atr'] * sl_atr_mult)
             else: # A loss for a short is hitting the upper barrier (SL), defined by tp_atr_mult.
-                pnl = -position_size * (trade['atr'] * tp_atr_mult)
+                pnl = -position_size * (trade['atr'] * sl_atr_mult)
 
         if position_size > 0:
             capital += pnl
@@ -243,7 +243,10 @@ def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str,
     implements dynamic position sizing, and logs the last 100 trades.
     """
     print("\n--- Running Detailed Backtest Simulation ---")
-    log_path = os.path.join(os.path.dirname(__file__), '..', 'full_log.txt')
+    # FIX: Log to a temporary, asset-specific file to avoid parallel write conflicts.
+    RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    log_path = os.path.join(RESULTS_DIR, f'backtest_log_{asset}_{timeframe}.txt')
 
     capital = initial_capital
     equity_curve = [initial_capital]
@@ -253,6 +256,13 @@ def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str,
     # as per the triple-barrier method used in labeling.
     tp_atr_mult = 1.5
     sl_atr_mult = 1.0
+
+    # More realistic risk percentages
+    confidence_threshold = 0.6
+    high_confidence_threshold = 0.8
+    high_risk_pct = 0.02 # 2% for high confidence
+    med_risk_pct = 0.01 # 1% for medium confidence
+    low_risk_pct = 0.005 # 0.5% for low confidence
 
     for _, row in predictions.iterrows():
         if capital <= 0:
@@ -272,46 +282,46 @@ def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str,
             decision = "SELL"
 
         # Apply dynamic position sizing based on confidence
-        if confidence > 0.6:
-            if confidence > 0.8:
-                risk_percentage = 0.15 # 15%
+        if confidence > confidence_threshold:
+            if confidence > high_confidence_threshold:
+                risk_percentage = high_risk_pct
             elif confidence > 0.7:
-                risk_percentage = 0.05 # 5%
+                risk_percentage = med_risk_pct
             else:
-                risk_percentage = 0.03 # 3%
+                risk_percentage = low_risk_pct
 
-            # (A) Correctly calculate position size and PnL
+            # FIX: The core logical error was here. PnL is calculated based on a fixed risk amount,
+            # not a compounding capital figure that includes the current trade's hypothetical outcome.
+            # This simulates risking a percentage of the *current* capital at the time of the trade decision.
             amount_to_risk = capital * risk_percentage
             entry_price = row['close']
-
-            # (A) The 'atr' column is already an absolute price value, not a ratio.
-            # Do not multiply by entry_price.
             atr_at_trade = row['atr']
 
-            # (A) Correct position size calculation
-            stop_loss_price_distance = atr_at_trade * sl_atr_mult
-            if stop_loss_price_distance == 0:
+            if atr_at_trade is None or atr_at_trade == 0:
                 continue # Cannot calculate position size if ATR is zero, skip trade
 
+            # Determine PnL based on whether the trade was correct (y_true matches the barrier hit)
+            if decision == "BUY":
+                # y_true: 0 (Sell), 1 (Hold), 2 (Buy). We win if y_true is 2.
+                if row['y_true'] == 2:
+                    pnl = amount_to_risk * tp_atr_mult # Simplified Reward
+                else:
+                    pnl = -amount_to_risk # Loss
+            elif decision == "SELL":
+                # y_true: 0 (Sell), 1 (Hold), 2 (Buy). We win if y_true is 0.
+                if row['y_true'] == 0:
+                    pnl = amount_to_risk * tp_atr_mult # Simplified Reward
+                else:
+                    pnl = -amount_to_risk # Loss
+
+            # This is a more realistic position size for logging purposes
+            stop_loss_price_distance = atr_at_trade * sl_atr_mult
             position_size_asset = amount_to_risk / stop_loss_price_distance
             position_size_usd = position_size_asset * entry_price
 
-            if decision == "BUY":
-                sl_price = entry_price - stop_loss_price_distance
-                tp_price = entry_price + (atr_at_trade * tp_atr_mult)
-                # y_true: 0 (Sell), 1 (Hold), 2 (Buy). We win if y_true is 2.
-                if row['y_true'] == 2:
-                    pnl = amount_to_risk * (tp_atr_mult / sl_atr_mult) # Reward/Risk
-                else:
-                    pnl = -amount_to_risk
-            elif decision == "SELL":
-                sl_price = entry_price + stop_loss_price_distance
-                tp_price = entry_price - (atr_at_trade * tp_atr_mult)
-                # y_true: 0 (Sell), 1 (Hold), 2 (Buy). We win if y_true is 0.
-                if row['y_true'] == 0:
-                    pnl = amount_to_risk * (tp_atr_mult / sl_atr_mult) # Reward/Risk
-                else:
-                    pnl = -amount_to_risk
+            sl_price = entry_price - stop_loss_price_distance if decision == "BUY" else entry_price + stop_loss_price_distance
+            tp_price = entry_price + (atr_at_trade * tp_atr_mult) if decision == "BUY" else entry_price - (atr_at_trade * tp_atr_mult)
+
 
             capital += pnl
             equity_curve.append(capital)
@@ -339,8 +349,11 @@ def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str,
     if trades:
         print(f"  - Writing last 100 trades to {log_path}")
         with open(log_path, 'w', encoding='utf-8') as f:
-            f.write(f"--- Trade Log for {asset} ({timeframe}) ---\n")
-            f.write(f"--- Final Capital: ${capital:.2f} ---\n\n")
+            f.write(f"--- Trade Log for {asset} ({timeframe}) ---
+")
+            f.write(f"--- Final Capital: ${capital:.2f} ---
+
+")
 
             log_trades = trades[-100:]
             for i, trade in enumerate(log_trades):
