@@ -185,11 +185,11 @@ class DataCollector:
         for i in range(0, len(candle_dicts), batch_size):
             chunk = candle_dicts[i:i + batch_size]
             try:
-                result = self.db.execute(stmt, chunk)
+                self.db.execute(stmt, chunk)
                 self.db.commit()
-                # For SQLite, rowcount returns the number of affected rows.
-                # Note: This behavior can vary between DB backends.
-                total_inserted += result.rowcount
+                # result.rowcount is not reliable across all DBs/versions,
+                # especially with 'ON CONFLICT'. We'll count the attempted rows.
+                total_inserted += len(chunk)
             except Exception as e:
                 print(f"Error inserting candle batch for {symbol} ({interval}): {e}")
                 self.db.rollback()
@@ -279,9 +279,10 @@ class DataCollector:
         for i in range(0, len(fr_dicts), batch_size):
             chunk = fr_dicts[i:i + batch_size]
             try:
-                result = self.db.execute(stmt, chunk)
+                self.db.execute(stmt, chunk)
                 self.db.commit()
-                total_inserted += result.rowcount
+                # result.rowcount is not reliable. Count the attempted rows instead.
+                total_inserted += len(chunk)
             except Exception as e:
                 print(f"Error inserting funding rate batch for {symbol}: {e}")
                 self.db.rollback()

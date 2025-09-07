@@ -49,9 +49,11 @@ class MacroDataCollector:
 
         stmt = insert(MacroData).values(records)
         stmt = stmt.on_conflict_do_nothing(index_elements=['date'])
-        result = self.db.execute(stmt)
+        self.db.execute(stmt)
         self.db.commit()
-        return result.rowcount
+        # result.rowcount is not reliable with ON CONFLICT statements.
+        # Return the number of records we attempted to insert.
+        return len(records)
 
     def fetch_data(self, start_date: str, end_date: str) -> pd.DataFrame:
         """
