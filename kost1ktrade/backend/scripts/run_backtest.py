@@ -235,21 +235,22 @@ def main(asset: str, timeframe: str, metric: str):
     print(oos_predictions.head())
 
     # (A) Run the new detailed backtest for logging and dynamic sizing
-    run_detailed_backtest(oos_predictions, asset, timeframe)
+    run_detailed_backtest(oos_predictions, df, asset, timeframe)
 
 
-def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str, initial_capital=10000.0, max_leverage=10.0, commission_rate=0.001):
+def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, asset: str, timeframe: str, initial_capital=10000.0, max_leverage=10.0, commission_rate=0.001):
     """
-    Runs a detailed backtest simulation with realistic constraints.
+    Runs a realistic, event-driven backtest simulation.
 
-    This function simulates trading based on model predictions, incorporating:
-    - Dynamic position sizing based on model confidence and a percentage of capital.
-    - A hard cap on leverage to prevent unrealistic position sizes.
-    - Commission costs for both entering and exiting a position.
-    - PnL calculation based on a fixed risk/reward ratio derived from ATR multipliers.
-    - Detailed logging of each trade with timestamps converted to a specific timezone.
+    This function iterates through the price data candle-by-candle, simulating
+    trade entries and exits based on model predictions and realistic market mechanics.
+
+    - **Event-Driven:** Checks for SL/TP hits on each candle after a trade is opened.
+    - **Dynamic TP/SL:** Calculates Take Profit and Stop Loss based on ATR at trade entry.
+    - **Time-in-Trade Stop:** Exits a trade if it's open for too long.
+    - **Realistic PnL:** PnL is calculated based on actual exit prices (SL, TP, or market price on time-stop).
     """
-    print("\n--- Running Detailed Backtest Simulation with Realistic Constraints ---")
+    print("\n--- Running Realistic Event-Driven Backtest Simulation ---")
 
     RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
     os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -260,88 +261,140 @@ def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str,
     trades = []
     minsk_tz = ZoneInfo("Europe/Minsk")
 
-    # Strategy parameters
+    # --- Strategy Parameters ---
     tp_atr_mult = 1.5
     sl_atr_mult = 1.0
     confidence_threshold = 0.6
+    max_holding_period = 24 # candles
     high_confidence_threshold = 0.8
     high_risk_pct = 0.02
     med_risk_pct = 0.01
     low_risk_pct = 0.005
 
-    for _, row in predictions.iterrows():
+    # --- Backtest State ---
+    in_position = False
+    current_trade = {}
+
+    # --- Main Event Loop ---
+    # We iterate through the predictions, which act as our entry signals.
+    # We use the full_data dataframe to look ahead for exit conditions.
+    for i in range(len(predictions)):
         if capital <= 0:
             print("  - Backtest ended: Capital reached zero.")
             break
 
-        decision = "HOLD"
-        if row['proba_buy'] > row['proba_sell'] and row['proba_buy'] > row['proba_hold']:
-            confidence = row['proba_buy']
-            decision = "BUY"
-        elif row['proba_sell'] > row['proba_buy'] and row['proba_sell'] > row['proba_hold']:
-            confidence = row['proba_sell']
-            decision = "SELL"
+        current_timestamp = predictions.index[i]
+        row = predictions.loc[current_timestamp]
 
-        if confidence > confidence_threshold:
-            if confidence > high_confidence_threshold:
-                risk_percentage = high_risk_pct
-            elif confidence > 0.7:
-                risk_percentage = med_risk_pct
+        # --- Exit Logic ---
+        if in_position:
+            entry_idx = full_data.index.get_loc(current_trade['entry_time'])
+            current_idx = full_data.index.get_loc(current_timestamp)
+
+            # Check if the trade has been open for too long
+            if current_idx - entry_idx >= max_holding_period:
+                exit_price = row['close']
+                exit_reason = "Time Stop"
+                pnl = (exit_price - current_trade['entry_price']) * current_trade['position_size_asset']
+                if current_trade['decision'] == 'SELL': pnl = -pnl
             else:
-                risk_percentage = low_risk_pct
+                # Check for SL/TP hit in the current candle
+                exit_price = None
+                exit_reason = None
+                pnl = 0
 
-            intended_amount_to_risk = capital * risk_percentage
-            entry_price = row['close']
-            atr_at_trade = row['atr']
+                if current_trade['decision'] == 'BUY':
+                    if row['low'] <= current_trade['stop_loss']:
+                        exit_price = current_trade['stop_loss']
+                        exit_reason = "Stop Loss"
+                        pnl = -current_trade['actual_amount_risked']
+                    elif row['high'] >= current_trade['take_profit']:
+                        exit_price = current_trade['take_profit']
+                        exit_reason = "Take Profit"
+                        pnl = current_trade['actual_amount_risked'] * current_trade['reward_to_risk_ratio']
+                elif current_trade['decision'] == 'SELL':
+                    if row['high'] >= current_trade['stop_loss']:
+                        exit_price = current_trade['stop_loss']
+                        exit_reason = "Stop Loss"
+                        pnl = -current_trade['actual_amount_risked']
+                    elif row['low'] <= current_trade['take_profit']:
+                        exit_price = current_trade['take_profit']
+                        exit_reason = "Take Profit"
+                        pnl = current_trade['actual_amount_risked'] * current_trade['reward_to_risk_ratio']
 
-            if atr_at_trade is None or atr_at_trade <= 0 or entry_price is None or entry_price <= 0:
-                continue
+            # If an exit condition was met, close the trade
+            if exit_reason:
+                commission = current_trade['position_size_usd'] * commission_rate * 2
+                pnl -= commission
+                capital += pnl
+                equity_curve.append(capital)
 
-            stop_loss_price_distance = atr_at_trade * sl_atr_mult
-            position_size_asset = intended_amount_to_risk / stop_loss_price_distance
-            position_size_usd = position_size_asset * entry_price
+                exit_time_minsk = current_timestamp.tz_localize('UTC').tz_convert(minsk_tz)
+                current_trade.update({
+                    "exit_time_minsk": exit_time_minsk.strftime('%Y-%m-%d %H:%M:%S %Z'),
+                    "exit_reason": exit_reason,
+                    "exit_price": f"{exit_price:.4f}",
+                    "pnl_usd": f"{pnl:.2f}",
+                    "commission_usd": f"{commission:.2f}",
+                    "capital_after_trade": f"{capital:.2f}"
+                })
+                trades.append(current_trade)
+                in_position = False
+                current_trade = {}
+                continue # Move to the next candle after closing a trade
 
-            if position_size_usd > capital * max_leverage:
-                position_size_usd = capital * max_leverage
-                position_size_asset = position_size_usd / entry_price
+        # --- Entry Logic ---
+        if not in_position:
+            decision = "HOLD"
+            confidence = 0
+            if row['proba_buy'] > row['proba_sell'] and row['proba_buy'] > row['proba_hold']:
+                confidence = row['proba_buy']
+                decision = "BUY"
+            elif row['proba_sell'] > row['proba_buy'] and row['proba_sell'] > row['proba_hold']:
+                confidence = row['proba_sell']
+                decision = "SELL"
 
-            actual_amount_risked = position_size_asset * stop_loss_price_distance
+            if confidence > confidence_threshold:
+                if confidence > high_confidence_threshold: risk_percentage = high_risk_pct
+                elif confidence > 0.7: risk_percentage = med_risk_pct
+                else: risk_percentage = low_risk_pct
 
-            reward_to_risk_ratio = tp_atr_mult / sl_atr_mult
-            pnl = 0
-            if decision == "BUY":
-                if row['y_true'] == 2: pnl = actual_amount_risked * reward_to_risk_ratio
-                else: pnl = -actual_amount_risked
-            elif decision == "SELL":
-                if row['y_true'] == 0: pnl = actual_amount_risked * reward_to_risk_ratio
-                else: pnl = -actual_amount_risked
+                entry_price = row['close']
+                atr_at_trade = row['atr']
 
-            commission = position_size_usd * commission_rate * 2
-            pnl -= commission
-            capital += pnl
-            equity_curve.append(capital)
+                if atr_at_trade is None or atr_at_trade <= 0: continue
 
-            # Log the trade with enhanced details and timezone conversion
-            entry_time_minsk = row['timestamp'].tz_localize('UTC').tz_convert(minsk_tz)
-            exit_time_minsk = (row['timestamp'] + pd.Timedelta(hours=1)).tz_localize('UTC').tz_convert(minsk_tz)
+                sl_distance = atr_at_trade * sl_atr_mult
+                tp_distance = atr_at_trade * tp_atr_mult
 
-            trades.append({
-                "entry_time_minsk": entry_time_minsk.strftime('%Y-%m-%d %H:%M:%S %Z'),
-                "exit_time_minsk": exit_time_minsk.strftime('%Y-%m-%d %H:%M:%S %Z'),
-                "asset": asset,
-                "timeframe": timeframe,
-                "decision": decision,
-                "confidence": f"{confidence:.2%}",
-                "risk_percentage": f"{risk_percentage:.3%}",
-                "entry_price": f"{entry_price:.4f}",
-                "stop_loss": f"{entry_price - stop_loss_price_distance if decision == 'BUY' else entry_price + stop_loss_price_distance:.4f}",
-                "take_profit": f"{entry_price + (atr_at_trade * tp_atr_mult) if decision == 'BUY' else entry_price - (atr_at_trade * tp_atr_mult):.4f}",
-                "position_size_usd": f"{position_size_usd:.2f}",
-                "actual_amount_risked_usd": f"{actual_amount_risked:.2f}",
-                "commission_usd": f"{commission:.2f}",
-                "pnl_usd": f"{pnl:.2f}",
-                "capital_after_trade": f"{capital:.2f}"
-            })
+                position_size_asset = (capital * risk_percentage) / sl_distance
+                position_size_usd = position_size_asset * entry_price
+
+                if position_size_usd > capital * max_leverage:
+                    position_size_usd = capital * max_leverage
+                    position_size_asset = position_size_usd / entry_price
+
+                actual_amount_risked = position_size_asset * sl_distance
+
+                in_position = True
+                entry_time_minsk = current_timestamp.tz_localize('UTC').tz_convert(minsk_tz)
+                current_trade = {
+                    "entry_time": current_timestamp,
+                    "entry_time_minsk": entry_time_minsk.strftime('%Y-%m-%d %H:%M:%S %Z'),
+                    "asset": asset,
+                    "timeframe": timeframe,
+                    "decision": decision,
+                    "confidence": f"{confidence:.2%}",
+                    "risk_percentage": f"{risk_percentage:.3%}",
+                    "entry_price": f"{entry_price:.4f}",
+                    "stop_loss": entry_price - sl_distance if decision == 'BUY' else entry_price + sl_distance,
+                    "take_profit": entry_price + tp_distance if decision == 'BUY' else entry_price - tp_distance,
+                    "position_size_asset": position_size_asset,
+                    "position_size_usd": f"{position_size_usd:.2f}",
+                    "actual_amount_risked": actual_amount_risked,
+                    "actual_amount_risked_usd": f"{actual_amount_risked:.2f}",
+                    "reward_to_risk_ratio": tp_atr_mult / sl_atr_mult
+                }
 
     print(f"  - Backtest complete. Final Capital: ${capital:.2f}")
     print(f"  - Total trades taken: {len(trades)}")
@@ -350,16 +403,22 @@ def run_detailed_backtest(predictions: pd.DataFrame, asset: str, timeframe: str,
     if trades:
         print(f"  - Writing last 100 trades to {log_path}")
         with open(log_path, 'w', encoding='utf-8') as f:
-            f.write(f"""--- Trade Log for {asset} ({timeframe}) ---
-""")
-            f.write(f"""--- Final Capital: ${capital:.2f} ---
-
-""")
+            f.write(f"--- Trade Log for {asset} ({timeframe}) ---\n")
+            f.write(f"--- Final Capital: ${capital:.2f} ---\n\n")
 
             log_trades = trades[-100:]
             for i, trade in enumerate(log_trades):
                 f.write(f"Trade #{len(trades) - len(log_trades) + i + 1}\n")
-                for key, value in trade.items():
+                # Format for display
+                trade_to_log = trade.copy()
+                trade_to_log['stop_loss'] = f"{trade['stop_loss']:.4f}"
+                trade_to_log['take_profit'] = f"{trade['take_profit']:.4f}"
+                del trade_to_log['entry_time']
+                del trade_to_log['position_size_asset']
+                del trade_to_log['actual_amount_risked']
+                del trade_to_log['reward_to_risk_ratio']
+
+                for key, value in trade_to_log.items():
                     f.write(f"  {key.replace('_', ' ').title()}: {value}\n")
                 f.write("-" * 30 + "\n")
     else:
