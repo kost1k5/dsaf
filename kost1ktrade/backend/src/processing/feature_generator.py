@@ -23,12 +23,16 @@ class FeatureGenerator:
         self.log_file = open(log_file_path, 'w', encoding='utf-8')
         self._log(f"--- Starting Feature Generation for {asset} ---")
 
+        # --- Critical Data Check ---
+        if ohlcv_df is None or ohlcv_df.empty:
+            self._log("CRITICAL: Primary OHLCV DataFrame is missing or empty. Halting feature generation.")
+            raise ValueError("Primary OHLCV DataFrame cannot be empty.")
+
         self.timeframe = timeframe
 
         # Standardize all dataframes
+        # The check above ensures ohlcv_df is valid, so we can safely copy.
         self.df = self._standardize_ohlcv(ohlcv_df, "ohlcv_df").copy()
-        if self.df is None:
-            raise ValueError("Primary OHLCV dataframe is missing or invalid.")
 
         self.ohlcv_4h = self._standardize_ohlcv(ohlcv_df_4h, "ohlcv_4h")
         self.ohlcv_1d = self._standardize_ohlcv(ohlcv_df_1d, "ohlcv_1d")
@@ -327,7 +331,7 @@ class FeatureGenerator:
             self._log(f"  -> Series is constant. Marking as non-stationary.")
             return 1.0
         try:
-            result = adfuller(series)
+            result = adfuller(series, maxlag=48)
             return result[1]
         except Exception as e:
             self._log(f"  -> ADF test failed for series. Error: {e}. Marking as non-stationary.")
@@ -345,6 +349,12 @@ class FeatureGenerator:
         self.add_time_based_features()
         self.add_lag_features()
         self.add_interaction_features()
+
+        self._log("\n[Bonus Step] Optimizing memory by downcasting float types...")
+        for col in self.df.select_dtypes(include=['float64']).columns:
+            self.df[col] = self.df[col].astype('float32')
+        self._log("  - Downcasting complete.")
+
         self.check_and_transform_stationarity()
         self._log("\n--- Feature Generation Complete ---")
         self.log_file.close()
