@@ -143,26 +143,21 @@ class DataCollector:
         return None
 
 
-    def save_candles_to_db(self, candles: List[list], symbol: str, interval: str, batch_size: int = 1500):
+    def save_candles_to_db(self, candles: List[list], symbol: str, interval: str, batch_size: int = 1500) -> int:
         """
         Saves a list of OHLCV candles to the database in batches.
         It ignores duplicates based on the unique constraint (symbol, interval, open_time).
-        :param candles: A list of OHLCV candles from ccxt.
-        :param symbol: The trading symbol (e.g., 'BTC/USDT').
-        :param interval: The timeframe for the candles (e.g., '1h').
-        :param batch_size: The number of rows to insert in each batch.
+        Returns the number of new rows inserted.
         """
         if not candles:
-            return
+            return 0
         if not self.db:
             raise Exception("Database session not provided to DataCollector.")
 
         from sqlalchemy.dialects.sqlite import insert
 
-        # 1. Prepare and de-duplicate the data
         unique_candles = {}
         for c in candles:
-            # Use timestamp as key to remove duplicates within the fetched list
             unique_candles[c[0]] = c
 
         candle_dicts = [
@@ -180,27 +175,26 @@ class DataCollector:
         ]
 
         if not candle_dicts:
-            return
+            return 0
 
-        total_rows = len(candle_dicts)
-
-        # 2. Define the base INSERT statement with ON CONFLICT
         stmt = insert(Candle).on_conflict_do_nothing(
             index_elements=['symbol', 'interval', 'open_time']
         )
 
-        # 3. Execute in chunks
-        for i in range(0, total_rows, batch_size):
+        total_inserted = 0
+        for i in range(0, len(candle_dicts), batch_size):
             chunk = candle_dicts[i:i + batch_size]
             try:
-                self.db.execute(stmt, chunk)
+                result = self.db.execute(stmt, chunk)
                 self.db.commit()
+                # For SQLite, rowcount returns the number of affected rows.
+                # Note: This behavior can vary between DB backends.
+                total_inserted += result.rowcount
             except Exception as e:
                 print(f"Error inserting candle batch for {symbol} ({interval}): {e}")
                 self.db.rollback()
                 raise
-
-        print(f"Saved {total_rows} new candles to DB for {symbol} ({interval}).")
+        return total_inserted
 
     def fetch_funding_rate_history(self, symbol: str, since: int = None, limit: int = 100, params={}) -> List[dict]:
         """
@@ -248,12 +242,13 @@ class DataCollector:
             return int(latest_fr_time.timestamp() * 1000)
         return None
 
-    def save_funding_rates_to_db(self, funding_rates: List[dict], symbol: str, batch_size: int = 1500):
+    def save_funding_rates_to_db(self, funding_rates: List[dict], symbol: str, batch_size: int = 1500) -> int:
         """
         Saves a list of funding rates to the database in batches.
+        Returns the number of new rows inserted.
         """
         if not funding_rates:
-            return
+            return 0
         if not self.db:
             raise Exception("Database session not provided to DataCollector.")
 
@@ -273,27 +268,25 @@ class DataCollector:
             for fr in unique_rates.values()
         ]
 
-
         if not fr_dicts:
-            return
-
-        total_rows = len(fr_dicts)
+            return 0
 
         stmt = insert(FundingRate).on_conflict_do_nothing(
             index_elements=['symbol', 'funding_time']
         )
 
-        for i in range(0, total_rows, batch_size):
+        total_inserted = 0
+        for i in range(0, len(fr_dicts), batch_size):
             chunk = fr_dicts[i:i + batch_size]
             try:
-                self.db.execute(stmt, chunk)
+                result = self.db.execute(stmt, chunk)
                 self.db.commit()
+                total_inserted += result.rowcount
             except Exception as e:
                 print(f"Error inserting funding rate batch for {symbol}: {e}")
                 self.db.rollback()
                 raise
-
-        print(f"Saved {total_rows} new funding rate records to DB for {symbol}.")
+        return total_inserted
 
 
     def fetch_open_interest_history(self, symbol: str, timeframe: str = '1h', since: int = None, limit: int = 100, params={}) -> List[dict]:

@@ -28,12 +28,13 @@ class SentimentCollector:
         latest_fng = self.db.query(func.max(FearGreedIndex.timestamp)).scalar()
         return latest_fng
 
-    def save_fng_data_to_db(self, fng_df: pd.DataFrame):
+    def save_fng_data_to_db(self, fng_df: pd.DataFrame) -> int:
         """
         Saves Fear & Greed data to the database, ignoring duplicates.
+        Returns the number of new rows inserted.
         """
         if fng_df.empty:
-            return
+            return 0
 
         fng_records = []
         for timestamp, row in fng_df.iterrows():
@@ -44,13 +45,13 @@ class SentimentCollector:
             })
 
         if not fng_records:
-            return
+            return 0
 
         stmt = insert(FearGreedIndex).values(fng_records)
         stmt = stmt.on_conflict_do_nothing(index_elements=['timestamp'])
-        self.db.execute(stmt)
+        result = self.db.execute(stmt)
         self.db.commit()
-        print(f"Saved {len(fng_records)} new Fear & Greed Index records to the database.")
+        return result.rowcount
 
 
     def fetch_fear_greed_data(self, limit: int = 0) -> pd.DataFrame:
@@ -111,12 +112,13 @@ class SentimentCollector:
         latest_news = self.db.query(func.max(NewsHeadline.published_at)).scalar()
         return latest_news
 
-    def save_news_to_db(self, news_items: list):
+    def save_news_to_db(self, news_items: list) -> int:
         """
         Saves news items to the database, ignoring duplicates based on the link.
+        Returns the number of new rows inserted.
         """
         if not news_items:
-            return
+            return 0
 
         records = []
         for item in news_items:
@@ -130,13 +132,13 @@ class SentimentCollector:
                 })
 
         if not records:
-            return
+            return 0
 
         stmt = insert(NewsHeadline).values(records)
         stmt = stmt.on_conflict_do_nothing(index_elements=['link'])
-        self.db.execute(stmt)
+        result = self.db.execute(stmt)
         self.db.commit()
-        print(f"Saved {len(records)} new news headlines to the database.")
+        return result.rowcount
 
     def fetch_rss_news(self) -> list:
         """
