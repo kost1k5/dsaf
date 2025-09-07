@@ -7,10 +7,10 @@ This document provides instructions for developing the Kost1kTrade project.
 - The user prefers detailed explanations of progress and clear commit messages.
 
 ## Backend
-- The backend is a Python project using `pipenv` for dependency management. The Python version is 3.12.
+- The backend is a Python project using `pdm` for dependency management, with its configuration in `pyproject.toml`. The Python version is 3.12.
 - All backend source code should be placed within the `kost1ktrade/backend/src` directory, following the existing modular structure (`api`, `database`, `core`, etc.).
-- When adding new dependencies, use `pipenv install <package_name>`.
-- To run commands within the project's virtual environment, use `pipenv run <command>`.
+- When adding new dependencies, use `pdm add <package_name>`.
+- To run commands within the project's virtual environment, use `pdm run <command>`.
 - The database is SQLite, with the database file located at `kost1ktrade/backend/data/local_database.db`. All database models are defined using SQLAlchemy in `kost1ktrade/backend/src/database/models.py`.
 - The API is built with FastAPI. New endpoints should be added logically within the `kost1ktrade/backend/src/api` module.
 - Notifications are handled in the `src/notifications` module.
@@ -33,9 +33,9 @@ This document provides instructions for developing the Kost1kTrade project.
 
 ## Running the Application
 
-- **Backend:** From the `kost1ktrade/backend` directory, run `pipenv run uvicorn src.api.main:app --reload`.
+- **Backend:** From the `kost1ktrade/backend` directory, run `pdm run uvicorn src.api.main:app --reload`.
 - **Frontend:** From the `kost1ktrade/frontend` directory, run `npm run dev`.
-- **Database initialization:** From the `kost1ktrade/backend` directory, run `pipenv run python scripts/create_tables.py`.
+- **Database initialization:** From the `kost1ktrade/backend` directory, run `pdm run python scripts/create_tables.py`.
 
 ## Workflow
 1.  Always clarify requirements if they are ambiguous.
@@ -77,7 +77,7 @@ The model now incorporates a much richer set of features:
 
 #### **Dependencies**
 
-The new pipeline requires several new libraries. Ensure they are in your `Pipfile` and installed (`pipenv install`):
+The new pipeline requires several new libraries. Ensure they are in your `pyproject.toml` and installed (`pdm sync`):
 -   `statsmodels`: For the ADF stationarity test.
 -   `fear-greed-index`: To fetch the Fear & Greed index.
 -   `optuna`: For Bayesian hyperparameter optimization.
@@ -117,7 +117,7 @@ To use the external data features, you must set the following environment variab
 
 ## Quantitative Analysis Pipeline (September 2025)
 
-A new end-to-end pipeline for quantitative research has been added. It is composed of several modular scripts designed to be run in sequence. All scripts are located in the `kost1ktrade/backend/scripts/` directory and should be run from the `kost1ktrade/backend/` directory using `pipenv run python ...`.
+A new end-to-end pipeline for quantitative research has been added. It is composed of several modular scripts designed to be run in sequence. All scripts are located in the `kost1ktrade/backend/scripts/` directory and should be run from the `kost1ktrade/backend/` directory using `pdm run python ...`.
 
 ### 1. `collect_all_data.py`
 - **Purpose:** Fetches all raw data required for analysis.
