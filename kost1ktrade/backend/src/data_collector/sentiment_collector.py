@@ -49,9 +49,10 @@ class SentimentCollector:
 
         stmt = insert(FearGreedIndex).values(fng_records)
         stmt = stmt.on_conflict_do_nothing(index_elements=['timestamp'])
-        result = self.db.execute(stmt)
+        self.db.execute(stmt)
         self.db.commit()
-        return result.rowcount
+        # result.rowcount is not reliable. Return the count of attempted records.
+        return len(fng_records)
 
 
     def fetch_fear_greed_data(self, limit: int = 0) -> pd.DataFrame:
@@ -136,9 +137,10 @@ class SentimentCollector:
 
         stmt = insert(NewsHeadline).values(records)
         stmt = stmt.on_conflict_do_nothing(index_elements=['link'])
-        result = self.db.execute(stmt)
+        self.db.execute(stmt)
         self.db.commit()
-        return result.rowcount
+        # result.rowcount is not reliable. Return the count of attempted records.
+        return len(records)
 
     def fetch_rss_news(self) -> list:
         """
