@@ -34,25 +34,35 @@ def main(days_history: int):
         # --- 1. Collect Asset-Agnostic Data (Incremental) ---
         print("\n--- Collecting Macroeconomic Data ---")
         latest_macro_ts = macro_collector.get_latest_macro_timestamp()
-        start_date_macro = (latest_macro_ts + timedelta(days=1)) if latest_macro_ts else (end_date - timedelta(days=days_history))
+        if latest_macro_ts:
+            start_date_macro = latest_macro_ts + timedelta(days=1)
+            print(f"Found existing macro data up to {latest_macro_ts.strftime('%Y-%m-%d')}.")
+        else:
+            start_date_macro = end_date - timedelta(days=days_history)
+            print(f"No existing macro data found. Starting full history download from {start_date_macro.strftime('%Y-%m-%d')}.")
+
         if start_date_macro < end_date:
+            print(f"Fetching macro data from {start_date_macro.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}...")
             macro_df = macro_collector.fetch_data(start_date=start_date_macro.strftime('%Y-%m-%d'), end_date=end_date.strftime('%Y-%m-%d'))
             if not macro_df.empty:
-                macro_collector.save_macro_data_to_db(macro_df)
+                count = macro_collector.save_macro_data_to_db(macro_df)
+                print(f"-> Saved {count} new macro data entries.")
+            else:
+                print("-> No new data returned from the source.")
         else:
             print("Macro data is already up to date.")
 
         print("\n--- Collecting Fear & Greed Index ---")
-        # F&G API is simple, fetching all and letting the DB handle conflicts is easiest.
-        fng_df = sentiment_collector.fetch_fear_greed_data(limit=0)
+        fng_df = sentiment_collector.fetch_fear_greed_data(limit=0) # Fetch all available
         if not fng_df.empty:
-            sentiment_collector.save_fng_data_to_db(fng_df)
+            count = sentiment_collector.save_fng_data_to_db(fng_df)
+            print(f"-> Saved {count} new F&G entries (database handles conflicts).")
 
         print("\n--- Collecting RSS News ---")
-        # News is also simple to fetch all and let DB handle conflicts.
         news_items = sentiment_collector.fetch_rss_news()
         if news_items:
-            sentiment_collector.save_news_to_db(news_items)
+            count = sentiment_collector.save_news_to_db(news_items)
+            print(f"-> Saved {count} new news items (database handles conflicts).")
 
         # --- 2. Collect Crypto-Specific Data (Incremental) ---
         for asset in CRYPTO_ASSETS:
@@ -63,12 +73,21 @@ def main(days_history: int):
             for tf in TIMEFRAMES:
                 print(f"\n--- Collecting {asset} OHLCV ({tf}) ---")
                 latest_ohlcv_ms = data_collector.get_latest_candle_timestamp(symbol, tf)
-                since_ms = latest_ohlcv_ms + (1000 * 60 * 60) if latest_ohlcv_ms else int((end_date - timedelta(days=days_history)).timestamp() * 1000)
+                if latest_ohlcv_ms:
+                    since_ms = latest_ohlcv_ms + (1000 * 60 * 60) # Start from the next hour
+                    print(f"Found existing OHLCV data up to {datetime.fromtimestamp(latest_ohlcv_ms/1000).strftime('%Y-%m-%d %H:%M:%S')}.")
+                else:
+                    since_ms = int((end_date - timedelta(days=days_history)).timestamp() * 1000)
+                    print(f"No existing OHLCV data found. Starting full history download from {datetime.fromtimestamp(since_ms/1000).strftime('%Y-%m-%d %H:%M:%S')}.")
 
                 if since_ms < int(end_date.timestamp() * 1000):
+                    print(f"Fetching OHLCV data from {datetime.fromtimestamp(since_ms/1000).strftime('%Y-%m-%d %H:%M:%S')} to now...")
                     ohlcv_data = data_collector.fetch_candles_in_range(symbol, tf, since_ms, int(end_date.timestamp() * 1000))
                     if ohlcv_data:
-                        data_collector.save_candles_to_db(ohlcv_data, symbol, tf)
+                        count = data_collector.save_candles_to_db(ohlcv_data, symbol, tf)
+                        print(f"-> Saved {count} new {tf} candles for {asset}.")
+                    else:
+                        print("-> No new data returned from the exchange.")
                 else:
                     print(f"OHLCV data for {asset} ({tf}) is already up to date.")
                 time.sleep(1)
@@ -76,19 +95,26 @@ def main(days_history: int):
             # --- Funding Rate Data ---
             print(f"\n--- Collecting {asset} Funding Rates ---")
             latest_fr_ms = data_collector.get_latest_funding_rate_timestamp(symbol)
-            since_fr_ms = latest_fr_ms + 1 if latest_fr_ms else int((end_date - timedelta(days=days_history)).timestamp() * 1000)
+            if latest_fr_ms:
+                since_fr_ms = latest_fr_ms + 1
+                print(f"Found existing funding rate data up to {datetime.fromtimestamp(latest_fr_ms/1000).strftime('%Y-%m-%d %H:%M:%S')}.")
+            else:
+                since_fr_ms = int((end_date - timedelta(days=days_history)).timestamp() * 1000)
+                print(f"No existing funding rate data found. Starting full history download from {datetime.fromtimestamp(since_fr_ms/1000).strftime('%Y-%m-%d %H:%M:%S')}.")
+
 
             if since_fr_ms < int(end_date.timestamp() * 1000):
+                print(f"Fetching funding rate data from {datetime.fromtimestamp(since_fr_ms/1000).strftime('%Y-%m-%d %H:%M:%S')} to now...")
                 all_fr_data = []
                 current_since = since_fr_ms
                 while current_since < int(end_date.timestamp() * 1000):
                     fr_chunk = data_collector.fetch_funding_rate_history(symbol=symbol, since=current_since, limit=100)
                     if not fr_chunk:
-                        break
+                        break # No more data from exchange
 
+                    # Prevent re-inserting the last fetched item in a loop
                     last_ts_in_all_data = all_fr_data[-1]['timestamp'] if all_fr_data else 0
                     new_data = [d for d in fr_chunk if d['timestamp'] > last_ts_in_all_data]
-
                     if not new_data:
                         break
 
@@ -97,7 +123,10 @@ def main(days_history: int):
                     time.sleep(data_collector.exchange.rateLimit / 1000)
 
                 if all_fr_data:
-                    data_collector.save_funding_rates_to_db(all_fr_data, symbol)
+                    count = data_collector.save_funding_rates_to_db(all_fr_data, symbol)
+                    print(f"-> Saved {count} new funding rate entries for {asset}.")
+                else:
+                    print("-> No new data returned from the exchange.")
             else:
                 print(f"Funding rate data for {asset} is already up to date.")
             time.sleep(1)

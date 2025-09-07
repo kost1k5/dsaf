@@ -27,12 +27,13 @@ class MacroDataCollector:
         latest_macro = self.db.query(func.max(MacroData.date)).scalar()
         return latest_macro
 
-    def save_macro_data_to_db(self, macro_df: pd.DataFrame):
+    def save_macro_data_to_db(self, macro_df: pd.DataFrame) -> int:
         """
         Saves macro data to the database, ignoring duplicates.
+        Returns the number of new rows inserted.
         """
         if macro_df.empty:
-            return
+            return 0
 
         records = []
         for timestamp, row in macro_df.iterrows():
@@ -44,13 +45,13 @@ class MacroDataCollector:
             })
 
         if not records:
-            return
+            return 0
 
         stmt = insert(MacroData).values(records)
         stmt = stmt.on_conflict_do_nothing(index_elements=['date'])
-        self.db.execute(stmt)
+        result = self.db.execute(stmt)
         self.db.commit()
-        print(f"Saved {len(records)} new macro data records to the database.")
+        return result.rowcount
 
     def fetch_data(self, start_date: str, end_date: str) -> pd.DataFrame:
         """
