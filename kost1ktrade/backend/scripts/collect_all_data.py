@@ -20,6 +20,10 @@ def main(days_history: int):
     performing incremental updates based on data already in the database.
     """
     db: Session = SessionLocal()
+    summary = {
+        "asset_agnostic": {},
+        "crypto_specific": {}
+    }
     try:
         # --- Configuration ---
         CRYPTO_ASSETS = ['BTC', 'ETH', 'SOL', 'LINK']
@@ -46,6 +50,7 @@ def main(days_history: int):
             macro_df = macro_collector.fetch_data(start_date=start_date_macro.strftime('%Y-%m-%d'), end_date=end_date.strftime('%Y-%m-%d'))
             if not macro_df.empty:
                 count = macro_collector.save_macro_data_to_db(macro_df)
+                summary["asset_agnostic"]["Macro Data"] = count
                 print(f"-> Saved {count} new macro data entries.")
             else:
                 print("-> No new data returned from the source.")
@@ -56,16 +61,19 @@ def main(days_history: int):
         fng_df = sentiment_collector.fetch_fear_greed_data(limit=0) # Fetch all available
         if not fng_df.empty:
             count = sentiment_collector.save_fng_data_to_db(fng_df)
+            summary["asset_agnostic"]["Fear & Greed"] = count
             print(f"-> Saved {count} new F&G entries (database handles conflicts).")
 
         print("\n--- Collecting RSS News ---")
         news_items = sentiment_collector.fetch_rss_news()
         if news_items:
             count = sentiment_collector.save_news_to_db(news_items)
+            summary["asset_agnostic"]["News Headlines"] = count
             print(f"-> Saved {count} new news items (database handles conflicts).")
 
         # --- 2. Collect Crypto-Specific Data (Incremental) ---
         for asset in CRYPTO_ASSETS:
+            summary["crypto_specific"][asset] = {}
             print(f"\n{'='*20} Collecting data for {asset} {'='*20}")
             symbol = f"{asset}/USDT:USDT"
 
@@ -85,6 +93,7 @@ def main(days_history: int):
                     ohlcv_data = data_collector.fetch_candles_in_range(symbol, tf, since_ms, int(end_date.timestamp() * 1000))
                     if ohlcv_data:
                         count = data_collector.save_candles_to_db(ohlcv_data, symbol, tf)
+                        summary["crypto_specific"][asset][f"OHLCV ({tf})"] = count
                         print(f"-> Saved {count} new {tf} candles for {asset}.")
                     else:
                         print("-> No new data returned from the exchange.")
@@ -102,7 +111,6 @@ def main(days_history: int):
                 since_fr_ms = int((end_date - timedelta(days=days_history)).timestamp() * 1000)
                 print(f"No existing funding rate data found. Starting full history download from {datetime.fromtimestamp(since_fr_ms/1000).strftime('%Y-%m-%d %H:%M:%S')}.")
 
-
             if since_fr_ms < int(end_date.timestamp() * 1000):
                 print(f"Fetching funding rate data from {datetime.fromtimestamp(since_fr_ms/1000).strftime('%Y-%m-%d %H:%M:%S')} to now...")
                 all_fr_data = []
@@ -112,7 +120,6 @@ def main(days_history: int):
                     if not fr_chunk:
                         break # No more data from exchange
 
-                    # Prevent re-inserting the last fetched item in a loop
                     last_ts_in_all_data = all_fr_data[-1]['timestamp'] if all_fr_data else 0
                     new_data = [d for d in fr_chunk if d['timestamp'] > last_ts_in_all_data]
                     if not new_data:
@@ -124,12 +131,24 @@ def main(days_history: int):
 
                 if all_fr_data:
                     count = data_collector.save_funding_rates_to_db(all_fr_data, symbol)
+                    summary["crypto_specific"][asset]["Funding Rates"] = count
                     print(f"-> Saved {count} new funding rate entries for {asset}.")
                 else:
                     print("-> No new data returned from the exchange.")
             else:
                 print(f"Funding rate data for {asset} is already up to date.")
             time.sleep(1)
+
+        print("\n" + "="*50)
+        print("=== DATA COLLECTION SUMMARY" + " "*25 + "===")
+        print("="*50)
+        for data_type, count in summary.get("asset_agnostic", {}).items():
+            print(f"- {data_type:<20}: {count} records")
+        for asset, details in summary.get("crypto_specific", {}).items():
+            print(f"\n--- {asset} ---")
+            for data_type, count in details.items():
+                print(f"  - {data_type:<18}: {count} records")
+        print("="*50 + "\n")
 
         print("\n--- Data collection complete! ---")
     finally:
