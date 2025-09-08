@@ -1,25 +1,35 @@
 import pandas as pd
 import numpy as np
+import talib
+from src.core.risk_manager import calculate_position_size
 
 class Backtester:
-    def __init__(self, strategy, candles_df, initial_balance=10000, commission_pct=0.001):
+    def __init__(self, strategy, candles_df, initial_balance=10000, commission_pct=0.001, risk_per_trade_pct=1.0, atr_multiplier=2.0):
         self.strategy = strategy
-        self.candles_df = candles_df
+        self.candles_df = candles_df.copy() # Use a copy to avoid modifying original df
         self.initial_balance = initial_balance
         self.commission_pct = commission_pct
+        self.risk_per_trade_pct = risk_per_trade_pct
+        self.atr_multiplier = atr_multiplier
         self.results = None
 
     def run(self):
         """
-        Runs the backtest simulation.
+        Runs the backtest simulation with integrated risk management.
         """
+        # 1. Generate strategy signals
         df = self.strategy.generate_signals(self.candles_df)
 
-        # Ensure signal column exists and fill NaNs
+        # 2. Add ATR for risk management
+        atr_period = 14
+        df['atr'] = talib.ATR(df['high'], df['low'], df['close'], timeperiod=atr_period)
+        df.dropna(inplace=True) # Drop rows where indicators are not yet calculated
+
         if 'signal' not in df.columns:
             raise ValueError("The 'signal' column is missing from the strategy output.")
         df['signal'] = df['signal'].fillna('HOLD')
 
+        # 3. Run simulation loop
         balance = self.initial_balance
         position = 0.0  # Represents the amount of the base asset held
         equity_curve = [self.initial_balance]
@@ -28,23 +38,38 @@ class Backtester:
         for i, row in df.iterrows():
             signal = row['signal']
             close_price = row['close']
+            atr_value = row['atr']
+            current_equity = balance + (position * close_price)
 
             # --- Trade Execution Logic ---
-            if signal == 'BUY' and balance > 10: # If we have quote currency to buy
-                investment = balance * (1 - self.commission_pct)
-                position = investment / close_price
-                balance = 0.0
-                trades.append({'type': 'BUY', 'price': close_price, 'row': i})
+            if signal == 'BUY' and position == 0: # Can only buy if we have no open position
+
+                # Use risk manager to calculate position size
+                sized_position = calculate_position_size(
+                    capital=current_equity,
+                    risk_per_trade_pct=self.risk_per_trade_pct,
+                    atr_value=atr_value,
+                    atr_multiplier=self.atr_multiplier,
+                    price=close_price
+                )
+
+                investment_cost = sized_position * close_price
+                commission = investment_cost * self.commission_pct
+
+                if balance >= (investment_cost + commission):
+                    balance -= (investment_cost + commission)
+                    position = sized_position
+                    trades.append({'type': 'BUY', 'price': close_price, 'row': i})
 
             elif signal == 'SELL' and position > 0: # If we have base currency to sell
                 sale_value = position * close_price
-                balance = sale_value * (1 - self.commission_pct)
+                commission = sale_value * self.commission_pct
+                balance += (sale_value - commission)
                 position = 0.0
                 trades.append({'type': 'SELL', 'price': close_price, 'row': i})
 
             # Update equity for this time step
-            current_equity = balance + (position * close_price)
-            equity_curve.append(current_equity)
+            equity_curve.append(balance + (position * close_price))
 
         self.results = self._calculate_metrics(equity_curve, trades)
         return self.results

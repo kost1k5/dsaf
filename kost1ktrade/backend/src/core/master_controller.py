@@ -1,26 +1,19 @@
 import time
 import pandas as pd
-import random
 import json
+import talib
+import random
 from src.core.bot_state import bot_state
-from src.core.market_analyzer import get_market_state
-from src.core.bot_controller import start_bot_loop, stop_bot_loop
 from src.data_collector.collector import DataCollector
 from src.core.config import settings
-from src.ml.predictor import Predictor
-from src.ml.feature_generator import create_features
-from src.core.sentiment_analyzer import SentimentAnalyzer
+from src.core.bot_controller import start_bot_loop, stop_bot_loop
 
-# --- Strategy Mapping & Parameter Loading ---
+# --- Commander Parameters ---
 STRATEGY_PARAMS_FILE = 'strategy_params.json'
-
-# Each market state maps to a list of suitable strategy names.
-# The parameters are now loaded from a separate JSON file.
-STRATEGY_MAP = {
-    "Trending": ["macd", "parabolic_sar", "ichimoku"],
-    "Ranging": ["rsi", "stochastic", "bollinger_bands"],
-    "Weak Trend": ["sma_crossover", "awesome_oscillator", "keltner_channels"]
-}
+COMMANDER_SYMBOL = settings.COMMANDER_SYMBOL
+ADX_PERIOD = 14
+ADX_TREND_THRESHOLD = 25
+ADX_RANGE_THRESHOLD = 20
 
 def load_strategy_params():
     """Loads strategy parameters from the JSON file."""
@@ -33,20 +26,19 @@ def load_strategy_params():
 
 def master_trading_loop():
     """
-    The main loop for the master controller bot.
-    It analyzes market conditions and launches the appropriate strategy bot.
+    The main loop for the "Commander".
+    Its sole responsibility is to analyze the market regime and set the activation status
+    for all strategies based on their type ('trend' or 'range').
     """
     if bot_state.master_bot_mode == "stopped":
         return
 
-    print("--- Master Controller loop started ---")
+    print("--- Commander loop started ---")
 
     try:
         collector = DataCollector(exchange_id='okx')
-        predictor = Predictor()
-        sentiment_analyzer = SentimentAnalyzer()
     except Exception as e:
-        print(f"FATAL in Master Controller: Failed to initialize components: {e}")
+        print(f"FATAL in Commander: Failed to initialize DataCollector: {e}")
         bot_state.master_bot_mode = "stopped"
         return
 
@@ -54,108 +46,95 @@ def master_trading_loop():
 
     while not bot_state.master_bot_stop_event.is_set():
         try:
-            print(f"({time.ctime()}) --- Master Controller Cycle ---")
-
-            # Load the latest strategy parameters at the start of each cycle
-            strategy_params = load_strategy_params()
-
-            # Randomly select a symbol to analyze for this cycle
-            if not settings.SYMBOLS:
-                print("No symbols configured. Skipping cycle.")
-                bot_state.master_bot_stop_event.wait(timeout=check_interval_seconds)
-                continue
-
-            symbol = random.choice(settings.SYMBOLS)
-            print(f"--- Analyzing selected symbol: {symbol} ---")
+            print(f"({time.ctime()}) --- Commander Cycle ---")
             
-            try:
-                # 1. Fetch Data
-                candles_list = collector.fetch_candles(symbol, settings.TIMEFRAME, limit=500) # Fetch more data for feature generation
-                if not candles_list or len(candles_list) < 50:
-                    raise ValueError("Not enough data fetched for analysis.")
-            except Exception as e:
-                print(f"ERROR: Could not fetch or process data for symbol '{symbol}'. Reason: {e}")
-                print("Skipping to the next cycle.")
-                bot_state.master_bot_stop_event.wait(timeout=10) # Short wait before next cycle
-                continue
+            # 1. Fetch Data for the main market symbol
+            print(f"Fetching data for market analysis on {COMMANDER_SYMBOL}...")
+            candles_list = collector.fetch_candles(COMMANDER_SYMBOL, settings.TIMEFRAME, limit=300)
+            if not candles_list or len(candles_list) < ADX_PERIOD * 2:
+                raise ValueError("Not enough data fetched for ADX analysis.")
 
             candles_df = pd.DataFrame(candles_list, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
-            candles_df['open_time'] = pd.to_datetime(candles_df['open_time'], unit='ms')
 
-            # 2. Analyze Market State, Sentiment, and ML Prediction
-            market_state, adx_value = get_market_state(candles_df)
-            news_sentiment = sentiment_analyzer.get_sentiment(symbol.split('/')[0])
+            # 2. Calculate ADX to determine market regime
+            adx_values = talib.ADX(candles_df['high'], candles_df['low'], candles_df['close'], timeperiod=ADX_PERIOD)
+            latest_adx = adx_values.iloc[-1]
+            bot_state.adx_value = latest_adx
 
-            ml_prediction = 0
-            # Check if a model is available for the current symbol
-            if predictor.is_ready(symbol):
-                features_df = create_features(candles_df.copy())
-                if not features_df.empty:
-                    latest_features = features_df.tail(1)
-                    # Pass the symbol to predict to load the correct model
-                    ml_prediction = predictor.predict(latest_features, symbol)
+            market_regime = "indecisive"
+            if latest_adx > ADX_TREND_THRESHOLD:
+                market_regime = "trend"
+            elif latest_adx < ADX_RANGE_THRESHOLD:
+                market_regime = "range"
 
-            bot_state.market_state = f"{market_state} (Sentiment: {news_sentiment:.2f}, ML: {ml_prediction})"
-            bot_state.adx_value = adx_value
-            print(f"Analysis for {symbol}: Market State={market_state}, ADX={adx_value}, News Sentiment={news_sentiment}, ML Prediction={ml_prediction}")
+            bot_state.market_state = market_regime.capitalize()
+            print(f"Market analysis complete: ADX = {latest_adx:.2f} -> Regime = {market_regime}")
 
-            # 3. Decide on Strategy
-            # Enhanced logic: Check for strong negative signals first
-            if ml_prediction == -1 or news_sentiment < -0.4:
-                print("Bearish signal from ML or News. Stopping all bots for safety.")
-                if bot_state.signal_bot_mode != "stopped": stop_bot_loop()
-                continue
+            # 3. Load all strategies and update their active status in the bot_state
+            all_strategies = load_strategy_params()
+            new_active_statuses = {}
 
-            preferred_strategy_names = STRATEGY_MAP.get(market_state, [])
-            if not preferred_strategy_names:
-                if bot_state.signal_bot_mode != "stopped": stop_bot_loop()
-                continue
+            for name, params in all_strategies.items():
+                strategy_type = params.get("type")
+                if strategy_type == market_regime:
+                    new_active_statuses[name] = True
+                else:
+                    new_active_statuses[name] = False
 
-            # Filter strategies based on their active status
-            runnable_strategy_names = [name for name in preferred_strategy_names if bot_state.active_strategies.get(name, False)]
-            print(f"Found {len(preferred_strategy_names)} preferred strategies for {market_state}. After filtering, {len(runnable_strategy_names)} are active.")
+            bot_state.active_strategies = new_active_statuses
+            print(f"Updated active strategies: {', '.join([k for k, v in new_active_statuses.items() if v])}")
 
-            if not runnable_strategy_names:
-                print("No active strategies available for the current market state. Stopping bot if running.")
-                if bot_state.signal_bot_mode != "stopped": stop_bot_loop()
-                continue
+            # 4. Manage the active trading bot based on the new regime
+            runnable_strategies = [k for k, v in new_active_statuses.items() if v]
+            current_bot_strategy = bot_state.signal_bot_strategy_name
+            is_bot_running = bot_state.signal_bot_mode != "stopped"
 
-            # 4. Check Current Bot and Switch if Necessary
-            current_strategy_name = getattr(bot_state, 'signal_bot_strategy_name', None)
-            is_current_strategy_suitable = current_strategy_name in runnable_strategy_names
-
-            if not is_current_strategy_suitable:
-                new_strategy_name = random.choice(runnable_strategy_names)
-                new_strategy_params = strategy_params.get(new_strategy_name)
-
-                if not new_strategy_params:
-                    print(f"Warning: Parameters for '{new_strategy_name}' not found in JSON file. Skipping.")
-                    continue
-
-                print(f"Switching strategy! Current: '{current_strategy_name}', New Choice: '{new_strategy_name}'")
-
-                if bot_state.signal_bot_mode != "stopped":
+            if runnable_strategies:
+                # There are suitable strategies for the current regime
+                if not is_bot_running:
+                    # No bot is running, so start one
+                    new_strategy_name = random.choice(runnable_strategies)
+                    print(f"No bot running. Starting a suitable strategy: '{new_strategy_name}'")
+                    params = all_strategies.get(new_strategy_name, {})
+                    start_bot_loop(
+                        mode=bot_state.master_bot_target_mode,
+                        symbol=COMMANDER_SYMBOL,
+                        strategy_name=new_strategy_name,
+                        strategy_params=params
+                    )
+                elif current_bot_strategy not in runnable_strategies:
+                    # The current bot is unsuitable for the new regime. Switch it.
+                    print(f"Current strategy '{current_bot_strategy}' is unsuitable for '{market_regime}' regime.")
                     stop_bot_loop()
-                    time.sleep(10)
+                    time.sleep(10) # Give the bot time to stop gracefully
 
-                print(f"Starting new signal bot with strategy: {new_strategy_name}...")
-                start_bot_loop(
-                    mode=bot_state.master_bot_target_mode,
-                    symbol=symbol,
-                    strategy_name=new_strategy_name,
-                    strategy_params=new_strategy_params
-                )
+                    new_strategy_name = random.choice(runnable_strategies)
+                    print(f"Switching to a suitable strategy: '{new_strategy_name}'")
+                    params = all_strategies.get(new_strategy_name, {})
+                    start_bot_loop(
+                        mode=bot_state.master_bot_target_mode,
+                        symbol=COMMANDER_SYMBOL,
+                        strategy_name=new_strategy_name,
+                        strategy_params=params
+                    )
+                else:
+                    print(f"Current strategy '{current_bot_strategy}' is still suitable. No change needed.")
+
             else:
-                print(f"Current strategy '{current_strategy_name}' is suitable for {market_state}. No change needed.")
+                # No strategies are suitable for the current regime. Stop any running bot.
+                if is_bot_running:
+                    print(f"No suitable strategies for '{market_regime}' regime. Stopping current bot.")
+                    stop_bot_loop()
 
-            print("Master Controller cycle complete. Sleeping...")
+            # 5. Sleep until the next cycle
+            print("Commander cycle complete. Sleeping...")
             bot_state.master_bot_stop_event.wait(timeout=check_interval_seconds)
 
         except Exception as e:
-            print(f"An error occurred in the master controller loop: {e}")
-            bot_state.master_bot_stop_event.wait(timeout=60) # Wait a minute before retrying on error
+            print(f"An error occurred in the commander loop: {e}")
+            bot_state.master_bot_stop_event.wait(timeout=60)
 
-    print("--- Master Controller loop has gracefully stopped ---")
+    print("--- Commander loop has gracefully stopped ---")
     bot_state.master_bot_mode = "stopped"
 
 def start_master_bot():

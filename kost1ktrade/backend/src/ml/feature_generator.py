@@ -98,6 +98,17 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
         print("Warning: DataFrame index is not DatetimeIndex, cannot calculate VWAP.")
         df_feat['VWAP_D'] = np.nan
 
+    # --- Basic & Additional Time-Series Features (NEW) ---
+    df_feat['SMA_10'] = talib.SMA(close, timeperiod=10)
+    df_feat['STD_20'] = talib.STDDEV(close, timeperiod=20)
+    df_feat['H-L'] = high - low
+    df_feat['C-O'] = close - open
+
+    # Ratio of SMAs
+    if 'SMA_50' in df_feat.columns and 'SMA_20' in df_feat.columns:
+        # To avoid division by zero
+        df_feat['SMA20_50_Ratio'] = df_feat['SMA_20'] / df_feat['SMA_50'].replace(0, np.nan)
+
     # --- Feature Stationarity Transformations ---
     print("Transforming features to be stationary...")
     close_price = df_feat['close']
@@ -123,6 +134,12 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
         # Use the original column name for the new feature name for clarity
         df_feat[f'{obv_col}_pct_change'] = df_feat[obv_col].pct_change(periods=14) # Using a 14-period change
         df_feat.drop(columns=[obv_col], inplace=True)
+
+    # Normalize other newly added raw-price features
+    for col in ['H-L', 'C-O', 'STD_20']:
+        if col in df_feat.columns:
+            df_feat[f'{col}_normalized'] = df_feat[col] / close_price
+            df_feat.drop(columns=[col], inplace=True)
 
     # Add custom time-based and return features
     # Ensure 'open_time' is a datetime object before accessing dt properties

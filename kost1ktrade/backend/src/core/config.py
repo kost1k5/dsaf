@@ -29,6 +29,9 @@ class RiskManagementSettings(BaseModel):
     MIN_RISK_PER_TRADE: float = 0.005
     VOLATILITY_RISK_ADJUSTMENT_FACTOR: float = 1.0
     MAX_DAILY_LOSS_PCT: float = 0.05
+    # New settings for ATR-based position sizing
+    RISK_PER_TRADE_PCT: float = 1.0  # e.g., 1.0 for 1%
+    ATR_MULTIPLIER: float = 2.0      # e.g., 2.0 for a 2x ATR stop loss
 
 class TradeManagementSettings(BaseModel):
     ATR_MULTIPLIER_FOR_SL: float = 1.2
@@ -104,6 +107,7 @@ class Settings(BaseSettings):
     OKX_WS_URL: str = "wss://ws.okx.com:8443/ws/v5/public"
     MAX_CANDLES: int = 5000
     TIMEFRAME: str = "1h"
+    COMMANDER_SYMBOL: str = "BTC-USDT-SWAP"
 
     # --- Backtest Settings ---
     BACKTEST: RiskManagementSettings = Field(default_factory=RiskManagementSettings)

@@ -285,7 +285,7 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
 
     # (Fix) Merge predictions with full OHLC data for simulation.
     ohlc_data = full_data[['open', 'high', 'low', 'EMA_200']] # Add EMA_200
-    simulation_df = predictions.join(ohlc_data, how='inner')
+    simulation_df = predictions.join(ohlc_data, how='inner', lsuffix='_pred')
 
     # (Fix) Remove duplicate timestamps from the combined DataFrame index.
     simulation_df = simulation_df.loc[~simulation_df.index.duplicated(keep='first')]
