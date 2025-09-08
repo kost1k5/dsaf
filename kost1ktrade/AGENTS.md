@@ -96,9 +96,14 @@ To use the external data features, you must set the following environment variab
     2.  **SHAP Analysis:** Calculates and logs the top 15 features based on their mean absolute SHAP value, providing a more robust measure of feature impact. The script also contains a commented-out example for generating local, per-prediction SHAP explanations.
 -   **Feature Selection:** The script automatically identifies and removes one feature from any pair with a correlation greater than 0.9, keeping the feature with higher importance.
 
-### 3. Dependency Update
-- **Package:** The `pandas-ta-openbb` fork was causing import errors in the environment.
-- **Resolution:** Reverted to the original `pandas-ta` library, which is now working correctly with the project's dependencies. The import `import pandas_ta as ta` remains standard.
+### 3. Technical Analysis Library Migration (September 2025)
+- **Action:** Migrated the entire backend technical analysis framework from `pandas-ta` to `TA-Lib`.
+- **Reason:** The previously used version of `pandas-ta` was an unstable beta release that caused a critical `ModuleNotFoundError` on non-POSIX systems (Windows). Instead of downgrading and re-introducing historical `numpy` version conflicts, a full migration to the more stable and widely-supported `TA-Lib` library was performed.
+- **Impact:**
+    - All indicator calculations in `src/processing` and `src/ml` feature generators now use `TA-Lib`.
+    - All strategies in `src/strategies` now use `TA-Lib`.
+    - Indicators not native to `TA-Lib` (VWAP, Awesome Oscillator, Keltner Channels, Ichimoku Cloud) have been manually implemented.
+    - The project dependency is now `TA-Lib` instead of `pandas-ta`.
 
 ### 4. Backtest Logging and Dynamic Sizing (September 2025)
 - **Feature:** The quantitative pipeline now includes enhanced logging and a dynamic risk management strategy during the backtesting phase (`run_backtest.py`).
@@ -116,7 +121,6 @@ To use the external data features, you must set the following environment variab
 ### 5. Dependency Tooling Migration (September 2025)
 - **Action:** Migrated the project's dependency management from `pipenv` to `pdm`.
 - **Reason:** The `pipenv` resolver was unable to handle complex dependency conflicts in the project's scientific stack, leading to a complete inability to install or update packages. The `pdm` resolver, along with its more detailed error reporting, successfully identified and resolved the issues.
-- **Critical Dependency Change:** The root cause of the dependency conflict was the `pandas-ta` package. Its only available version on PyPI requires `numpy>=2.2.6`, which is incompatible with the project's core requirement to use `numpy<2.0` (pinned at `1.26.4`). To create a stable environment, **`pandas-ta` has been removed from the project's dependencies.** Any functionality that relies on this package will need to be refactored or use an alternative, compatible library.
 
 ---
 
