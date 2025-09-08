@@ -372,7 +372,7 @@ class FeatureGenerator:
 
     def check_and_transform_stationarity(self):
         self._log("\n[Bonus Step] Checking for Feature Stationarity")
-        exclude_cols = ['open', 'high', 'low', 'close', 'volume']
+        exclude_cols = ['open', 'high', 'low', 'close', 'volume', 'EMA_200']
         for col in self.df.columns.copy():
             if col not in exclude_cols and pd.api.types.is_numeric_dtype(self.df[col]):
                 p_value = self.test_stationarity(self.df[col])
