@@ -275,8 +275,13 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
     in_position = False
     current_trade = {}
 
-    # (Fix) Remove duplicate timestamps from predictions to prevent crash.
-    # The walk-forward validation can sometimes produce overlapping predictions.
+    # (Fix) Ensure the DataFrame is indexed by timestamp for the backtest loop.
+    # This corrects the AttributeError where tz_localize is called on an integer.
+    if 'timestamp' in predictions.columns and predictions.index.name != 'timestamp':
+        predictions = predictions.set_index('timestamp')
+
+    # (Fix) Remove duplicate timestamps from the index to prevent ValueErrors.
+    # This must run *after* setting the timestamp index to work correctly.
     predictions = predictions.loc[~predictions.index.duplicated(keep='first')]
 
     # --- Main Event Loop ---

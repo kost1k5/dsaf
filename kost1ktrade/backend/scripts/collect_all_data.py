@@ -88,28 +88,15 @@ def main(days_history: int):
                     since_ms = int((end_date - timedelta(days=days_history)).timestamp() * 1000)
                     print(f"No existing OHLCV data found. Starting full history download from {datetime.fromtimestamp(since_ms/1000).strftime('%Y-%m-%d %H:%M:%S')}.")
 
-                is_historical_fill = not latest_ohlcv_ms
-
                 if since_ms < int(end_date.timestamp() * 1000):
                     print(f"Fetching OHLCV data from {datetime.fromtimestamp(since_ms/1000).strftime('%Y-%m-%d %H:%M:%S')} to now...")
                     ohlcv_data = data_collector.fetch_candles_in_range(symbol, tf, since_ms, int(end_date.timestamp() * 1000))
-
-                    # (Fix) If a full history download fails, try a shorter period.
-                    if not ohlcv_data and is_historical_fill and days_history > 365:
-                        print(f"Warning: Full history download for {asset} ({tf}) with {days_history} days returned no data. Retrying with 365 days.")
-                        new_since_ms = int((end_date - timedelta(days=365)).timestamp() * 1000)
-                        ohlcv_data = data_collector.fetch_candles_in_range(symbol, tf, new_since_ms, int(end_date.timestamp() * 1000))
-
                     if ohlcv_data:
                         count = data_collector.save_candles_to_db(ohlcv_data, symbol, tf)
                         summary["crypto_specific"][asset][f"OHLCV ({tf})"] = count
                         print(f"-> Saved {count} new {tf} candles for {asset}.")
                     else:
-                        # Add a more prominent warning if the historical fill fails completely.
-                        if is_historical_fill:
-                            print(f"CRITICAL WARNING: Full history download for {asset} ({tf}) returned no data, even after retries. Downstream processes will likely fail.")
-                        else:
-                            print("-> No new data returned from the exchange.")
+                        print("-> No new data returned from the exchange.")
                 else:
                     print(f"OHLCV data for {asset} ({tf}) is already up to date.")
                 time.sleep(1)
