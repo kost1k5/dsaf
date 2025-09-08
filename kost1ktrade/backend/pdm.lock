@@ -5,7 +5,7 @@
 groups = ["default", "dev"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:b0bf6b294745fea531b46bfe8490f3b2bbfe7e525f1686e32f329de26e221a9b"
+content_hash = "sha256:27142cbd10d0d92b2720ecd555bf46051091d43508b113581a4e40671a00be22"
 
 [[metadata.targets]]
 requires_python = ">=3.12"
@@ -201,6 +201,24 @@ files = [
 ]
 
 [[package]]
+name = "build"
+version = "1.3.0"
+requires_python = ">=3.9"
+summary = "A simple, correct Python build frontend"
+groups = ["default"]
+dependencies = [
+    "colorama; os_name == \"nt\"",
+    "importlib-metadata>=4.6; python_full_version < \"3.10.2\"",
+    "packaging>=19.1",
+    "pyproject-hooks",
+    "tomli>=1.1.0; python_version < \"3.11\"",
+]
+files = [
+    {file = "build-1.3.0-py3-none-any.whl", hash = "sha256:7145f0b5061ba90a1500d60bd1b13ca0a8a4cebdd0cc16ed8adf1c0e739f43b4"},
+    {file = "build-1.3.0.tar.gz", hash = "sha256:698edd0ea270bde950f53aed21f3a0135672206f3911e0176261a31e0e07b397"},
+]
+
+[[package]]
 name = "ccxt"
 version = "4.3.42"
 summary = "A JavaScript / TypeScript / Python / C# / PHP cryptocurrency trading library with support for 100+ exchanges"
@@ -342,7 +360,7 @@ version = "0.4.6"
 requires_python = "!=3.0.*,!=3.1.*,!=3.2.*,!=3.3.*,!=3.4.*,!=3.5.*,!=3.6.*,>=2.7"
 summary = "Cross-platform colored terminal text."
 groups = ["default"]
-marker = "platform_system == \"Windows\" or sys_platform == \"win32\""
+marker = "platform_system == \"Windows\" or sys_platform == \"win32\" or os_name == \"nt\""
 files = [
     {file = "colorama-0.4.6-py2.py3-none-any.whl", hash = "sha256:4f1d9991f5acc0ca119f9d443620b77f9d6b33703e51011c16baf57afb285fc6"},
     {file = "colorama-0.4.6.tar.gz", hash = "sha256:08695f5cb7ed6e0531a20572697297273c47b8cae5a63ffc6d6ed5c201be6e44"},
@@ -476,6 +494,47 @@ groups = ["default"]
 files = [
     {file = "cycler-0.12.1-py3-none-any.whl", hash = "sha256:85cef7cff222d8644161529808465972e51340599459b8ac3ccbac5a854e0d30"},
     {file = "cycler-0.12.1.tar.gz", hash = "sha256:88bb128f02ba341da8ef447245a9e138fae777f6a23943da4540077d3601eb1c"},
+]
+
+[[package]]
+name = "cython"
+version = "3.1.3"
+requires_python = ">=3.8"
+summary = "The Cython compiler for writing C extensions in the Python language."
+groups = ["default"]
+files = [
+    {file = "cython-3.1.3-cp312-cp312-macosx_10_13_x86_64.whl", hash = "sha256:849ef3d15d4354e5f74cdb6d3c80d80b03209b3bf1f4ff93315890b19da18944"},
+    {file = "cython-3.1.3-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:93dd0f62a3f8e93166d8584f8b243180d681ba8fed1f530b55d5f70c348c5797"},
+    {file = "cython-3.1.3-cp312-cp312-manylinux1_i686.manylinux_2_28_i686.manylinux_2_5_i686.whl", hash = "sha256:ff4a2cb84798faffb3988bd94636c3ad31a95ff44ef017f09121abffc56f84cf"},
+    {file = "cython-3.1.3-cp312-cp312-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:4b05319e36f34d5388deea5cc2bcfd65f9ebf76f4ea050829421a69625dbba4a"},
+    {file = "cython-3.1.3-cp312-cp312-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:7ac902a17934a6da46f80755f49413bc4c03a569ae3c834f5d66da7288ba7e6c"},
+    {file = "cython-3.1.3-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:7d7a555a864b1b08576f9e8a67f3789796a065837544f9f683ebf3188012fdbd"},
+    {file = "cython-3.1.3-cp312-cp312-musllinux_1_2_i686.whl", hash = "sha256:b827ce7d97ef8624adcf2bdda594b3dcb6c9b4f124d8f72001d8aea27d69dc1c"},
+    {file = "cython-3.1.3-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:7851107204085f4f02d0eb6b660ddcad2ce4846e8b7a1eaba724a0bd3cd68a6b"},
+    {file = "cython-3.1.3-cp312-cp312-win32.whl", hash = "sha256:ed20f1b45b2da5a4f8e71a80025bca1cdc96ba35820b0b17658a4a025be920b0"},
+    {file = "cython-3.1.3-cp312-cp312-win_amd64.whl", hash = "sha256:dc4ca0f4dec55124cd79ddcfc555be1cbe0092cc99bcf1403621d17b9c6218bb"},
+    {file = "cython-3.1.3-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:9458d540ef0853ea4fc65b8a946587bd483ef7244b470b3d93424eb7b04edeb1"},
+    {file = "cython-3.1.3-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:32d1b22c3b231326e9f16480a7f508c6841bbf7d0615c2d6f489ebc72dd05205"},
+    {file = "cython-3.1.3-cp313-cp313-manylinux1_i686.manylinux_2_28_i686.manylinux_2_5_i686.whl", hash = "sha256:d4c7e0b8584b02a349952de7d7d47f89c97cbf3fee74962e89e3caa78139ec84"},
+    {file = "cython-3.1.3-cp313-cp313-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:c9178f0c06f4bc92372dc44e3867e9285bebd556953e47857c26b389aabe2828"},
+    {file = "cython-3.1.3-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:d4da2e624d381e9790152672bfc599a5fb4b823b99d82700a10f5db3311851f9"},
+    {file = "cython-3.1.3-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:680c9168882c5e8031dd31df199b9a5ee897e95136d15f8c6454b62162ede25e"},
+    {file = "cython-3.1.3-cp313-cp313-musllinux_1_2_i686.whl", hash = "sha256:833cd0fdba9210d2f1f29e097579565a296d7ff567fd63e8cf5fde4c14339f4f"},
+    {file = "cython-3.1.3-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:c04367fa0e6c35b199eb51d64b5e185584b810f6c2b96726ce450300faf99686"},
+    {file = "cython-3.1.3-cp313-cp313-win32.whl", hash = "sha256:f02ef2bf72a576bf541534c704971b8901616db431bc46d368eed1d6b20aaa1e"},
+    {file = "cython-3.1.3-cp313-cp313-win_amd64.whl", hash = "sha256:00264cafcc451dcefc01eaf29ed5ec150fb73af21d4d21105d97e9d829a53e99"},
+    {file = "cython-3.1.3-cp314-cp314-macosx_10_13_x86_64.whl", hash = "sha256:62b0a9514b68391aae9784405b65738bbe19cdead3dd7b90dd9e963281db1ee3"},
+    {file = "cython-3.1.3-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:976db373c315f342dcb24cd65b5e4c08d2c7b42f9f6ac1b3f677eb2abc9bfb0f"},
+    {file = "cython-3.1.3-cp314-cp314-manylinux1_i686.manylinux_2_28_i686.manylinux_2_5_i686.whl", hash = "sha256:e765c12a02dea0bd968cf1e85af77be1dc6d21909c3fbf5bd81815a7cdd4a65e"},
+    {file = "cython-3.1.3-cp314-cp314-manylinux2014_aarch64.manylinux_2_17_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:097374fa1370e9967e48442a41a0acbebb94fe9d63976cad31eacd38424847bf"},
+    {file = "cython-3.1.3-cp314-cp314-manylinux2014_x86_64.manylinux_2_17_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:29d8fda4d62b693e62992c665a688e3a220be70958c48eb4c2634093c9998156"},
+    {file = "cython-3.1.3-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:da23fa5082940ae1eed487ee9b7c1da7015b53f9feffeee661f4ee57f696dcd5"},
+    {file = "cython-3.1.3-cp314-cp314-musllinux_1_2_i686.whl", hash = "sha256:8880daa7a0ddf971593f24da161c976bc1bea895393fdfebb8e54269321d9d2b"},
+    {file = "cython-3.1.3-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:20d6b5a9fc210d3bc2880413011f606e1208e12ee6efc74717445a63f9795af1"},
+    {file = "cython-3.1.3-cp314-cp314-win32.whl", hash = "sha256:3b2243fed3eeb129dedf2cebbe3be0d9b02fbf3bc75b387aafd54aac3950baa6"},
+    {file = "cython-3.1.3-cp314-cp314-win_amd64.whl", hash = "sha256:d32792c80b1fa8be9de207ec8844d49c4d1d0d60e5136d20f344729270db6490"},
+    {file = "cython-3.1.3-py3-none-any.whl", hash = "sha256:d13025b34f72f77bf7f65c1cd628914763e6c285f4deb934314c922b91e6be5a"},
+    {file = "cython-3.1.3.tar.gz", hash = "sha256:10ee785e42328924b78f75a74f66a813cb956b4a9bc91c44816d089d5934c089"},
 ]
 
 [[package]]
@@ -1393,23 +1452,6 @@ files = [
 ]
 
 [[package]]
-name = "pandas-ta"
-version = "0.4.67b0"
-requires_python = ">=3.12"
-summary = "A Comprehensive Python 3 Technical Analysis Library with Pandas Dataframe Extension for Quantitative Researchers, Traders, and Investors."
-groups = ["default"]
-dependencies = [
-    "numba==0.61.2",
-    "numpy>=2.2.6",
-    "pandas>=2.3.2",
-    "tqdm>=4.67.1",
-]
-files = [
-    {file = "pandas_ta-0.4.67b0-py3-none-any.whl", hash = "sha256:0e0835aad6df338fe52f6922fdb11e9c3422d4383cfff73e6b7c21dff60e3832"},
-    {file = "pandas_ta-0.4.67b0.tar.gz", hash = "sha256:07c1045f6ead9f82e9ebbbd74c60f75dcd82620bac0aa7ef6434f4faa80ef217"},
-]
-
-[[package]]
 name = "patsy"
 version = "1.0.1"
 requires_python = ">=3.6"
@@ -1743,6 +1785,17 @@ groups = ["default"]
 files = [
     {file = "pyparsing-3.2.3-py3-none-any.whl", hash = "sha256:a749938e02d6fd0b59b356ca504a24982314bb090c383e3cf201c95ef7e2bfcf"},
     {file = "pyparsing-3.2.3.tar.gz", hash = "sha256:b9c13f1ab8b3b542f72e28f634bad4de758ab3ce4546e4301970ad6fa77c38be"},
+]
+
+[[package]]
+name = "pyproject-hooks"
+version = "1.2.0"
+requires_python = ">=3.7"
+summary = "Wrappers to call pyproject.toml-based build backend hooks."
+groups = ["default"]
+files = [
+    {file = "pyproject_hooks-1.2.0-py3-none-any.whl", hash = "sha256:9e5c6bfa8dcc30091c74b0cf803c81fdd29d94f01992a7707bc97babb1141913"},
+    {file = "pyproject_hooks-1.2.0.tar.gz", hash = "sha256:1e859bd5c40fae9448642dd871adf459e5e2084186e8d2c2a79a824c970da1f8"},
 ]
 
 [[package]]
@@ -2242,6 +2295,39 @@ files = [
     {file = "statsmodels-0.14.5-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:9f866b2ebb2904b47c342d00def83c526ef2eb1df6a9a3c94ba5fe63d0005aec"},
     {file = "statsmodels-0.14.5-cp313-cp313-win_amd64.whl", hash = "sha256:2a06bca03b7a492f88c8106103ab75f1a5ced25de90103a89f3a287518017939"},
     {file = "statsmodels-0.14.5.tar.gz", hash = "sha256:de260e58cccfd2ceddf835b55a357233d6ca853a1aa4f90f7553a52cc71c6ddf"},
+]
+
+[[package]]
+name = "ta-lib"
+version = "0.6.7"
+requires_python = ">=3.9"
+summary = "Python wrapper for TA-Lib"
+groups = ["default"]
+dependencies = [
+    "build",
+    "cython",
+    "numpy",
+]
+files = [
+    {file = "ta_lib-0.6.7-cp312-cp312-macosx_13_0_x86_64.whl", hash = "sha256:4c28957ab9e6f26e4ffc8c9354dc2d3f920a16b3516ff010888cded8fe258b14"},
+    {file = "ta_lib-0.6.7-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:fb49c2388238bd176c7e4589979ab3d58f9876ca144cd6551273c19d9e6aa1eb"},
+    {file = "ta_lib-0.6.7-cp312-cp312-manylinux_2_28_aarch64.whl", hash = "sha256:d9d2352c4b12bb221d599b1730fca5748b9259ff29aa19c4b1a368d87c54656d"},
+    {file = "ta_lib-0.6.7-cp312-cp312-manylinux_2_28_x86_64.whl", hash = "sha256:a07967a28066a12b8fb94c97fc3bd3c563f04432f2383703763f53bc94aba92b"},
+    {file = "ta_lib-0.6.7-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:1843491cb19de376366e490c9ea60d43408162ddd9675c006cec03eeca32063d"},
+    {file = "ta_lib-0.6.7-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:76e5b89bc9be6f1721a65384c8c33bb384a17f29ec22490dd57db49ed185cd5b"},
+    {file = "ta_lib-0.6.7-cp312-cp312-win32.whl", hash = "sha256:411b4d05e976c9de4993c3b578aaadec353478287e886a0b72db881e0abba43d"},
+    {file = "ta_lib-0.6.7-cp312-cp312-win_amd64.whl", hash = "sha256:1cb66ca90d954a5bf3dbfad2679ba14e83f7d2ee72feeb51c1187efb88ef282c"},
+    {file = "ta_lib-0.6.7-cp312-cp312-win_arm64.whl", hash = "sha256:0ff9490faaaba625ffc2cfd520764067cd6255e663dd8d020cbcaa33870c8a56"},
+    {file = "ta_lib-0.6.7-cp313-cp313-macosx_13_0_x86_64.whl", hash = "sha256:dfe4a7fb1c6a6452e7704b0baa3633c03241d616515d07365bc9114c5b85be87"},
+    {file = "ta_lib-0.6.7-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:d3fd2175bdfeb5822b7c8364a0fcdc8eb4c07af9593f84480a10a4cf827d9266"},
+    {file = "ta_lib-0.6.7-cp313-cp313-manylinux_2_28_aarch64.whl", hash = "sha256:167a4b75a8c723d0b995269e67270d9cdfa22bed59957f0386cea0fe82b41c33"},
+    {file = "ta_lib-0.6.7-cp313-cp313-manylinux_2_28_x86_64.whl", hash = "sha256:8640e9e12a4bcddf5f7e3460430f259fea16c27eeab13481ff16a6964db1e58b"},
+    {file = "ta_lib-0.6.7-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:4f69f22a561f10457b86e09bb8700c36eeafad1944010c7cc894bba8be827cd9"},
+    {file = "ta_lib-0.6.7-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:ef03e89b39f0e5d8ab74a9d2a2537ce202bcf622ed190d8d1c0077cf9cb7c11b"},
+    {file = "ta_lib-0.6.7-cp313-cp313-win32.whl", hash = "sha256:3af4953d128676488a58df42b61bcaace669f83110f54d2dd2e866105093f597"},
+    {file = "ta_lib-0.6.7-cp313-cp313-win_amd64.whl", hash = "sha256:213423db3afddc9541ab54e8841bcf5f6a6b5a41625d70bd1544e58952a8fe2c"},
+    {file = "ta_lib-0.6.7-cp313-cp313-win_arm64.whl", hash = "sha256:ffc54a335c0e7ea69a4217ab8e93cada8871e591badb95fd7f2a0430eaa59825"},
+    {file = "ta_lib-0.6.7.tar.gz", hash = "sha256:d702cbb20ab34d6d6c46bef87a1bd4bfeae0cc0ab65cbdf1d23dd392ce110d69"},
 ]
 
 [[package]]

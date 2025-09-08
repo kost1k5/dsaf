@@ -1,5 +1,5 @@
 import pandas as pd
-import pandas_ta as ta
+import talib
 from .base import BaseStrategy
 
 class AwesomeOscillatorStrategy(BaseStrategy):
@@ -24,10 +24,11 @@ class AwesomeOscillatorStrategy(BaseStrategy):
 
         df = candles_df.copy()
 
-        # Calculate Awesome Oscillator using pandas-ta
-        # It uses the median price, so it needs high and low
-        ao = df.ta.ao(fast=self.fast_period, slow=self.slow_period)
-        df['ao'] = ao
+        # Calculate Awesome Oscillator manually using TA-Lib's SMA
+        median_price = (df['high'] + df['low']) / 2
+        fast_sma = talib.SMA(median_price, timeperiod=self.fast_period)
+        slow_sma = talib.SMA(median_price, timeperiod=self.slow_period)
+        df['ao'] = fast_sma - slow_sma
 
         df['signal'] = 'HOLD'
 
@@ -42,5 +43,8 @@ class AwesomeOscillatorStrategy(BaseStrategy):
 
         df.loc[buy_conditions, 'signal'] = 'BUY'
         df.loc[sell_conditions, 'signal'] = 'SELL'
+
+        # Clean up temporary column
+        df.drop(columns=['ao'], inplace=True)
 
         return df

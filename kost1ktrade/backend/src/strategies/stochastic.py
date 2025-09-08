@@ -1,5 +1,5 @@
 import pandas as pd
-import pandas_ta as ta
+import talib
 from .base import BaseStrategy
 
 class StochasticStrategy(BaseStrategy):
@@ -28,10 +28,21 @@ class StochasticStrategy(BaseStrategy):
 
         df = candles_df.copy()
 
-        # Calculate Stochastic Oscillator using pandas-ta
-        stoch = df.ta.stoch(k=self.k_period, d=self.d_period)
-        df['stoch_k'] = stoch[f'STOCHk_{self.k_period}_{self.d_period}_3']
-        df['stoch_d'] = stoch[f'STOCHd_{self.k_period}_{self.d_period}_3']
+        # Calculate Stochastic Oscillator using TA-Lib
+        # The '3' in the original pandas-ta column name STOCHk_14_3_3 refers to the smoothing period for %K,
+        # which corresponds to `slowk_period` in TA-Lib's STOCH function.
+        slowk, slowd = talib.STOCH(
+            df['high'],
+            df['low'],
+            df['close'],
+            fastk_period=self.k_period,
+            slowk_period=3,
+            slowk_matype=0, # SMA
+            slowd_period=self.d_period,
+            slowd_matype=0  # SMA
+        )
+        df['stoch_k'] = slowk
+        df['stoch_d'] = slowd
 
         df['signal'] = 'HOLD'
 
@@ -46,5 +57,8 @@ class StochasticStrategy(BaseStrategy):
 
         df.loc[buy_conditions, 'signal'] = 'BUY'
         df.loc[sell_conditions, 'signal'] = 'SELL'
+
+        # Clean up temporary columns
+        df.drop(columns=['stoch_k', 'stoch_d'], inplace=True)
 
         return df

@@ -1,5 +1,4 @@
 import pandas as pd
-import pandas_ta as ta
 from .base import BaseStrategy
 
 class IchimokuStrategy(BaseStrategy):
@@ -16,6 +15,43 @@ class IchimokuStrategy(BaseStrategy):
         self.senkou_b_period = senkou_b_period
         print(f"IchimokuStrategy initialized with tenkan={tenkan_period}, kijun={kijun_period}, senkou_b={senkou_b_period}")
 
+    def _calculate_ichimoku(self, df: pd.DataFrame):
+        """
+        Calculates Ichimoku Cloud components manually.
+        """
+        high = df['high']
+        low = df['low']
+        close = df['close']
+
+        # Tenkan-sen (Conversion Line)
+        tenkan_high = high.rolling(window=self.tenkan_period).max()
+        tenkan_low = low.rolling(window=self.tenkan_period).min()
+        tenkan_sen = (tenkan_high + tenkan_low) / 2
+
+        # Kijun-sen (Base Line)
+        kijun_high = high.rolling(window=self.kijun_period).max()
+        kijun_low = low.rolling(window=self.kijun_period).min()
+        kijun_sen = (kijun_high + kijun_low) / 2
+
+        # Senkou Span A (Leading Span A)
+        # Shifted forward by kijun_period
+        senkou_a = ((tenkan_sen + kijun_sen) / 2).shift(self.kijun_period)
+
+        # Senkou Span B (Leading Span B)
+        senkou_b_high = high.rolling(window=self.senkou_b_period).max()
+        senkou_b_low = low.rolling(window=self.senkou_b_period).min()
+        # Shifted forward by kijun_period
+        senkou_b = ((senkou_b_high + senkou_b_low) / 2).shift(self.kijun_period)
+
+        # The original code expects specific column names from pandas-ta
+        # We will replicate them for compatibility with the signal logic.
+        df[f'ITS_{self.tenkan_period}'] = tenkan_sen
+        df[f'IKS_{self.kijun_period}'] = kijun_sen
+        df[f'ISA_{self.tenkan_period}'] = senkou_a
+        df[f'ISB_{self.kijun_period}'] = senkou_b # Note: pandas-ta names this with kijun_period
+
+        return df
+
     def generate_signals(self, candles_df: pd.DataFrame) -> pd.DataFrame:
         """
         Calculates Ichimoku Cloud and generates signals.
@@ -27,14 +63,10 @@ class IchimokuStrategy(BaseStrategy):
 
         df = candles_df.copy()
 
-        # Calculate Ichimoku Cloud using pandas-ta
-        # It returns a tuple of DataFrames, so we handle them accordingly
-        ichimoku_data, _ = df.ta.ichimoku(tenkan=self.tenkan_period, kijun=self.kijun_period, senkou=self.senkou_b_period)
+        # Calculate Ichimoku components manually
+        df = self._calculate_ichimoku(df)
 
-        # Concatenate the results back to the main DataFrame
-        df = pd.concat([df, ichimoku_data], axis=1)
-
-        # Define column names based on pandas-ta output
+        # Define column names based on the names we created
         tenkan_col = f'ITS_{self.tenkan_period}'
         kijun_col = f'IKS_{self.kijun_period}'
         senkou_a_col = f'ISA_{self.tenkan_period}'
@@ -67,5 +99,8 @@ class IchimokuStrategy(BaseStrategy):
 
         df.loc[buy_conditions, 'signal'] = 'BUY'
         df.loc[sell_conditions, 'signal'] = 'SELL'
+
+        # Clean up temporary columns
+        df.drop(columns=required_cols, inplace=True)
 
         return df
