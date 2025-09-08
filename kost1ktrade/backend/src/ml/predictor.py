@@ -3,6 +3,7 @@ import pandas as pd
 import os
 import json
 from typing import Dict, List, Any
+import numpy as np
 
 # Import global settings to access the timeframe
 from src.core.config import settings
