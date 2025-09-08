@@ -47,116 +47,58 @@ This document provides instructions for developing the Kost1kTrade project.
 
 ---
 
-## Recent Architectural Updates (August 2025)
+## System Overhaul (September 2025)
 
-This section details significant changes and improvements made to the backend architecture. Future agents should be aware of these systems.
+This update represents a major architectural evolution, turning the system into a more robust and versatile framework.
 
-### 1. Strategy Activation Bug Fix
-- **Problem:** The `MasterController` was not activating signal-based strategies because of a bug in the `/api/strategies/status` endpoint. The endpoint only updated the status of strategies already present in the `bot_state.active_strategies` dictionary, which was empty on startup.
-- **Solution:**
-    - The check in the API endpoint was removed.
-    - The `BotState` class was refactored to dynamically load all strategies from `strategy_params.json` on startup, making the system more robust.
+### 1. The "Commander" & Dynamic Risk Management
+- **Concept**: The `master_controller.py` now acts as a central "Commander". Its sole purpose is to determine the market regime and authorize strategies, not to run them directly.
+- **Market Regime Filter**:
+    - The Commander uses the **ADX indicator** on a primary market symbol (defined in `config.py` as `COMMANDER_SYMBOL`) to classify the market as `"trend"` (ADX > 25) or `"range"` (ADX < 20).
+    - It then updates the `bot_state.active_strategies` dictionary, enabling only those strategies whose `type` in `strategy_params.json` matches the current regime.
+- **Bot Lifecycle Management**: The Commander is also responsible for managing the lifecycle of a single signal-based bot. It ensures that if a bot is running, its strategy is appropriate for the current regime. If not, it will stop the current bot and start a new, suitable one.
+- **Dynamic Position Sizing**:
+    - A new `risk_manager.py` module has been introduced.
+    - The `bot_controller.py` and `backtester.py` now use this module to calculate position size dynamically based on **ATR (Average True Range)**.
+    - This normalizes risk per trade to a fixed percentage of capital. The core parameters (`RISK_PER_TRADE_PCT`, `ATR_MULTIPLIER`) are now configurable in `config.py`.
 
-### 2. Advanced Machine Learning Pipeline (September 2025)
-The ML pipeline was fundamentally overhauled to improve prediction quality and robustness, addressing the low performance of the previous model. The new methodology is implemented in `scripts/train_model.py`.
+### 2. New Strategy Types
+- **Hybrid Strategies**:
+    - A framework for creating consensus-based strategies has been added in `strategies/hybrid_base.py`.
+    - An example, `rsi_macd_hybrid.py`, demonstrates how to create a strategy that requires signals from both RSI and MACD to fire.
+    - To use a hybrid strategy, it must be added to `strategy_params.json` with a `type` field.
+- **Pairs Trading (Statistical Arbitrage)**:
+    - The system now supports pairs trading.
+    - A new `PairsTradingStrategy` (`strategies/pairs_trading_strategy.py`) trades based on the Z-score of the spread between two assets.
+    - A dedicated controller (`core/pairs_bot_controller.py`) manages the two-legged trades.
+    - New API endpoints (`/api/pairs-bot/start`, `/api/pairs-bot/stop`) have been added to control the pairs bot.
 
-#### **Core Methodological Changes**
-
--   **Binary Classification with Noise Filtering:** The model no longer predicts "Sideways" movements. It's now a binary classifier (Up/Down). The training data is filtered using a volatility threshold (based on ATR) to remove low-impact, noisy price movements, focusing the model on significant events.
--   **Feature Stationarity:** All price-based technical indicators (e.g., SMAs, Bollinger Bands) are transformed into stationary series (e.g., by normalizing against the current price). This prevents the model from learning spurious, price-dependent correlations. An ADF test is included in the pipeline to verify the stationarity of key features.
--   **Walk-Forward Validation:** The pipeline continues to use `TimeSeriesSplit` for cross-validation, ensuring that the model is always trained on past data and validated on future data to prevent lookahead bias.
-
-#### **Expanded Feature Set**
-
-The model now incorporates a much richer set of features:
-
--   **Technical Indicators:** A comprehensive set of indicators from `pandas-ta-openbb`, including VWAP.
--   **Market Sentiment:**
-    -   **Fear & Greed Index:** Daily historical F&G index values are merged into the dataset.
--   **On-Chain Metrics (Placeholder):** The pipeline includes a placeholder framework to integrate on-chain data (e.g., Net Exchange Flow, SOPR). A real implementation requires an API key from a provider like Glassnode.
-
-#### **Dependencies**
-
-The new pipeline requires several new libraries. Ensure they are in your `pyproject.toml` and installed (`pdm sync`):
--   `statsmodels`: For the ADF stationarity test.
--   `fear-greed-index`: To fetch the Fear & Greed index.
--   `optuna`: For Bayesian hyperparameter optimization.
--   `shap`: For model interpretation.
-
-#### **Configuration**
-
-To use the external data features, you must set the following environment variable in your `.env` file:
--   `ONCHAIN_API_KEY`: (For future use) Your API key from a provider like Glassnode.
-
-#### **Advanced Usage**
-
--   **Bayesian Optimization:** The script includes a full implementation of hyperparameter tuning with `Optuna`. By default, it is **commented out** to allow for fast baseline training. To enable it, uncomment the relevant block in the "Model Training & Hyperparameter Tuning" section of `train_model.py`.
--   **Model Interpretation:** The script automatically runs two forms of feature analysis after training:
-    1.  **Feature Importance:** Logs the top 15 features based on the LightGBM model's internal importance score.
-    2.  **SHAP Analysis:** Calculates and logs the top 15 features based on their mean absolute SHAP value, providing a more robust measure of feature impact. The script also contains a commented-out example for generating local, per-prediction SHAP explanations.
--   **Feature Selection:** The script automatically identifies and removes one feature from any pair with a correlation greater than 0.9, keeping the feature with higher importance.
-
-### 3. Technical Analysis Library Migration (September 2025)
-- **Action:** Migrated the entire backend technical analysis framework from `pandas-ta` to `TA-Lib`.
-- **Reason:** The previously used version of `pandas-ta` was an unstable beta release that caused a critical `ModuleNotFoundError` on non-POSIX systems (Windows). Instead of downgrading and re-introducing historical `numpy` version conflicts, a full migration to the more stable and widely-supported `TA-Lib` library was performed.
-- **Impact:**
-    - All indicator calculations in `src/processing` and `src/ml` feature generators now use `TA-Lib`.
-    - All strategies in `src/strategies` now use `TA-Lib`.
-    - Indicators not native to `TA-Lib` (VWAP, Awesome Oscillator, Keltner Channels, Ichimoku Cloud) have been manually implemented.
-    - The project dependency is now `TA-Lib` instead of `pandas-ta`.
-
-### 4. Backtest Logging and Dynamic Sizing (September 2025)
-- **Feature:** The quantitative pipeline now includes enhanced logging and a dynamic risk management strategy during the backtesting phase (`run_backtest.py`).
-- **Log Files:**
-    - **`indicator_log.txt`:** Generated by `FeatureGenerator`, this log provides a detailed, step-by-step account of how all features are calculated, including the parameters for every technical indicator. This is useful for debugging the feature engineering process.
-    - **`full_log.txt`:** Generated by `run_backtest.py`, this log provides a detailed report of the last 100 trades from the backtest simulation. It includes entry/exit times, TP/SL levels, PnL, and the model's confidence for each trade.
-- **Dynamic Position Sizing:**
-    - The backtest simulation (`run_detailed_backtest` function) now uses a dynamic position sizing model based on the prediction probability (confidence) from the ML model.
-    - The risk allocation is as follows:
-        - **Confidence > 80%:** Risk 15% of capital.
-        - **Confidence > 70%:** Risk 5% of capital.
-        - **Confidence > 60%:** Risk 3% of capital.
-    - This logic is currently implemented only in the backtesting script for evaluation purposes and is not yet part of the live trading bot.
-
-### 5. Dependency Tooling Migration (September 2025)
-- **Action:** Migrated the project's dependency management from `pipenv` to `pdm`.
-- **Reason:** The `pipenv` resolver was unable to handle complex dependency conflicts in the project's scientific stack, leading to a complete inability to install or update packages. The `pdm` resolver, along with its more detailed error reporting, successfully identified and resolved the issues.
+### 3. Expanded Quantitative & ML Pipeline
+- **Walk-Forward Optimization**: The new `scripts/run_wfo.py` script allows for robust WFO of strategy parameters. This is a powerful tool for validating strategy robustness.
+- **Pairs Discovery**: The `scripts/find_cointegrated_pairs.py` script automates the process of finding correlated and cointegrated asset pairs suitable for the new pairs trading strategy.
+- **XGBoost Model Training**: The `scripts/train_xgboost_model.py` script has been added as an alternative to the LightGBM trainer, allowing for experimentation with different ML algorithms.
+- **Enhanced Feature Engineering**: The `ml/feature_generator.py` module has been updated with new features, including `High-Low` volatility, `Close-Open` impulse, and additional SMAs and standard deviation metrics. All new price-based features are normalized for stationarity.
 
 ---
 
 ## Quantitative Analysis Pipeline (September 2025)
 
-A new end-to-end pipeline for quantitative research has been added. It is composed of several modular scripts designed to be run in sequence. All scripts are located in the `kost1ktrade/backend/scripts/` directory and should be run from the `kost1ktrade/backend/` directory using `pdm run python ...`.
+The quantitative research pipeline has been expanded. All scripts are located in `kost1ktrade/backend/scripts/` and should be run from the `kost1ktrade/backend/` directory using `pdm run python ...`.
 
-### 1. `collect_all_data.py`
-- **Purpose:** Fetches all raw data required for analysis.
-- **Args:** `--days`: Number of days of history to fetch (e.g., 180).
-- **Output:** Raw data files in `data/raw/`.
+### **Data & Feature Pipeline**
+1.  `collect_all_data.py`: Fetches raw OHLCV data.
+2.  `process_features.py`: Generates a full feature set from raw data.
+3.  `apply_labels.py`: Applies Triple-Barrier Method labeling to a feature set.
 
-### 2. `process_features.py`
-- **Purpose:** Loads raw data and generates a full feature set.
-- **Args:** `--asset`: (e.g., 'BTC'), `--timeframe`: (e.g., '1h').
-- **Output:** Processed feature set in Parquet format in `data/processed/`.
+### **ML Model Pipeline**
+4.  `train_model.py`: Trains the primary **LightGBM** model. Includes feature selection, hyperparameter tuning (Optuna), and SHAP analysis.
+5.  `train_xgboost_model.py`: **(New)** Trains an alternative **XGBoost** model for comparison.
+6.  `run_backtest.py`: Executes a full walk-forward validation of the ML model's predictions.
+7.  `evaluate_model.py`: Evaluates the out-of-sample predictions to generate final performance metrics.
 
-### 3. `apply_labels.py`
-- **Purpose:** Applies Triple-Barrier Method labeling to a feature set.
-- **Args:** `--asset`, `--timeframe`, and barrier parameters (`--tp`, `--sl`, `--hold`).
-- **Output:** Labeled dataset in Parquet format in `data/labeled/`.
-
-### 4. `select_features.py`
-- **Purpose:** Performs two-stage feature selection using SHAP and correlation.
-- **Args:** `--asset`, `--timeframe`.
-- **Output:** List of selected features and a SHAP summary plot in `reports/`.
-
-### 5. `run_backtest.py`
-- **Purpose:** Executes a full walk-forward validation with nested Optuna hyperparameter tuning.
-- **Args:** `--asset`, `--timeframe`.
-- **Output:** Out-of-sample predictions in Parquet format in `results/`.
-
-### 6. `evaluate_model.py`
-- **Purpose:** Evaluates the out-of-sample predictions to generate final performance metrics.
-- **Args:** `--asset`, `--timeframe`.
-- **Output:** A final evaluation report in `reports/`.
+### **Strategy & Optimization Tools**
+8. `run_wfo.py`: **(New)** Performs Walk-Forward Optimization for classic (non-ML) strategies to find robust parameters.
+9. `find_cointegrated_pairs.py`: **(New)** Scans multiple symbols to find statistically significant pairs for the pairs trading strategy.
 
 ---
 
