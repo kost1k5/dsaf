@@ -51,7 +51,10 @@ def load_data_from_db(db: Session, asset: str, timeframe: str) -> dict:
     if not data['news'].empty: data['news'] = data['news'].rename(columns={'published_at': 'published'})
 
     # --- ETH Data for Correlation ---
-    if asset != 'ETH':
+    if asset == 'ETH':
+        print("  - Assigning ETH data for context (self-correlation)...")
+        data['eth_ohlcv'] = data['ohlcv'].copy()
+    else:
         print("  - Loading ETH data for context...")
         eth_symbol = "ETH/USDT:USDT"
         data['eth_ohlcv'] = pd.read_sql(db.query(Candle).filter(Candle.symbol == eth_symbol, Candle.interval == timeframe).statement, db.bind, index_col='open_time', parse_dates=['open_time'])
