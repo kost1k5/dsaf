@@ -8,7 +8,7 @@ import numpy as np
 # patch ensures the bot can run even if pandas-ta is updated to a version
 # with this issue.
 if not hasattr(np, 'NaN'):
-    np.NaN = np.nan
+    np.nan = np.nan
 
 def get_strategy_class(strategy_name: str):
     """
