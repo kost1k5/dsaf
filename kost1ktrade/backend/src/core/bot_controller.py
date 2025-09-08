@@ -1,11 +1,14 @@
 import time
 import pandas as pd
+import numpy as np
+import talib
 from typing import Dict, Any
 from src.core.bot_state import bot_state
 from src.data_collector.collector import DataCollector
 from src.trading.engine import TradingEngine
 from src.core.config import settings
 from src.core.strategy_loader import get_strategy_class
+from src.core.risk_manager import calculate_position_size
 
 def signal_trading_loop():
     """
@@ -33,8 +36,8 @@ def signal_trading_loop():
 
     timeframe = settings.TIMEFRAME
     sleep_duration_seconds = 3600
-    # Use a generic candle limit, as strategies have different requirements
     candle_limit = 200
+    atr_period = 14 # Standard ATR period
 
     print(f"--- Background signal bot loop started for {strategy.__class__.__name__} on {symbol} ---")
 
@@ -45,10 +48,16 @@ def signal_trading_loop():
 
                 print(f"Fetching latest {candle_limit} candles for {symbol}...")
                 candles_list = collector.fetch_candles(symbol, timeframe, limit=candle_limit)
-                if not candles_list or len(candles_list) < 50: # Basic check for some data
+                if not candles_list or len(candles_list) < atr_period:
                     raise ValueError(f"Could not fetch enough candle data (got {len(candles_list)})")
 
                 candles_df = pd.DataFrame(candles_list, columns=['open_time', 'open', 'high', 'low', 'close', 'volume'])
+
+                # --- Calculate ATR for Risk Management ---
+                atr_values = talib.ATR(candles_df['high'], candles_df['low'], candles_df['close'], timeperiod=atr_period)
+                latest_atr = atr_values.iloc[-1]
+                if pd.isna(latest_atr):
+                    raise ValueError("ATR could not be calculated. Not enough data points?")
 
                 print("Analyzing data and generating signal...")
                 result_df = strategy.generate_signals(candles_df)
@@ -58,14 +67,31 @@ def signal_trading_loop():
                 base_currency, quote_currency = symbol.split('-')
                 if latest_signal == 'BUY':
                     balance = engine.get_balance()
-                    quote_balance = balance.get(quote_currency, 0)
-                    if quote_balance > 10: # Min order size check
-                        amount_to_buy = quote_balance / candles_df.iloc[-1]['close']
-                        engine.create_order(symbol, 'market', 'buy', amount_to_buy)
+                    capital = balance.get(quote_currency, 0)
+                    current_price = candles_df.iloc[-1]['close']
+
+                    if capital > 10: # Min capital check
+                        amount_to_buy = calculate_position_size(
+                            capital=capital,
+                            risk_per_trade_pct=settings.RISK.RISK_PER_TRADE_PCT,
+                            atr_value=latest_atr,
+                            atr_multiplier=settings.RISK.ATR_MULTIPLIER,
+                            price=current_price
+                        )
+                        print(f"Risk Manager: Capital=${capital:.2f}, ATR=${latest_atr:.4f}, Price=${current_price:.2f} -> Position Size: {amount_to_buy:.6f} {base_currency}")
+                        if amount_to_buy * current_price > 5: # Min order size check ($5)
+                            engine.create_order(symbol, 'market', 'buy', amount_to_buy)
+                        else:
+                            print("Skipping BUY order: Calculated position size is below minimum threshold.")
+                    else:
+                        print("Skipping BUY order: Not enough capital.")
+
                 elif latest_signal == 'SELL':
                     balance = engine.get_balance()
                     base_balance = balance.get(base_currency, 0)
+                    # Sell the entire position, risk management not needed for closing
                     if base_balance > 0.0001:
+                        print(f"Closing position: Selling {base_balance:.6f} {base_currency}")
                         engine.create_order(symbol, 'market', 'sell', base_balance)
 
                 print(f"Cycle complete. Sleeping...")
@@ -94,6 +120,7 @@ def start_bot_loop(mode: str, symbol: str, strategy_name: str, strategy_params: 
     try:
         # Initialize strategy first
         StrategyClass = get_strategy_class(strategy_name)
+        # The symbol is for the bot state, not necessarily the strategy constructor
         bot_state.signal_bot_strategy = StrategyClass(**strategy_params)
 
         # Initialize engine

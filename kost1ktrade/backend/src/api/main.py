@@ -1,14 +1,15 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks, APIRouter
 from pydantic import BaseModel
-from typing import Literal, Dict, Any
+from typing import Literal, Dict, Any, Tuple
 import json
 
 from datetime import datetime
-from typing import List
+from typing import List, Tuple
 from src.core.bot_state import bot_state
 from src.core.bot_controller import start_bot_loop, stop_bot_loop, signal_trading_loop
 from src.core.grid_bot_controller import start_grid_bot, stop_grid_bot, stop_all_grid_bots
 from src.core.master_controller import start_master_bot, stop_master_bot, master_trading_loop
+from src.core.pairs_bot_controller import start_pairs_bot, stop_pairs_bot, pairs_trading_loop
 from src.core.backtester import Backtester
 from src.core.strategy_loader import get_strategy_class
 from src.data_collector.collector import DataCollector
@@ -213,6 +214,35 @@ async def set_master_bot_settings(settings: MasterBotSettings):
     bot_state.master_bot_target_mode = settings.target_mode
     return {"message": f"Master Bot target mode set to {settings.target_mode}"}
 
+
+# --- Pairs Bot Control ---
+
+class PairsBotStartRequest(BaseModel):
+    mode: Literal['real', 'demo']
+    pair: Tuple[str, str]
+
+@router.post("/pairs-bot/start", tags=["Pairs Bot Control"])
+async def start_pairs_bot_endpoint(request: PairsBotStartRequest, background_tasks: BackgroundTasks):
+    """
+    Starts the pairs trading bot for a specific pair of symbols.
+    """
+    try:
+        start_pairs_bot(mode=request.mode, pair=request.pair)
+        background_tasks.add_task(pairs_trading_loop)
+        return {"message": f"Pairs trading bot started for {request.pair[0]}/{request.pair[1]}."}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@router.post("/pairs-bot/stop", tags=["Pairs Bot Control"])
+async def stop_pairs_bot_endpoint():
+    """
+    Stops the pairs trading bot.
+    """
+    try:
+        response = stop_pairs_bot()
+        return {"message": response}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 # --- Health Check ---
 
