@@ -15,17 +15,18 @@ dependencies = [
     "pydantic==2.8.2",
     "pydantic-settings==2.3.4",
     # Основа для научных вычислений и ML (проверенный набор)
-    "numpy==1.26.4",
-    "pandas==2.2.2",
-    "scikit-learn==1.5.0",
-    "statsmodels==0.14.2",
-    "pyarrow==16.1.0",
-    "shap==0.45.0",
-    "lightgbm==4.3.0",
-    "optuna==3.6.1",
+    "numpy>=2.2.6",
+    "pandas",
+    "scikit-learn",
+    "statsmodels",
+    "pyarrow",
+    "shap",
+    "lightgbm",
+    "optuna",
     # Финансы
     "ccxt==4.3.42",
     "yfinance==0.2.40",
+    "pandas-ta==0.4.67b0",
     # Утилиты и NLP
     "requests==2.32.3",
     "python-telegram-bot[job-queue]==21.4",
@@ -38,3 +39,8 @@ dependencies = [
 
 [tool.pdm]
 venv.in-project = true
+
+[dependency-groups]
+dev = [
+    "ruff>=0.12.12",
+]
