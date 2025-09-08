@@ -221,6 +221,9 @@ class FeatureGenerator:
             self.df['dist_from_vwap'] = (self.df['close'] / self.df['VWAP_D']) - 1
             self._log("  - Calculating distance from VWAP")
 
+        self._log("  - Calculating EMA (length: 200)")
+        self.df['EMA_200'] = talib.EMA(close, timeperiod=200)
+
         self._log(f"  - Generated {len(self.df.columns)} columns so far.")
         return self
 
