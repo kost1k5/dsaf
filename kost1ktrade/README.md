@@ -11,9 +11,8 @@ This step only needs to be performed once.
 1.  **Install Dependencies:**
     *   **Backend (Python):** Navigate to the `kost1ktrade/backend` directory and run:
         ```bash
-        pipenv install
+        pdm install
         ```
-        *Note: If you encounter errors, you may need to manually install `matplotlib` by running `pipenv install matplotlib`.*
 
     *   **Frontend (JavaScript):** Navigate to the `kost1ktrade/frontend` directory and run:
         ```bash
@@ -27,7 +26,7 @@ This step only needs to be performed once.
 3.  **Initialize the Database:**
     *   From the `kost1ktrade/backend` directory, run the following command to create the database tables:
         ```bash
-        pipenv run python scripts/create_tables.py
+        pdm run python scripts/create_tables.py
         ```
 
 ---
@@ -42,7 +41,7 @@ This single command will execute the entire quantitative pipeline (data collecti
 
 From the `kost1ktrade/backend` directory, run:
 ```bash
-pipenv run python scripts/run_full_pipeline.py
+pdm run python scripts/run_full_pipeline.py
 ```
 
 After the script finishes, new production-ready models will be available in the `kost1ktrade/backend/models/production/` directory. The bot will automatically find and use these new models the next time it makes a prediction.
@@ -90,5 +89,5 @@ After running the `run_full_pipeline.py` script, two new log files are generated
 
 You can also run the backend and frontend in separate terminals for development.
 
-*   **Backend:** In `kost1ktrade/backend`, run `pipenv run uvicorn src.api.main:app --reload`
+*   **Backend:** In `kost1ktrade/backend`, run `pdm run uvicorn src.api.main:app --reload`
 *   **Frontend:** In `kost1ktrade/frontend`, run `npm run dev`
