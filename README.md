@@ -42,3 +42,45 @@ Kost1kTrade is a comprehensive, event-driven framework for developing, backtesti
 2.  Install dependencies: `npm install`
 3.  Run the development server: `npm run dev`
     *   The frontend will be available at `http://127.0.0.1:5173`.
+
+## Typical Workflow
+
+This section describes a common end-to-end workflow for using the system.
+
+### 1. (Optional) Train a Prediction Model
+The system can use an ML model for additional signal confirmation. Before running the main bot, you can train a model using the provided script.
+
+```bash
+# Navigate to the backend directory
+cd kost1ktrade/backend
+
+# Run the training script for a specific symbol
+pdm run python scripts/train_model.py --symbols BTC/USDT
+```
+
+### 2. Start Backend and Frontend Servers
+Follow the instructions in the "Getting Started" section to launch both the API server and the web interface.
+
+### 3. Run the Main "Commander" Bot
+The primary way to use the system is to run the Commander, which automates strategy selection.
+
+1.  Open your browser to the API documentation (usually `http://127.0.0.1:8000/docs`).
+2.  Navigate to the **Master Bot Control** section.
+3.  Use the `POST /api/master-bot/start` endpoint to start the Commander.
+4.  The Commander will now run in the background, analyzing the market and activating/deactivating a signal-based bot as the market regime changes.
+
+### 4. (Alternative) Manual Bot Operation
+You can also run specific bots manually for targeted tasks.
+
+#### Example: Running a Pairs Trading Bot
+1.  **Discover Pairs**: First, run the discovery script to find suitable pairs.
+    ```bash
+    cd kost1ktrade/backend
+    pdm run python scripts/find_cointegrated_pairs.py
+    ```
+    Note a promising pair from the output (e.g., `('BTC/USDT', 'ETH/USDT')`).
+
+2.  **Start the Bot**: Use the API to start the pairs bot with your chosen pair.
+    *   Go to the API docs (`http://127.0.0.1:8000/docs`).
+    *   Find the **Pairs Bot Control** section.
+    *   Use the `POST /api/pairs-bot/start` endpoint, providing the pair in the request body.
