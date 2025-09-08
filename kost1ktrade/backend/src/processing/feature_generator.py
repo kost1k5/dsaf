@@ -385,7 +385,10 @@ class FeatureGenerator:
         Returns the p-value.
         """
         series = series.dropna()
-        if len(series) < 20:
+        # For adfuller with maxlag=48, we need nobs > 2 * (maxlag + 1), which is roughly 100.
+        # Let's use a safe buffer.
+        if len(series) < 101:
+            self._log(f"  -> Series has too few observations ({len(series)}) for ADF test with maxlag=48. Skipping.")
             return 0.0
         if series.nunique() < 2:
             self._log(f"  -> Series is constant. Marking as non-stationary.")
