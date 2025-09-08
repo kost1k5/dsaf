@@ -1,113 +1,90 @@
-# Kost1kTrade: A Multi-Strategy Algorithmic Trading Framework
+# Kost1kTrade: Комплексный фреймворк для алгоритмической торговли
 
-Kost1kTrade is a comprehensive, event-driven framework for developing, backtesting, and deploying algorithmic trading strategies. It features a Python backend powered by FastAPI and a sophisticated quantitative analysis pipeline, along with a modern JavaScript frontend for control and visualization.
+Kost1kTrade — это многофункциональный, событийно-ориентированный фреймворк для разработки, тестирования и развертывания алгоритмических торговых стратегий. Он включает в себя бэкенд на Python (FastAPI), сложный конвейер для количественного анализа и современный фронтенд на JavaScript для управления и визуализации.
 
-## Key Features
+## Ключевые возможности
 
-*   **Multi-Strategy Support**: Natively supports multiple types of trading strategies:
-    *   **Signal-based**: Classic strategies based on technical indicators (RSI, MACD, etc.).
-    *   **Hybrid**: Consensus-based strategies that combine signals from multiple indicators for higher conviction trades.
-    *   **Pairs Trading**: A statistical arbitrage strategy based on cointegrated asset pairs.
-    *   **Grid Trading**: Automated grid bots for range-bound markets.
+*   **Поддержка множества стратегий**: Встроенная поддержка нескольких типов торговых стратегий:
+    *   **Сигнальные**: Классические стратегии на основе технических индикаторов (RSI, MACD и т.д.).
+    *   **Гибридные**: Стратегии, основанные на консенсусе нескольких индикаторов для повышения надежности сигналов.
+    *   **Парный трейдинг**: Стратегия статистического арбитража, основанная на коинтегрированных парах активов.
+    *   **Сеточная торговля**: Автоматизированные сеточные боты для рынков в боковом движении.
 
-*   **"Commander" Mode**: An intelligent master controller that analyzes the overall market regime using the ADX indicator. It automatically activates strategies suitable for the current market condition (e.g., trend-following strategies in a trending market, mean-reversion strategies in a ranging market).
+*   **Режим «Командир»**: Интеллектуальный мастер-контроллер, который анализирует общее состояние рынка с помощью индикатора ADX. Он автоматически активирует стратегии, подходящие для текущего рыночного режима (например, трендовые стратегии на трендовом рынке и контртрендовые — на боковом).
 
-*   **Dynamic Risk Management**: Integrated position sizing based on the Average True Range (ATR). This normalizes risk across all trades, ensuring that the capital at risk for any given trade is a fixed, predictable percentage of the total portfolio.
+*   **Динамическое управление рисками**: Встроенный расчет размера позиции на основе индикатора ATR (Average True Range). Это нормализует риск в каждой сделке, гарантируя, что капитал под риском является фиксированным и предсказуемым процентом от общего портфеля.
 
-*   **Advanced Quantitative Pipeline**: A suite of command-line scripts for professional-grade quantitative research:
-    *   **Walk-Forward Optimization**: Test and optimize strategy parameters on out-of-sample data to prevent overfitting and get a realistic measure of performance.
-    *   **Pairs Discovery**: Automatically scan a universe of assets to find statistically significant pairs for the arbitrage strategy.
-    *   **Advanced ML Model Training**: Train and evaluate sophisticated prediction models (LightGBM and XGBoost) with feature selection and SHAP analysis.
+*   **Продвинутый количественный конвейер**: Набор скриптов для проведения профессионального количественного исследования, объединенных в единый автоматизированный конвейер.
 
-*   **Modern API & Frontend**:
-    *   A robust **FastAPI** backend provides endpoints for controlling all bot types, managing strategies, and running simulations.
-    *   A **React/TypeScript** frontend (The "Nebula Command Bridge") provides a user-friendly interface for interacting with the system.
+*   **Современный API и фронтенд**:
+    *   Надежный бэкенд на **FastAPI** предоставляет эндпоинты для управления всеми типами ботов, стратегиями и симуляциями.
+    *   Фронтенд на **React/TypeScript** («Командный мостик "Небула"») обеспечивает удобный пользовательский интерфейс для взаимодействия с системой.
 
-## Getting Started
+## Начало работы
 
-### Prerequisites
+### Необходимые компоненты
 - Python 3.12+
-- `pdm` for backend dependency management
-- `npm` for frontend dependency management
+- `pdm` для управления зависимостями бэкенда
+- `npm` для управления зависимостями фронтенда
 
-### Backend Setup
-1.  Navigate to the `kost1ktrade/backend` directory.
-2.  Install dependencies: `pdm install`
-3.  Initialize the database: `pdm run python scripts/create_tables.py`
-4.  Run the API server: `pdm run uvicorn src.api.main:app --reload`
-    *   The API will be available at `http://127.0.0.1:8000/docs`.
+### Настройка бэкенда
+1.  Перейдите в директорию `kost1ktrade/backend`.
+2.  Установите зависимости: `pdm install`
+3.  Инициализируйте базу данных: `pdm run python scripts/create_tables.py`
 
-### Frontend Setup
-1.  Navigate to the `kost1ktrade/frontend` directory.
-2.  Install dependencies: `npm install`
-3.  Run the development server: `npm run dev`
-    *   The frontend will be available at `http://127.0.0.1:5173`.
+### Настройка фронтенда
+1.  Перейдите в директорию `kost1ktrade/frontend`.
+2.  Установите зависимости: `npm install`
 
-## End-to-End Workflow
+## Основной рабочий процесс
 
-This project is designed for both quantitative research and live deployment. Here are the two primary workflows.
+Система спроектирована вокруг единого автоматизированного конвейера, который подготавливает все данные и обучает модели, необходимые для работы.
 
-### Workflow 1: Quantitative Research Pipeline
+### Шаг 1: Запуск полного количественного конвейера
 
-This pipeline allows you to test new features, strategies, and models systematically. The goal is to generate an evaluation report on a model's out-of-sample performance.
-
-*All commands should be run from the `kost1ktrade/backend` directory.*
-
-**Step 1: Data Collection & Feature Engineering**
-```bash
-# 1. Fetch historical data for your asset
-pdm run python scripts/collect_all_data.py --days 730
-
-# 2. Generate features from the raw data
-pdm run python scripts/process_features.py --asset BTC --timeframe 1h
-
-# 3. Apply labels using the Triple-Barrier Method
-pdm run python scripts/apply_labels.py --asset BTC --timeframe 1h
-```
-
-**Step 2: Feature Selection**
-```bash
-# 4. Select the most predictive features
-pdm run python scripts/select_features.py --asset BTC --timeframe 1h
-```
-
-**Step 3: Model Training, Backtesting, and Evaluation**
-This step uses walk-forward validation to train models on historical data and test them on future "out-of-sample" data to get a realistic performance estimate.
+Это самый важный шаг. Единый скрипт `run_full_pipeline.py` запускает всю цепочку подготовки данных и создания моделей для всех символов, указанных в конфигурации.
 
 ```bash
-# 5. Run the walk-forward backtest
-pdm run python scripts/run_backtest.py --asset BTC --timeframe 1h
-
-# 6. Evaluate the results from the backtest
-pdm run python scripts/evaluate_model.py --asset BTC --timeframe 1h
-```
-After this, you will have a full performance report in the `reports/` directory.
-
----
-
-### Workflow 2: Production Deployment
-
-Once your research is complete and you are satisfied with a model's performance, you can deploy it for live or demo trading.
-
-**Step 1: Train the Production Model**
-Run the training script to create the final model artifact that the live system will use. The `train_model.py` script is designed for this purpose.
-
-```bash
-# Navigate to the backend directory
+# Перейдите в директорию бэкенда
 cd kost1ktrade/backend
 
-# Run the training script for the desired symbol
-pdm run python scripts/train_model.py --symbols BTC/USDT
+# Запустите главный конвейер
+pdm run python scripts/run_full_pipeline.py
 ```
-This will save a `lgbm_classifier_BTC_USDT.joblib` file in `src/ml/models/`, which the live predictor service can then load.
 
-**Step 2: Start the System**
-Follow the instructions in the "Getting Started" section to launch both the backend API server and the frontend web interface.
+Этот скрипт автоматически выполнит следующие действия:
+1.  **Сбор данных** (`collect_all_data.py`): Загрузит всю необходимую историю торгов.
+2.  **Обработка признаков** (`process_features.py`): Рассчитает десятки технических индикаторов.
+3.  **Разметка данных** (`apply_labels.py`): Применит метод тройного барьера для разметки данных.
+4.  **Отбор признаков** (`select_features.py`): Выберет наиболее значимые признаки для модели.
+5.  **Бэктестинг** (`run_backtest.py`): Проведет walk-forward валидацию для оценки качества модели.
+6.  **Оценка модели** (`evaluate_model.py`): Сгенерирует финальный отчет о производительности.
+7.  **Создание производственной модели** (`create_production_model.py`): Обучит и сохранит финальную модель, готовую для использования в реальной торговле.
 
-**Step 3: Start the Commander**
-The primary way to run the system is to start the Commander, which automates strategy selection based on the market regime.
+### Шаг 2: Запуск системы
 
-1.  Open your browser to the API documentation (usually `http://127.0.0.1:8000/docs`).
-2.  Navigate to the **Master Bot Control** section.
-3.  Use the `POST /api/master-bot/start` endpoint to start the Commander.
-4.  The Commander will now run in the background, managing a live trading bot.
+После успешного завершения работы конвейера, когда все модели обучены и готовы, можно запускать торговую систему.
+
+1.  **Запустите API-сервер бэкенда**:
+    ```bash
+    # В директории kost1ktrade/backend
+    pdm run uvicorn src.api.main:app --reload
+    ```
+    API будет доступен по адресу `http://127.0.0.1:8000/docs`.
+
+2.  **Запустите веб-интерфейс фронтенда**:
+    ```bash
+    # В директории kost1ktrade/frontend
+    npm run dev
+    ```
+    Фронтенд будет доступен по адресу `http://127.0.0.1:5173`.
+
+### Шаг 3: Запуск «Командира»
+
+Основной способ работы системы — через «Командира», который автоматически управляет торговыми ботами.
+
+1.  Откройте в браузере документацию API (`http://127.0.0.1:8000/docs`).
+2.  Найдите раздел **Master Bot Control**.
+3.  Используйте эндпоинт `POST /api/master-bot/start`, чтобы запустить «Командира».
+
+Теперь «Командир» будет работать в фоновом режиме, анализировать рынок и управлять торговым ботом в соответствии с текущим рыночным режимом и прогнозами обученных моделей.
