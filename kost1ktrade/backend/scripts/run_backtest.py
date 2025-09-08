@@ -275,6 +275,10 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
     in_position = False
     current_trade = {}
 
+    # (Fix) Remove duplicate timestamps from predictions to prevent crash.
+    # The walk-forward validation can sometimes produce overlapping predictions.
+    predictions = predictions.loc[~predictions.index.duplicated(keep='first')]
+
     # --- Main Event Loop ---
     # We iterate through the predictions, which act as our entry signals.
     # We use the full_data dataframe to look ahead for exit conditions.
