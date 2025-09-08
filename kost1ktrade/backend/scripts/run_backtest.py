@@ -275,25 +275,28 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
     in_position = False
     current_trade = {}
 
-    # (Fix) Ensure the DataFrame is indexed by timestamp for the backtest loop.
-    # This corrects the AttributeError where tz_localize is called on an integer.
+    # (Fix) Ensure the predictions DataFrame is indexed by timestamp.
     if 'timestamp' in predictions.columns and predictions.index.name != 'timestamp':
         predictions = predictions.set_index('timestamp')
 
-    # (Fix) Remove duplicate timestamps from the index to prevent ValueErrors.
-    # This must run *after* setting the timestamp index to work correctly.
-    predictions = predictions.loc[~predictions.index.duplicated(keep='first')]
+    # (Fix) Merge predictions with full OHLC data for simulation.
+    # This provides the 'low' and 'high' columns needed for SL/TP checks, fixing the KeyError.
+    ohlc_data = full_data[['open', 'high', 'low']] # 'close' is already in predictions
+    simulation_df = predictions.join(ohlc_data, how='inner')
+
+    # (Fix) Remove duplicate timestamps from the combined DataFrame index.
+    simulation_df = simulation_df.loc[~simulation_df.index.duplicated(keep='first')]
+
 
     # --- Main Event Loop ---
-    # We iterate through the predictions, which act as our entry signals.
-    # We use the full_data dataframe to look ahead for exit conditions.
-    for i in range(len(predictions)):
+    # We iterate through the combined simulation_df, which has both predictions and prices.
+    for i in range(len(simulation_df)):
         if capital <= 0:
             print("  - Backtest ended: Capital reached zero.")
             break
 
-        current_timestamp = predictions.index[i]
-        row = predictions.loc[current_timestamp]
+        current_timestamp = simulation_df.index[i]
+        row = simulation_df.loc[current_timestamp]
 
         # --- Exit Logic ---
         if in_position:
