@@ -113,6 +113,11 @@ To use the external data features, you must set the following environment variab
         - **Confidence > 60%:** Risk 3% of capital.
     - This logic is currently implemented only in the backtesting script for evaluation purposes and is not yet part of the live trading bot.
 
+### 5. Dependency Tooling Migration (September 2025)
+- **Action:** Migrated the project's dependency management from `pipenv` to `pdm`.
+- **Reason:** The `pipenv` resolver was unable to handle complex dependency conflicts in the project's scientific stack, leading to a complete inability to install or update packages. The `pdm` resolver, along with its more detailed error reporting, successfully identified and resolved the issues.
+- **Critical Dependency Change:** The root cause of the dependency conflict was the `pandas-ta` package. Its only available version on PyPI requires `numpy>=2.2.6`, which is incompatible with the project's core requirement to use `numpy<2.0` (pinned at `1.26.4`). To create a stable environment, **`pandas-ta` has been removed from the project's dependencies.** Any functionality that relies on this package will need to be refactored or use an alternative, compatible library.
+
 ---
 
 ## Quantitative Analysis Pipeline (September 2025)
