@@ -402,7 +402,7 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
                     "stop_loss": entry_price - sl_distance if decision == 'BUY' else entry_price + sl_distance,
                     "take_profit": entry_price + tp_distance if decision == 'BUY' else entry_price - tp_distance,
                     "position_size_asset": position_size_asset,
-                    "position_size_usd": f"{position_size_usd:.2f}",
+                    "position_size_usd": position_size_usd,
                     "actual_amount_risked": actual_amount_risked,
                     "actual_amount_risked_usd": f"{actual_amount_risked:.2f}",
                     "reward_to_risk_ratio": tp_atr_mult / sl_atr_mult
