@@ -184,7 +184,8 @@ def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.Data
             'proba_hold': y_pred_proba[:, 1],
             'proba_buy': y_pred_proba[:, 2],
             'close': metadata_test['close'].values,
-            'atr': metadata_test['atr'].values
+            'atr': metadata_test['atr'].values,
+            'EMA_200': metadata_test['EMA_200'].values
         })
         out_of_sample_preds.append(results_df)
 
@@ -223,7 +224,13 @@ def main(asset: str, timeframe: str, metric: str):
     # 3. Prepare data for model
     X = df[selected_features]
     y = df['label'] + 1
-    metadata = df[['close', 'ATRr_14']].rename(columns={'ATRr_14': 'atr'})
+    # Add EMA_200 to the metadata so it's available for the backtest
+    metadata_cols = ['close', 'ATRr_14', 'EMA_200']
+    # Ensure EMA_200 exists before trying to access it
+    if 'EMA_200' not in df.columns:
+        raise ValueError("EMA_200 not found in the dataset. Please run process_features.py again.")
+    metadata = df[metadata_cols].rename(columns={'ATRr_14': 'atr'})
+
 
     # 4. Run Walk-Forward Validation
     oos_predictions = run_walk_forward_validation(X, y, metadata, metric, n_splits=5)
@@ -240,17 +247,9 @@ def main(asset: str, timeframe: str, metric: str):
 
 def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, asset: str, timeframe: str, initial_capital=10000.0, max_leverage=10.0, commission_rate=0.001):
     """
-    Runs a realistic, event-driven backtest simulation.
-
-    This function iterates through the price data candle-by-candle, simulating
-    trade entries and exits based on model predictions and realistic market mechanics.
-
-    - **Event-Driven:** Checks for SL/TP hits on each candle after a trade is opened.
-    - **Dynamic TP/SL:** Calculates Take Profit and Stop Loss based on ATR at trade entry.
-    - **Time-in-Trade Stop:** Exits a trade if it's open for too long.
-    - **Realistic PnL:** PnL is calculated based on actual exit prices (SL, TP, or market price on time-stop).
+    Runs a realistic, event-driven backtest simulation with enhanced logic.
     """
-    print("\n--- Running Realistic Event-Driven Backtest Simulation ---")
+    print("\n--- Running Realistic Event-Driven Backtest Simulation (with Enhanced Logic) ---")
 
     RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
     os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -261,8 +260,8 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
     trades = []
     minsk_tz = ZoneInfo("Europe/Minsk")
 
-    # --- Strategy Parameters ---
-    tp_atr_mult = 1.5
+    # --- Strategy Parameters (MODIFIED) ---
+    tp_atr_mult = 2.0  # Increased R:R to 2:1
     sl_atr_mult = 1.0
     confidence_threshold = 0.6
     max_holding_period = 24 # candles
@@ -270,38 +269,42 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
     high_risk_pct = 0.02
     med_risk_pct = 0.01
     low_risk_pct = 0.005
+    loss_streak_threshold = 3 # Circuit breaker after 3 losses
+    trading_pause_duration = pd.Timedelta(hours=24)
 
-    # --- Backtest State ---
+    # --- Backtest State (MODIFIED) ---
     in_position = False
     current_trade = {}
+    consecutive_losses = 0
+    trade_disabled_until = None
 
     # (Fix) Ensure the predictions DataFrame is indexed by timestamp.
     if 'timestamp' in predictions.columns and predictions.index.name != 'timestamp':
         predictions = predictions.set_index('timestamp')
 
     # (Fix) Merge predictions with full OHLC data for simulation.
-    # This provides the 'low' and 'high' columns needed for SL/TP checks, fixing the KeyError.
-    ohlc_data = full_data[['open', 'high', 'low']] # 'close' is already in predictions
+    ohlc_data = full_data[['open', 'high', 'low', 'EMA_200']] # Add EMA_200
     simulation_df = predictions.join(ohlc_data, how='inner')
 
     # (Fix) Remove duplicate timestamps from the combined DataFrame index.
     simulation_df = simulation_df.loc[~simulation_df.index.duplicated(keep='first')]
 
+    # --- Volatility Filter Prep (NEW) ---
+    simulation_df['atr_sma_100'] = simulation_df['atr'].rolling(window=100).mean()
 
     # --- Main Event Loop ---
-    # We iterate through the combined simulation_df, which has both predictions and prices.
     for i in range(len(simulation_df)):
         if capital <= 0:
             print("  - Backtest ended: Capital reached zero.")
             break
 
         current_timestamp = simulation_df.index[i]
-        row = simulation_df.loc[current_timestamp]
+        row = simulation_df.iloc[i] # Use iloc for performance
 
         # --- Exit Logic ---
         if in_position:
-            entry_idx = full_data.index.get_loc(current_trade['entry_time'])
-            current_idx = full_data.index.get_loc(current_timestamp)
+            entry_idx = simulation_df.index.get_loc(current_trade['entry_time'])
+            current_idx = i
 
             # Check if the trade has been open for too long
             if current_idx - entry_idx >= max_holding_period:
@@ -310,28 +313,20 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
                 pnl = (exit_price - current_trade['entry_price']) * current_trade['position_size_asset']
                 if current_trade['decision'] == 'SELL': pnl = -pnl
             else:
-                # Check for SL/TP hit in the current candle
-                exit_price = None
-                exit_reason = None
-                pnl = 0
-
+                exit_price, exit_reason, pnl = None, None, 0
                 if current_trade['decision'] == 'BUY':
                     if row['low'] <= current_trade['stop_loss']:
-                        exit_price = current_trade['stop_loss']
-                        exit_reason = "Stop Loss"
+                        exit_price, exit_reason = current_trade['stop_loss'], "Stop Loss"
                         pnl = -current_trade['actual_amount_risked']
                     elif row['high'] >= current_trade['take_profit']:
-                        exit_price = current_trade['take_profit']
-                        exit_reason = "Take Profit"
+                        exit_price, exit_reason = current_trade['take_profit'], "Take Profit"
                         pnl = current_trade['actual_amount_risked'] * current_trade['reward_to_risk_ratio']
                 elif current_trade['decision'] == 'SELL':
                     if row['high'] >= current_trade['stop_loss']:
-                        exit_price = current_trade['stop_loss']
-                        exit_reason = "Stop Loss"
+                        exit_price, exit_reason = current_trade['stop_loss'], "Stop Loss"
                         pnl = -current_trade['actual_amount_risked']
                     elif row['low'] <= current_trade['take_profit']:
-                        exit_price = current_trade['take_profit']
-                        exit_reason = "Take Profit"
+                        exit_price, exit_reason = current_trade['take_profit'], "Take Profit"
                         pnl = current_trade['actual_amount_risked'] * current_trade['reward_to_risk_ratio']
 
             # If an exit condition was met, close the trade
@@ -340,6 +335,15 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
                 pnl -= commission
                 capital += pnl
                 equity_curve.append(capital)
+
+                # --- Circuit Breaker Logic (NEW) ---
+                if pnl < 0:
+                    consecutive_losses += 1
+                    if consecutive_losses >= loss_streak_threshold:
+                        trade_disabled_until = current_timestamp + trading_pause_duration
+                        print(f"  - INFO: Circuit breaker triggered at {current_timestamp}. Trading paused until {trade_disabled_until}.")
+                else:
+                    consecutive_losses = 0 # Reset on a winning trade
 
                 exit_time_minsk = current_timestamp.tz_localize('UTC').tz_convert(minsk_tz)
                 current_trade.update({
@@ -353,39 +357,50 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
                 trades.append(current_trade)
                 in_position = False
                 current_trade = {}
-                continue # Move to the next candle after closing a trade
+                continue
 
-        # --- Entry Logic ---
+        # --- Entry Logic (MODIFIED) ---
         if not in_position:
+            # --- Filter 1: Circuit Breaker ---
+            if trade_disabled_until and current_timestamp < trade_disabled_until:
+                continue
+
+            # --- Filter 2: Volatility Filter ---
+            atr_sma = row.get('atr_sma_100')
+            if pd.notna(atr_sma) and atr_sma > 0:
+                if row['atr'] < (atr_sma * 0.5) or row['atr'] > (atr_sma * 3.0):
+                    continue
+
             decision = "HOLD"
             confidence = 0
             if row['proba_buy'] > row['proba_sell'] and row['proba_buy'] > row['proba_hold']:
-                confidence = row['proba_buy']
-                decision = "BUY"
+                confidence, decision = row['proba_buy'], "BUY"
             elif row['proba_sell'] > row['proba_buy'] and row['proba_sell'] > row['proba_hold']:
-                confidence = row['proba_sell']
-                decision = "SELL"
+                confidence, decision = row['proba_sell'], "SELL"
 
             if confidence > confidence_threshold:
+                # --- Filter 3: Trend Filter ---
+                ema_200 = row.get('EMA_200')
+                if pd.notna(ema_200):
+                    if (decision == 'BUY' and row['close'] < ema_200) or \
+                       (decision == 'SELL' and row['close'] > ema_200):
+                        continue # Trade against the trend is filtered
+
                 if confidence > high_confidence_threshold: risk_percentage = high_risk_pct
                 elif confidence > 0.7: risk_percentage = med_risk_pct
                 else: risk_percentage = low_risk_pct
 
                 entry_price = row['close']
                 atr_at_trade = row['atr']
-
                 if atr_at_trade is None or atr_at_trade <= 0: continue
 
                 sl_distance = atr_at_trade * sl_atr_mult
                 tp_distance = atr_at_trade * tp_atr_mult
-
                 position_size_asset = (capital * risk_percentage) / sl_distance
                 position_size_usd = position_size_asset * entry_price
-
                 if position_size_usd > capital * max_leverage:
                     position_size_usd = capital * max_leverage
                     position_size_asset = position_size_usd / entry_price
-
                 actual_amount_risked = position_size_asset * sl_distance
 
                 in_position = True
@@ -393,16 +408,12 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
                 current_trade = {
                     "entry_time": current_timestamp,
                     "entry_time_minsk": entry_time_minsk.strftime('%Y-%m-%d %H:%M:%S %Z'),
-                    "asset": asset,
-                    "timeframe": timeframe,
-                    "decision": decision,
-                    "confidence": f"{confidence:.2%}",
-                    "risk_percentage": f"{risk_percentage:.3%}",
+                    "asset": asset, "timeframe": timeframe, "decision": decision,
+                    "confidence": f"{confidence:.2%}", "risk_percentage": f"{risk_percentage:.3%}",
                     "entry_price": entry_price,
                     "stop_loss": entry_price - sl_distance if decision == 'BUY' else entry_price + sl_distance,
                     "take_profit": entry_price + tp_distance if decision == 'BUY' else entry_price - tp_distance,
-                    "position_size_asset": position_size_asset,
-                    "position_size_usd": position_size_usd,
+                    "position_size_asset": position_size_asset, "position_size_usd": position_size_usd,
                     "actual_amount_risked": actual_amount_risked,
                     "actual_amount_risked_usd": f"{actual_amount_risked:.2f}",
                     "reward_to_risk_ratio": tp_atr_mult / sl_atr_mult
