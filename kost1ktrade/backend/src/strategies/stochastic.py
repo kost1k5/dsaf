@@ -4,7 +4,7 @@ from .base import BaseStrategy
 
 class StochasticStrategy(BaseStrategy):
     """
-    A strategy based on the Stochastic Oscillator.
+    A strategy based on the Stochastic Oscillator, with candlestick confirmation.
     """
     def __init__(self,
                  k_period: int = 14,
@@ -20,18 +20,18 @@ class StochasticStrategy(BaseStrategy):
     def generate_signals(self, candles_df: pd.DataFrame) -> pd.DataFrame:
         """
         Calculates the Stochastic Oscillator and generates BUY/SELL signals.
-        - BUY signal on %K crossing above the oversold threshold.
+        - BUY signal on %K crossing above the oversold threshold, confirmed by a bullish candlestick pattern.
         - SELL signal on %K crossing below the overbought threshold.
         """
-        if not all(col in candles_df.columns for col in ['high', 'low', 'close']):
-            raise ValueError("Candles DataFrame must contain 'high', 'low', and 'close' columns.")
+        required_cols = ['open', 'high', 'low', 'close']
+        if not all(col in candles_df.columns for col in required_cols):
+            raise ValueError(f"Candles DataFrame must contain {', '.join(required_cols)} columns.")
 
         df = candles_df.copy()
 
-        # Calculate Stochastic Oscillator using TA-Lib
-        # The '3' in the original pandas-ta column name STOCHk_14_3_3 refers to the smoothing period for %K,
-        # which corresponds to `slowk_period` in TA-Lib's STOCH function.
-        slowk, slowd = talib.STOCH(
+        # --- Indicator Calculations ---
+        # 1. Stochastic Oscillator
+        df['stoch_k'], df['stoch_d'] = talib.STOCH(
             df['high'],
             df['low'],
             df['close'],
@@ -41,24 +41,34 @@ class StochasticStrategy(BaseStrategy):
             slowd_period=self.d_period,
             slowd_matype=0  # SMA
         )
-        df['stoch_k'] = slowk
-        df['stoch_d'] = slowd
 
+        # 2. Bullish Candlestick Patterns for Confirmation
+        df['hammer'] = talib.CDLHAMMER(df['open'], df['high'], df['low'], df['close'])
+        df['engulfing'] = talib.CDLENGULFING(df['open'], df['high'], df['low'], df['close'])
+
+        # --- Signal Logic ---
         df['signal'] = 'HOLD'
 
-        # Find where the crossover happened in the previous step
+        # Previous state for crossover detection
         previous_k = df['stoch_k'].shift(1)
 
-        # A BUY signal is generated when %K crosses ABOVE the oversold level
-        buy_conditions = (df['stoch_k'] > self.oversold_threshold) & (previous_k <= self.oversold_threshold)
+        # Condition 1: Stochastic crosses above the oversold threshold
+        stoch_buy_signal = (df['stoch_k'] > self.oversold_threshold) & (previous_k <= self.oversold_threshold)
 
-        # A SELL signal is generated when %K crosses BELOW the overbought level
+        # Condition 2: A bullish candlestick pattern (Hammer or Bullish Engulfing) is present
+        # talib returns 100 for bullish patterns, -100 for bearish, 0 for none.
+        pattern_confirmation = (df['hammer'] > 0) | (df['engulfing'] > 0)
+
+        # Final BUY condition
+        buy_conditions = stoch_buy_signal & pattern_confirmation
+
+        # A SELL signal is generated when %K crosses BELOW the overbought level (no pattern confirmation needed)
         sell_conditions = (df['stoch_k'] < self.overbought_threshold) & (previous_k >= self.overbought_threshold)
 
         df.loc[buy_conditions, 'signal'] = 'BUY'
         df.loc[sell_conditions, 'signal'] = 'SELL'
 
         # Clean up temporary columns
-        df.drop(columns=['stoch_k', 'stoch_d'], inplace=True)
+        df.drop(columns=['stoch_k', 'stoch_d', 'hammer', 'engulfing'], inplace=True)
 
         return df
