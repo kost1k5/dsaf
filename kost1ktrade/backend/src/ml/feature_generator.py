@@ -50,10 +50,14 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     df_feat['MACD_12_26_9'] = macd
     df_feat['MACDs_12_26_9'] = macdsignal
     df_feat['MACDh_12_26_9'] = macdhist
-    ppo, pposignal, ppohist = talib.PPO(close)
-    df_feat['PPO_12_26_9'] = ppo
-    df_feat['PPOs_12_26_9'] = pposignal
-    df_feat['PPOh_12_26_9'] = ppohist
+    ppo_line_np = talib.PPO(close, fastperiod=12, slowperiod=26, matype=0)
+    ppo_signal_np = talib.EMA(ppo_line_np, timeperiod=9)
+    ppo_line_series = pd.Series(ppo_line_np, index=df_feat.index)
+    ppo_signal_series = pd.Series(ppo_signal_np, index=df_feat.index)
+    ppo_hist_series = ppo_line_series - ppo_signal_series
+    df_feat['PPO_12_26_9'] = ppo_line_series
+    df_feat['PPOs_12_26_9'] = ppo_signal_series
+    df_feat['PPOh_12_26_9'] = ppo_hist_series
     df_feat['ROC_10'] = talib.ROC(close)
     slowk, slowd = talib.STOCH(high, low, close)
     df_feat['STOCHk_14_3_3'] = slowk
