@@ -12,10 +12,25 @@ from src.core.utils import parse_asset_from_symbol
 def run_command(command: list):
     """Runs a command using subprocess and captures output."""
     # This function is now used by the worker, so it should return status and output.
+
+    # Construct the path to the project's virtual environment python
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    venv_python = os.path.join(base_dir, '.venv', 'bin', 'python')
+
+    # If the venv python doesn't exist, it's a critical error, as pdm should have created it.
+    # However, we can fall back to the current interpreter as a last resort.
+    if not os.path.exists(venv_python):
+        print(f"Warning: Virtual environment python not found at {venv_python}. Falling back to current interpreter.")
+        executable = sys.executable
+    else:
+        executable = venv_python
+
     try:
+        # Run the python script directly using the virtual environment's interpreter
         process = subprocess.run(
-            ["pdm", "run", "python"] + command,
-            check=True, text=True, capture_output=True
+            [executable] + command,
+            check=True, text=True, capture_output=True,
+            cwd=base_dir # Ensure the script runs from the project root
         )
         return True, process.stdout
     except subprocess.CalledProcessError as e:
@@ -23,6 +38,9 @@ def run_command(command: list):
         error_message += f"---!!! Return Code: {e.returncode} !!!---\n"
         error_message += f"---!!! STDOUT: ---\n{e.stdout}\n"
         error_message += f"---!!! STDERR: ---\n{e.stderr}\n"
+        return False, error_message
+    except FileNotFoundError:
+        error_message = f"---!!! SCRIPT FAILED: Executable not found at {executable} !!!---\n"
         return False, error_message
 
 def run_pipeline_for_asset(symbol: str):

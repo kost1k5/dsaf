@@ -1,5 +1,5 @@
 import pandas as pd
-import pandas_ta as ta
+import talib
 from .base import BaseStrategy
 
 class ParabolicSarStrategy(BaseStrategy):
@@ -24,20 +24,25 @@ class ParabolicSarStrategy(BaseStrategy):
 
         df = candles_df.copy()
 
-        # Calculate Parabolic SAR using pandas-ta
-        psar = df.ta.psar(af=self.acceleration, max_af=self.maximum)
+        # Calculate Parabolic SAR using TA-Lib
+        df['psar'] = talib.SAR(df['high'], df['low'], acceleration=self.acceleration, maximum=self.maximum)
 
-        # pandas-ta returns a DataFrame with PSARl (long), PSARs (short), AF, and RV columns
-        # We need to determine the active SAR value and the trend direction
-        df['psar'] = psar['PSARl_0.02_0.2'].fillna(psar['PSARs_0.02_0.2'])
+        # Determine trend direction based on price vs. SAR
+        # Bullish trend when price is above SAR, Bearish when below
+        df['trend'] = 1  # Default to bullish
+        df.loc[df['close'] < df['psar'], 'trend'] = -1
 
-        # A flip occurs when the SAR value switches from being above the low to below the high, or vice-versa
-        # A simpler way to detect flips is to see when the long/short SAR columns switch from NaN
-        is_bullish_flip = ~psar['PSARl_0.02_0.2'].isna() & psar['PSARl_0.02_0.2'].shift(1).isna()
-        is_bearish_flip = ~psar['PSARs_0.02_0.2'].isna() & psar['PSARs_0.02_0.2'].shift(1).isna()
+        # A flip occurs when the trend changes from the previous period
+        df['prev_trend'] = df['trend'].shift(1)
+
+        is_bullish_flip = (df['trend'] == 1) & (df['prev_trend'] == -1)
+        is_bearish_flip = (df['trend'] == -1) & (df['prev_trend'] == 1)
 
         df['signal'] = 'HOLD'
         df.loc[is_bullish_flip, 'signal'] = 'BUY'
         df.loc[is_bearish_flip, 'signal'] = 'SELL'
+
+        # Clean up temporary columns
+        df.drop(columns=['psar', 'trend', 'prev_trend'], inplace=True)
 
         return df

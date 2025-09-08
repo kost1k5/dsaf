@@ -1,50 +1,98 @@
 import pandas as pd
 import numpy as np
-import pandas_ta as ta
+import talib
+
+def _calculate_ao(high, low):
+    """Calculates Awesome Oscillator."""
+    median_price = (high + low) / 2
+    ao = talib.SMA(median_price, timeperiod=5) - talib.SMA(median_price, timeperiod=34)
+    return ao
+
+def _calculate_kc(high, low, close, timeperiod=20, atr_period=10, multiplier=2):
+    """Calculates Keltner Channels."""
+    kc_middle = talib.EMA(close, timeperiod=timeperiod)
+    atr = talib.ATR(high, low, close, timeperiod=atr_period)
+    kc_upper = kc_middle + (atr * multiplier)
+    kc_lower = kc_middle - (atr * multiplier)
+    return kc_upper, kc_middle, kc_lower
+
+def _calculate_vwap(df: pd.DataFrame) -> pd.Series:
+    """Helper to calculate daily VWAP efficiently."""
+    if not isinstance(df.index, pd.DatetimeIndex):
+        print("Warning: VWAP calculation requires a DatetimeIndex. Skipping.")
+        return pd.Series(index=df.index, dtype='float64')
+
+    # Use index.date for grouping if index is datetime
+    grouped = df.groupby(df.index.date)
+
+    cum_vol = grouped['volume'].transform('cumsum')
+    cum_vol_price = (df['close'] * df['volume']).groupby(df.index.date).transform('cumsum')
+
+    vwap = (cum_vol_price / cum_vol).fillna(0)
+    return vwap
 
 def create_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Enriches the candle DataFrame with a variety of technical indicator features
-    using the pandas_ta library.
+    using the TA-Lib library.
     """
-    print("Generating a rich set of TA features...")
+    print("Generating a rich set of TA features (using TA-Lib)...")
 
     # Create a copy to avoid modifying the original DataFrame
     df_feat = df.copy()
 
-    # Use pandas_ta to calculate a wide range of indicators
-    # This list covers Momentum, Trend, Volatility, and Volume indicators.
-    custom_strategy = ta.Strategy(
-        name="RichFeatureSet",
-        description="A comprehensive set of indicators for ML",
-        ta=[
-            # Momentum
-            {"kind": "rsi"},
-            {"kind": "macd"},
-            {"kind": "ppo"},
-            {"kind": "roc"},
-            {"kind": "stoch"},
-            {"kind": "ao"},
-            # Trend
-            {"kind": "adx"},
-            {"kind": "aroon"},
-            {"kind": "psar"},
-            {"kind": "sma", "length": 20},
-            {"kind": "sma", "length": 50},
-            {"kind": "sma", "length": 200},
-            # Volatility
-            {"kind": "atr"}, # Calculates ATR in raw price units (ATRr_*)
-            {"kind": "bbands"},
-            {"kind": "kc"},
-            # Volume
-            {"kind": "obv"},
-            {"kind": "cmf"},
-            {"kind": "vwap"},
-        ]
-    )
+    # Prepare numpy arrays for TA-Lib
+    open_p, high, low, close, volume = df_feat['open'].values, df_feat['high'].values, df_feat['low'].values, df_feat['close'].values, df_feat['volume'].values
 
-    # Apply the study to the DataFrame
-    df_feat.ta.study(custom_strategy)
+    # Momentum Indicators
+    df_feat['RSI_14'] = talib.RSI(close)
+    macd, macdsignal, macdhist = talib.MACD(close)
+    df_feat['MACD_12_26_9'] = macd
+    df_feat['MACDs_12_26_9'] = macdsignal
+    df_feat['MACDh_12_26_9'] = macdhist
+    ppo, pposignal, ppohist = talib.PPO(close)
+    df_feat['PPO_12_26_9'] = ppo
+    df_feat['PPOs_12_26_9'] = pposignal
+    df_feat['PPOh_12_26_9'] = ppohist
+    df_feat['ROC_10'] = talib.ROC(close)
+    slowk, slowd = talib.STOCH(high, low, close)
+    df_feat['STOCHk_14_3_3'] = slowk
+    df_feat['STOCHd_14_3_3'] = slowd
+    df_feat['AO'] = _calculate_ao(high, low)
+
+    # Trend Indicators
+    df_feat['ADX_14'] = talib.ADX(high, low, close)
+    aroondown, aroonup = talib.AROON(high, low)
+    df_feat['AROOND_14'] = aroondown
+    df_feat['AROONU_14'] = aroonup
+    df_feat['AROONOSC_14'] = talib.AROONOSC(high, low)
+    df_feat['PSAR'] = talib.SAR(high, low)
+    df_feat['SMA_20'] = talib.SMA(close, timeperiod=20)
+    df_feat['SMA_50'] = talib.SMA(close, timeperiod=50)
+    df_feat['SMA_200'] = talib.SMA(close, timeperiod=200)
+
+    # Volatility Indicators
+    # The 'r' in 'ATRr' from pandas-ta means 'raw'. talib.ATR is raw by default.
+    df_feat['ATRr_14'] = talib.ATR(high, low, close, timeperiod=14)
+    upper, middle, lower = talib.BBANDS(close)
+    df_feat['BBU_20_2.0'] = upper
+    df_feat['BBM_20_2.0'] = middle
+    df_feat['BBL_20_2.0'] = lower
+    kc_upper, kc_middle, kc_lower = _calculate_kc(high, low, close)
+    df_feat['KCUe_20_2'] = kc_upper
+    df_feat['KCMe_20_2'] = kc_middle
+    df_feat['KCLe_20_2'] = kc_lower
+
+    # Volume Indicators
+    df_feat['OBV'] = talib.OBV(close, volume)
+    # Using MFI as a substitute for CMF
+    df_feat['CMF_20'] = talib.MFI(high, low, close, volume, timeperiod=20)
+    # Calculate VWAP, assuming the DataFrame index is a DatetimeIndex
+    if isinstance(df_feat.index, pd.DatetimeIndex):
+        df_feat['VWAP_D'] = _calculate_vwap(df_feat)
+    else:
+        print("Warning: DataFrame index is not DatetimeIndex, cannot calculate VWAP.")
+        df_feat['VWAP_D'] = np.nan
 
     # --- Feature Stationarity Transformations ---
     print("Transforming features to be stationary...")
@@ -53,7 +101,7 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     # Normalize price-based indicators
     for col in df_feat.columns:
         # SMAs, PSAR, VWAP, and the moving average lines of BBands/KC
-        if col.startswith(('SMA_', 'PSAR', 'BBM_', 'KCM_', 'VWAP_')) and not col.endswith(('_pct', '_normalized')):
+        if col.startswith(('SMA_', 'PSAR', 'BBM_', 'KCMe_', 'VWAP_')) and not col.endswith(('_pct', '_normalized')):
              if col in df_feat.columns:
                 df_feat[f'{col}_normalized'] = (close_price / df_feat[col]) - 1
                 df_feat.drop(columns=[col], inplace=True)

@@ -1,5 +1,5 @@
 import pandas as pd
-import pandas_ta as ta
+import talib
 from .base import BaseStrategy
 
 class KeltnerChannelsStrategy(BaseStrategy):
@@ -26,29 +26,25 @@ class KeltnerChannelsStrategy(BaseStrategy):
 
         df = candles_df.copy()
 
-        # Calculate Keltner Channels using pandas-ta
-        kc_df = df.ta.kc(length=self.length, scalar=self.multiplier, atr_length=self.atr_length)
-        df = pd.concat([df, kc_df], axis=1)
+        # Calculate Keltner Channels manually using TA-Lib
+        basis = talib.EMA(df['close'], timeperiod=self.length)
+        atr = talib.ATR(df['high'], df['low'], df['close'], timeperiod=self.atr_length)
 
-        # Find the column names dynamically
-        try:
-            upper_band_col = next(col for col in df.columns if col.startswith('KCUe'))
-            lower_band_col = next(col for col in df.columns if col.startswith('KCL'))
-        except StopIteration:
-            raise ValueError("Could not find Keltner Channel columns in the DataFrame after calculation.")
+        upper_band = basis + (atr * self.multiplier)
+        lower_band = basis - (atr * self.multiplier)
 
         df['signal'] = 'HOLD'
 
         # Find where the breakout/breakdown happened
         previous_close = df['close'].shift(1)
-        previous_upper_band = df[upper_band_col].shift(1)
-        previous_lower_band = df[lower_band_col].shift(1)
+        previous_upper_band = upper_band.shift(1)
+        previous_lower_band = lower_band.shift(1)
 
         # A BUY signal is generated on a close above the upper channel
-        buy_conditions = (df['close'] > df[upper_band_col]) & (previous_close <= previous_upper_band)
+        buy_conditions = (df['close'] > upper_band) & (previous_close <= previous_upper_band)
 
         # A SELL signal is generated on a close below the lower channel
-        sell_conditions = (df['close'] < df[lower_band_col]) & (previous_close >= previous_lower_band)
+        sell_conditions = (df['close'] < lower_band) & (previous_close >= previous_lower_band)
 
         df.loc[buy_conditions, 'signal'] = 'BUY'
         df.loc[sell_conditions, 'signal'] = 'SELL'

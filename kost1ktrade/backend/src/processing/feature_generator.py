@@ -1,5 +1,6 @@
 import pandas as pd
-import pandas_ta as ta
+import numpy as np
+import talib
 from statsmodels.tsa.stattools import adfuller
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import os
@@ -159,39 +160,85 @@ class FeatureGenerator:
         self._log(f"Warning: Macro data format not recognized. Columns: {temp_df.columns.tolist()}. Skipping.")
         return None
 
+    def _calculate_vwap(self, df: pd.DataFrame) -> pd.Series:
+        """Helper to calculate daily VWAP efficiently."""
+        if not isinstance(df.index, pd.DatetimeIndex):
+            self._log("Error: VWAP calculation requires a DatetimeIndex.")
+            return pd.Series(index=df.index, dtype='float64')
+
+        # Group by date
+        grouped = df.groupby(df.index.date)
+
+        # Calculate cumulative volume and cumulative volume * price
+        cum_vol = grouped['volume'].transform('cumsum')
+        cum_vol_price = (df['close'] * df['volume']).groupby(df.index.date).transform('cumsum')
+
+        # Calculate VWAP, handle potential division by zero
+        vwap = (cum_vol_price / cum_vol).fillna(0)
+
+        return vwap.rename('VWAP_D')
+
     def add_technical_indicators(self):
-        self._log("\n[Step 1/8] Adding Technical Indicators")
+        self._log("\n[Step 1/8] Adding Technical Indicators (using TA-Lib)")
+        # Prepare numpy arrays for TA-Lib
+        high, low, close, volume = self.df['high'].values, self.df['low'].values, self.df['close'].values, self.df['volume'].values
+
         for length in [7, 14, 21]:
             self._log(f"  - Calculating RSI, ADX, PPO for length: {length}")
-            self.df.ta.rsi(length=length, append=True)
-            self.df.ta.adx(length=length, append=True)
-            self.df.ta.ppo(fast=length, slow=length*2, append=True)
+            self.df[f'RSI_{length}'] = talib.RSI(close, timeperiod=length)
+            self.df[f'ADX_{length}'] = talib.ADX(high, low, close, timeperiod=length)
+
+            ppo, ppo_signal, ppo_hist = talib.PPO(close, fastperiod=length, slowperiod=length*2, matype=0)
+            self.df[f'PPO_{length}_{length*2}_9'] = ppo
+            self.df[f'PPOs_{length}_{length*2}_9'] = ppo_signal
+            self.df[f'PPOh_{length}_{length*2}_9'] = ppo_hist
+
         self._log("  - Calculating ATR (length: 14)")
-        self.df.ta.atr(append=True)
+        # Other parts of the code expect 'ATRr_14' from pandas-ta, so we match that name.
+        self.df['ATRr_14'] = talib.ATR(high, low, close, timeperiod=14)
+
         self._log("  - Calculating Bollinger Bands (length: 20)")
-        self.df.ta.bbands(length=20, append=True)
+        upper, middle, lower = talib.BBANDS(close, timeperiod=20, nbdevup=2.0, nbdevdn=2.0, matype=0)
+        self.df['BBU_20_2.0'] = upper
+        self.df['BBM_20_2.0'] = middle
+        self.df['BBL_20_2.0'] = lower
+
         self._log("  - Calculating On-Balance Volume (OBV)")
-        self.df.ta.obv(append=True)
-        self._log("  - Calculating Chaikin Money Flow (CMF, length: 20)")
-        self.df.ta.cmf(append=True)
+        self.df['OBV'] = talib.OBV(close, volume)
+
+        self._log("  - Calculating Money Flow Index (MFI as CMF substitute, length: 20)")
+        self.df['CMF_20'] = talib.MFI(high, low, close, volume, timeperiod=20)
+
         self._log("  - Calculating Volume Weighted Average Price (VWAP)")
-        self.df.ta.vwap(append=True)
+        self.df['VWAP_D'] = self._calculate_vwap(self.df)
         if 'VWAP_D' in self.df.columns:
             self.df['dist_from_vwap'] = (self.df['close'] / self.df['VWAP_D']) - 1
             self._log("  - Calculating distance from VWAP")
+
         self._log(f"  - Generated {len(self.df.columns)} columns so far.")
         return self
 
     def add_multi_timeframe_features(self):
-        self._log("\n[Step 2/8] Adding Multi-Timeframe Features")
+        self._log("\n[Step 2/8] Adding Multi-Timeframe Features (using TA-Lib)")
         for tf_df, tf_name in [(self.ohlcv_4h, "4h"), (self.ohlcv_1d, "1d")]:
             if tf_df is None or tf_df.empty:
                 self._log(f"  - Skipping {tf_name} timeframe, data not available.")
                 continue
             self._log(f"  - Calculating indicators for {tf_name} timeframe (RSI, PPO)")
-            tf_df.ta.rsi(append=True)
-            tf_df.ta.ppo(append=True)
+
+            # Prepare numpy arrays
+            tf_close = tf_df['close'].values
+
+            # Calculate indicators
+            tf_df['RSI_14'] = talib.RSI(tf_close, timeperiod=14)
+            ppo, ppo_signal, ppo_hist = talib.PPO(tf_close, fastperiod=12, slowperiod=26, matype=0)
+            tf_df['PPO_12_26_9'] = ppo
+            tf_df['PPOs_12_26_9'] = ppo_signal
+            tf_df['PPOh_12_26_9'] = ppo_hist
+
+            # Select and rename indicators for merging
             indicators = tf_df[['RSI_14', 'PPO_12_26_9', 'PPOh_12_26_9', 'PPOs_12_26_9']].add_suffix(f'_{tf_name}')
+
             self.df = pd.merge_asof(self.df, indicators, left_index=True, right_index=True, direction='backward')
             self._log(f"  - Merged {tf_name} indicators onto base timeframe.")
         return self
