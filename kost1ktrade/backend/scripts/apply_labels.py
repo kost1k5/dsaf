@@ -52,14 +52,18 @@ def main(asset: str, timeframe: str, tp_mult: float, sl_mult: float, time_limit_
         time_limit_periods=time_limit_periods
     )
 
-    # 3. Join labels to the feature set
-    labeled_df = features_df.join(labels.rename('label'))
+    # 3. Join labels and clean data
+    # Create a temporary df with the label to easily drop NaNs from unlabeled events
+    temp_df = features_df.join(labels.rename('label'))
+    temp_df.dropna(subset=['label'], inplace=True)
 
-    # Drop rows where a label could not be generated (typically the last few rows)
-    labeled_df.dropna(subset=['label'], inplace=True)
+    # 4. Reconstruct the final DataFrame to ensure all original columns are preserved.
+    # This is a defensive measure to prevent any unexpected column dropping.
+    final_cols = list(features_df.columns) + ['label']
+    labeled_df = temp_df[final_cols].copy() # Use .copy() to avoid SettingWithCopyWarning
     labeled_df['label'] = labeled_df['label'].astype(int)
 
-    # 4. Save the labeled data
+    # 5. Save the labeled data
     output_path = os.path.join(LABELED_DATA_DIR, f'{asset}_{timeframe}_labeled.parquet')
     labeled_df.to_parquet(output_path)
 
