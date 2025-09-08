@@ -138,6 +138,7 @@ def main(asset: str, timeframe: str):
         features_df = feature_generator.generate_all_features()
 
         # 4. Save the processed data
+        print(f"[DEBUG] Columns in features_df before saving in process_features: {features_df.columns.tolist()}")
         features_df.to_parquet(output_path)
 
         print(f"\nSuccessfully generated {len(features_df.columns)} features for {asset}.")

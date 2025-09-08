@@ -21,6 +21,7 @@ def main(asset: str, timeframe: str, tp_mult: float, sl_mult: float, time_limit_
     try:
         features_df = pd.read_parquet(features_path)
         print(f"Loaded feature data for {asset} from {features_path}")
+        print(f"[DEBUG] Columns in features_df on load in apply_labels: {features_df.columns.tolist()}")
     except FileNotFoundError:
         print(f"Error: Feature file not found at {features_path}. Please run 'process_features.py' first.")
         return
@@ -52,19 +53,16 @@ def main(asset: str, timeframe: str, tp_mult: float, sl_mult: float, time_limit_
         time_limit_periods=time_limit_periods
     )
 
-    # 3. Join labels and clean data
-    # Create a temporary df with the label to easily drop NaNs from unlabeled events
-    temp_df = features_df.join(labels.rename('label'))
-    temp_df.dropna(subset=['label'], inplace=True)
+    # 3. Join labels to the feature set
+    labeled_df = features_df.join(labels.rename('label'))
 
-    # 4. Reconstruct the final DataFrame to ensure all original columns are preserved.
-    # This is a defensive measure to prevent any unexpected column dropping.
-    final_cols = list(features_df.columns) + ['label']
-    labeled_df = temp_df[final_cols].copy() # Use .copy() to avoid SettingWithCopyWarning
+    # Drop rows where a label could not be generated (typically the last few rows)
+    labeled_df.dropna(subset=['label'], inplace=True)
     labeled_df['label'] = labeled_df['label'].astype(int)
 
-    # 5. Save the labeled data
+    # 4. Save the labeled data
     output_path = os.path.join(LABELED_DATA_DIR, f'{asset}_{timeframe}_labeled.parquet')
+    print(f"[DEBUG] Columns in labeled_df before saving in apply_labels: {labeled_df.columns.tolist()}")
     labeled_df.to_parquet(output_path)
 
     print(f"\nSuccessfully generated labels for {asset}.")

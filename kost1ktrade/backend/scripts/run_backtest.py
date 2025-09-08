@@ -206,6 +206,7 @@ def main(asset: str, timeframe: str, metric: str):
     labeled_path = os.path.join(LABELED_DATA_DIR, f'{asset}_{timeframe}_labeled.parquet')
     try:
         df = pd.read_parquet(labeled_path)
+        print(f"[DEBUG] Columns in df on load in backtester: {df.columns.tolist()}")
     except FileNotFoundError:
         print(f"Error: Labeled file not found at {labeled_path}.")
         return
