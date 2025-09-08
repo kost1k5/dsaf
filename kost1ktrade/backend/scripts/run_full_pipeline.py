@@ -14,7 +14,7 @@ def run_command(command: list):
     # This function is now used by the worker, so it should return status and output.
     try:
         process = subprocess.run(
-            ["pipenv", "run", "python"] + command,
+            ["pdm", "run", "python"] + command,
             check=True, text=True, capture_output=True
         )
         return True, process.stdout
