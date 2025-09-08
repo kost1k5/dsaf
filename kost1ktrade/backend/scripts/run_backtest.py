@@ -398,7 +398,7 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
                     "decision": decision,
                     "confidence": f"{confidence:.2%}",
                     "risk_percentage": f"{risk_percentage:.3%}",
-                    "entry_price": f"{entry_price:.4f}",
+                    "entry_price": entry_price,
                     "stop_loss": entry_price - sl_distance if decision == 'BUY' else entry_price + sl_distance,
                     "take_profit": entry_price + tp_distance if decision == 'BUY' else entry_price - tp_distance,
                     "position_size_asset": position_size_asset,
