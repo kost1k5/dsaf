@@ -188,10 +188,16 @@ class FeatureGenerator:
             self.df[f'RSI_{length}'] = talib.RSI(close, timeperiod=length)
             self.df[f'ADX_{length}'] = talib.ADX(high, low, close, timeperiod=length)
 
-            ppo, ppo_signal, ppo_hist = talib.PPO(close, fastperiod=length, slowperiod=length*2, matype=0)
-            self.df[f'PPO_{length}_{length*2}_9'] = ppo
-            self.df[f'PPOs_{length}_{length*2}_9'] = ppo_signal
-            self.df[f'PPOh_{length}_{length*2}_9'] = ppo_hist
+            # Correct PPO Calculation
+            ppo_line_np = talib.PPO(close, fastperiod=length, slowperiod=length*2, matype=0)
+            ppo_signal_np = talib.EMA(ppo_line_np, timeperiod=9)
+            ppo_line_series = pd.Series(ppo_line_np, index=self.df.index)
+            ppo_signal_series = pd.Series(ppo_signal_np, index=self.df.index)
+            ppo_hist_series = ppo_line_series - ppo_signal_series
+
+            self.df[f'PPO_{length}_{length*2}_9'] = ppo_line_series
+            self.df[f'PPOs_{length}_{length*2}_9'] = ppo_signal_series
+            self.df[f'PPOh_{length}_{length*2}_9'] = ppo_hist_series
 
         self._log("  - Calculating ATR (length: 14)")
         # Other parts of the code expect 'ATRr_14' from pandas-ta, so we match that name.
@@ -231,10 +237,17 @@ class FeatureGenerator:
 
             # Calculate indicators
             tf_df['RSI_14'] = talib.RSI(tf_close, timeperiod=14)
-            ppo, ppo_signal, ppo_hist = talib.PPO(tf_close, fastperiod=12, slowperiod=26, matype=0)
-            tf_df['PPO_12_26_9'] = ppo
-            tf_df['PPOs_12_26_9'] = ppo_signal
-            tf_df['PPOh_12_26_9'] = ppo_hist
+
+            # Correct PPO Calculation
+            ppo_line_np = talib.PPO(tf_close, fastperiod=12, slowperiod=26, matype=0)
+            ppo_signal_np = talib.EMA(ppo_line_np, timeperiod=9)
+            ppo_line_series = pd.Series(ppo_line_np, index=tf_df.index)
+            ppo_signal_series = pd.Series(ppo_signal_np, index=tf_df.index)
+            ppo_hist_series = ppo_line_series - ppo_signal_series
+
+            tf_df['PPO_12_26_9'] = ppo_line_series
+            tf_df['PPOs_12_26_9'] = ppo_signal_series
+            tf_df['PPOh_12_26_9'] = ppo_hist_series
 
             # Select and rename indicators for merging
             indicators = tf_df[['RSI_14', 'PPO_12_26_9', 'PPOh_12_26_9', 'PPOs_12_26_9']].add_suffix(f'_{tf_name}')
