@@ -45,7 +45,7 @@ def main(asset: str, timeframe: str, tp_mult: float, sl_mult: float, time_limit_
 
     print(f"Applying labels with TP={tp_mult}*ATR, SL={sl_mult}*ATR, Hold={time_limit_periods} periods.")
 
-    labels = apply_triple_barrier(
+    label_info = apply_triple_barrier(
         close_prices=features_df['close'],
         atr=features_df['ATRr_14'],
         tp_atr_mult=tp_mult,
@@ -54,10 +54,10 @@ def main(asset: str, timeframe: str, tp_mult: float, sl_mult: float, time_limit_
     )
 
     # 3. Join labels to the feature set
-    labeled_df = features_df.join(labels.rename('label'))
+    labeled_df = features_df.join(label_info)
 
     # Drop rows where a label could not be generated (typically the last few rows)
-    labeled_df.dropna(subset=['label'], inplace=True)
+    labeled_df.dropna(subset=['label', 'event_end_time'], inplace=True)
     labeled_df['label'] = labeled_df['label'].astype(int)
 
     # 4. Save the labeled data

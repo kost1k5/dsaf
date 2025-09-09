@@ -13,6 +13,7 @@ from src.database.session import SessionLocal
 from src.data_collector.collector import DataCollector
 from src.data_collector.macro_collector import MacroDataCollector
 from src.data_collector.sentiment_collector import SentimentCollector
+from src.data_collector.calendar_data import fetch_and_store_economic_calendar
 
 def main(days_history: int):
     """
@@ -56,6 +57,16 @@ def main(days_history: int):
                 print("-> No new data returned from the source.")
         else:
             print("Macro data is already up to date.")
+
+        print("\n--- Collecting Economic Calendar Events ---")
+        # Fetch a wide range of data to ensure we have historical and future events
+        calendar_start_date = (end_date - timedelta(days=days_history)).strftime('%d/%m/%Y')
+        calendar_end_date = (end_date + timedelta(days=30)).strftime('%d/%m/%Y')
+        print(f"Fetching calendar events from {calendar_start_date} to {calendar_end_date}...")
+        # This function will handle its own database saving and prints.
+        # We don't need to capture a summary count here as it's not used elsewhere.
+        fetch_and_store_economic_calendar(start_date=calendar_start_date, end_date=calendar_end_date)
+
 
         print("\n--- Collecting Fear & Greed Index ---")
         fng_df = sentiment_collector.fetch_fear_greed_data(limit=0) # Fetch all available

@@ -93,6 +93,7 @@ class Settings(BaseSettings):
     TELEGRAM_CHAT_ID: Optional[str] = None
     NEWS_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
+    APIFY_API_TOKEN: Optional[str] = None
 
     # --- General Bot Settings ---
     # Raw comma-separated string for symbols from .env
@@ -106,7 +107,7 @@ class Settings(BaseSettings):
 
     OKX_WS_URL: str = "wss://ws.okx.com:8443/ws/v5/public"
     MAX_CANDLES: int = 5000
-    TIMEFRAME: str = "1h"
+    TIMEFRAME: str = "4h"
     COMMANDER_SYMBOL: str = "BTC-USDT-SWAP"
 
     # --- Backtest Settings ---
