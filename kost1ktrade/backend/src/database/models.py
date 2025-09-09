@@ -157,3 +157,22 @@ class NewsHeadline(Base):
 
     def __repr__(self):
         return f"<NewsHeadline(source='{self.source}', title='{self.title[:50]}...')>"
+
+
+class EconomicCalendarEvent(Base):
+    __tablename__ = "economic_calendar_events"
+    __table_args__ = (UniqueConstraint('event_id', name='_event_id_uc'),)
+
+    id = Column(Integer, primary_key=True)
+    event_id = Column(String, nullable=False, index=True)
+    event_datetime = Column(DateTime, nullable=False, index=True)
+    country = Column(String, nullable=False, index=True)
+    importance = Column(String, nullable=False, index=True) # e.g., 'high', 'medium', 'low'
+    event_name = Column(String, nullable=False)
+    actual = Column(String)
+    forecast = Column(String)
+    previous = Column(String)
+    created_at = Column(DateTime, server_default=func.now())
+
+    def __repr__(self):
+        return f"<EconomicCalendarEvent(datetime='{self.event_datetime}', name='{self.event_name}')>"

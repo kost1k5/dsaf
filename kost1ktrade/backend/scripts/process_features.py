@@ -10,7 +10,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.processing.feature_generator import FeatureGenerator
 from src.database.session import SessionLocal
-from src.database.models import Candle, FundingRate, MacroData, FearGreedIndex, NewsHeadline
+from src.database.models import Candle, FundingRate, MacroData, FearGreedIndex, NewsHeadline, EconomicCalendarEvent
 from sqlalchemy import func
 
 def load_data_from_db(db: Session, asset: str, timeframe: str) -> dict:
@@ -41,14 +41,18 @@ def load_data_from_db(db: Session, asset: str, timeframe: str) -> dict:
 
 
     # --- Asset-Agnostic Data ---
-    print("  - Loading Macro, F&G, and News data...")
+    print("  - Loading Macro, F&G, News and Calendar data...")
     data['macro'] = pd.read_sql(db.query(MacroData).statement, db.bind, index_col='date', parse_dates=['date'])
     data['fng'] = pd.read_sql(db.query(FearGreedIndex).statement, db.bind, index_col='timestamp', parse_dates=['timestamp'])
     data['news'] = pd.read_sql(db.query(NewsHeadline).statement, db.bind, index_col='published_at', parse_dates=['published_at'])
+    data['economic_calendar'] = pd.read_sql(db.query(EconomicCalendarEvent).statement, db.bind, index_col='event_datetime', parse_dates=['event_datetime'])
+
     # Rename columns to match previous structure
     if not data['macro'].empty: data['macro'].index.name = 'Date'
     if not data['fng'].empty: data['fng'] = data['fng'].rename(columns={'value': 'fng_value'})
     if not data['news'].empty: data['news'] = data['news'].rename(columns={'published_at': 'published'})
+    if not data['economic_calendar'].empty: data['economic_calendar'].index.name = 'timestamp'
+
 
     # --- ETH Data for Correlation ---
     if asset == 'ETH':
@@ -81,7 +85,8 @@ def get_latest_input_timestamp(db: Session, asset: str, timeframe: str) -> datet
         db.query(func.max(FundingRate.funding_time)).filter(FundingRate.symbol == symbol).scalar(),
         db.query(func.max(MacroData.date)).scalar(),
         db.query(func.max(FearGreedIndex.timestamp)).scalar(),
-        db.query(func.max(NewsHeadline.published_at)).scalar()
+        db.query(func.max(NewsHeadline.published_at)).scalar(),
+        db.query(func.max(EconomicCalendarEvent.created_at)).scalar() # Use created_at for caching
     ]
     # Filter out None values and find the max
     valid_timestamps = [ts for ts in timestamps if ts is not None]
@@ -131,7 +136,8 @@ def main(asset: str, timeframe: str):
             macro_df=raw_data.get('macro'),
             fng_df=raw_data.get('fng'),
             news_df=raw_data.get('news'),
-            eth_ohlcv_df=raw_data.get('eth_ohlcv')
+            eth_ohlcv_df=raw_data.get('eth_ohlcv'),
+            economic_calendar_df=raw_data.get('economic_calendar')
         )
 
         # 3. Run the pipeline

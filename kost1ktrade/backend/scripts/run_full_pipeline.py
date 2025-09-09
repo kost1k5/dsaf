@@ -51,10 +51,7 @@ def run_pipeline_for_asset(symbol: str):
     pipeline_steps = [
         ("Feature Processing", ["scripts/process_features.py", "--asset", asset, "--timeframe", timeframe]),
         ("Label Application", ["scripts/apply_labels.py", "--asset", asset, "--timeframe", timeframe]),
-        ("Feature Selection", ["scripts/select_features.py", "--asset", asset, "--timeframe", timeframe]),
-        ("Backtesting", ["scripts/run_backtest.py", "--asset", asset, "--timeframe", timeframe]),
-        ("Model Evaluation", ["scripts/evaluate_model.py", "--asset", asset, "--timeframe", timeframe]),
-        ("Production Model Creation", ["scripts/create_production_model.py", "--asset", asset, "--timeframe", timeframe]),
+        ("Production Model Creation & Evaluation", ["scripts/create_production_model.py", "--asset", asset, "--timeframe", timeframe]),
     ]
 
     for i, (step_name, step_command) in enumerate(pipeline_steps):

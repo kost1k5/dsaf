@@ -14,7 +14,7 @@ class FeatureGenerator:
                  ohlcv_df_4h: pd.DataFrame = None, ohlcv_df_1d: pd.DataFrame = None,
                  funding_rate_df: pd.DataFrame = None,
                  macro_df: pd.DataFrame = None, fng_df: pd.DataFrame = None, news_df: pd.DataFrame = None,
-                 eth_ohlcv_df: pd.DataFrame = None):
+                 eth_ohlcv_df: pd.DataFrame = None, economic_calendar_df: pd.DataFrame = None):
         """
         Initializes the FeatureGenerator with all necessary dataframes.
         The main dataframe `self.df` is based on the ohlcv data.
@@ -44,6 +44,7 @@ class FeatureGenerator:
         self.macro = self._standardize_macro_data(macro_df)
         self.fng = self._standardize_generic(fng_df, "fng_df", ['timestamp', 'date'])
         self.news = self._standardize_generic(news_df, "news_df", ['published_at', 'published', 'timestamp'])
+        self.economic_calendar = self._standardize_generic(economic_calendar_df, "economic_calendar", ['timestamp', 'event_datetime'])
 
         self.open_interest = None
 
@@ -181,7 +182,7 @@ class FeatureGenerator:
         return vwap.rename('VWAP_D')
 
     def add_technical_indicators(self):
-        self._log("\n[Step 1/9] Adding Technical Indicators (using TA-Lib)")
+        self._log("\n[Step 1/8] Adding Technical Indicators (using TA-Lib)")
         # Prepare numpy arrays for TA-Lib
         high, low, close, volume = self.df['high'].values, self.df['low'].values, self.df['close'].values, self.df['volume'].values
 
@@ -244,7 +245,7 @@ class FeatureGenerator:
         return self
 
     def add_multi_timeframe_features(self):
-        self._log("\n[Step 2/9] Adding Multi-Timeframe Features (using TA-Lib)")
+        self._log("\n[Step 2/8] Adding Multi-Timeframe Features (using TA-Lib)")
         for tf_df, tf_name in [(self.ohlcv_4h, "4h"), (self.ohlcv_1d, "1d")]:
             if tf_df is None or tf_df.empty:
                 self._log(f"  - Skipping {tf_name} timeframe, data not available.")
@@ -276,7 +277,7 @@ class FeatureGenerator:
         return self
 
     def add_derivative_features(self):
-        self._log("\n[Step 3/9] Adding Derivative Features")
+        self._log("\n[Step 3/8] Adding Derivative Features")
         if self.funding_rate is None or self.funding_rate.empty:
             self._log("  - Funding rate data not available or standardized. Skipping derivative features.")
             return self
@@ -296,7 +297,7 @@ class FeatureGenerator:
         return self
 
     def add_sentiment_features(self):
-        self._log("\n[Step 4/9] Adding Sentiment Features")
+        self._log("\n[Step 4/8] Adding Sentiment Features")
         if self.fng is not None and not self.fng.empty:
             self._log("  - Merging Fear & Greed Index data.")
             self.df = pd.merge_asof(self.df, self.fng['fng_value'], left_index=True, right_index=True, direction='backward')
@@ -317,7 +318,7 @@ class FeatureGenerator:
         return self
 
     def add_cross_market_features(self):
-        self._log("\n[Step 5/9] Adding Cross-Market Features")
+        self._log("\n[Step 6/8] Adding Cross-Market Features")
         if self.macro is not None and not self.macro.empty:
             self._log(f"  - Merging macro data ({', '.join(self.macro.columns)}).")
             if not self.df.index.is_monotonic_increasing:
@@ -343,7 +344,7 @@ class FeatureGenerator:
         return self
 
     def add_time_based_features(self):
-        self._log("\n[Step 6/9] Adding Time-Based Features")
+        self._log("\n[Step 7/8] Adding Time-Based Features")
         self.df['hour_of_day'] = self.df.index.hour
         self.df['day_of_week'] = self.df.index.dayofweek
         self._log("  - Added 'hour_of_day' and 'day_of_week'.")
@@ -360,7 +361,7 @@ class FeatureGenerator:
         return self
 
     def add_lag_features(self):
-        self._log("\n[Step 7/9] Adding Lag Features")
+        self._log("\n[Step 8/9] Adding Lag Features")
         lags = [3, 6, 12, 24]
         self._log(f"  - Lagging columns with periods: {lags}")
         self.df['close_pct_change'] = self.df['close'].pct_change()
@@ -375,15 +376,44 @@ class FeatureGenerator:
         self.df.drop(columns=['close_pct_change'], inplace=True, errors='ignore')
         return self
 
-    def add_interaction_features(self):
-        self._log("\n[Step 8/9] Adding Interaction Features")
-        if 'RSI_14' in self.df.columns and 'ATRr_14' in self.df.columns:
-            self._log("  - Creating 'rsi_vol_norm' (RSI normalized by ATR).")
-            atr_normalized = self.df['ATRr_14'] / self.df['close']
-            atr_normalized[atr_normalized == 0] = 1e-6
-            self.df['rsi_vol_norm'] = self.df['RSI_14'] * (1 / atr_normalized)
-        else:
-            self._log("  - Skipping 'rsi_vol_norm' (required columns not found).")
+    def add_calendar_features(self):
+        self._log("\n[Step 5/8] Adding Economic Calendar Features")
+        if self.economic_calendar is None or self.economic_calendar.empty:
+            self._log("  - Economic calendar data not available. Skipping.")
+            return self
+
+        # Ensure calendar is sorted
+        calendar_df = self.economic_calendar.sort_index()
+
+        # Filter for high importance events
+        high_impact_events = calendar_df[calendar_df['importance'].str.lower() == 'high']
+
+        if high_impact_events.empty:
+            self._log("  - No high-impact events found in the calendar data.")
+            self.df['minutes_to_next_event'] = -1 # Sentinel value
+            self.df['is_high_impact_event_in_next_24h'] = 0
+            return self
+
+        # Use merge_asof to find the next event for each timestamp
+        merged_df = pd.merge_asof(
+            self.df.sort_index(),
+            high_impact_events.add_suffix('_event'),
+            left_index=True,
+            right_index=True,
+            direction='forward' # Find next event
+        )
+
+        # Calculate time difference
+        time_diff = merged_df['timestamp_event'] - merged_df.index
+
+        # Convert to minutes and handle NaNs for timestamps with no future event
+        self.df['minutes_to_next_event'] = time_diff.dt.total_seconds().div(60).fillna(-1)
+
+        # Create binary flag for events within 24 hours
+        one_day = pd.Timedelta(days=1)
+        self.df['is_high_impact_event_in_next_24h'] = ((time_diff > pd.Timedelta(0)) & (time_diff <= one_day)).astype(int)
+
+        self._log("  - Added 'minutes_to_next_event' and 'is_high_impact_event_in_next_24h' features.")
         return self
 
     def check_and_transform_stationarity(self):
@@ -437,10 +467,10 @@ class FeatureGenerator:
         self.add_multi_timeframe_features()
         self.add_derivative_features()
         self.add_sentiment_features()
+        self.add_calendar_features() # Add new step here
         self.add_cross_market_features()
         self.add_time_based_features()
         self.add_lag_features()
-        self.add_interaction_features()
 
         self._cleanup_raw_data()
 

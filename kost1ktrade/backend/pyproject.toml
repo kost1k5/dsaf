@@ -35,6 +35,7 @@ dependencies = [
     "textblob==0.18.0.post0",
     "vaderSentiment==3.3.2",
     "feedparser==6.0.11",
+    "apify-client",
 ]
 
 [tool.pdm]
