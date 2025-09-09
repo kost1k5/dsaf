@@ -1,81 +1,73 @@
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import TimeSeriesSplit
 
-class PurgedTimeSeriesSplit:
+class PurgedTimeSeriesSplit():
     """
-    A cross-validator that enhances TimeSeriesSplit by purging training observations
-    that overlap with the validation set and embargoing observations after the test set.
+    A cross-validator that implements purged and embargoed splits for time series data,
+    following the principles from "Advances in Financial Machine Learning" by Marcos Lopez de Prado.
 
-    This implementation is based on the work of Marcos Lopez de Prado in his book
-    "Advances in Financial Machine Learning".
+    It creates sequential splits, where the training set expands and the test set slides forward.
+    - Purging: Removes training samples whose labels depend on information inside the test period.
+    - Embargo: Adds a gap after each test set to prevent leakage from serial correlation.
     """
-    def __init__(self, n_splits=10, purge_buffer_days=5, embargo_pct=0.01):
+    def __init__(self, n_splits=5, purge_buffer_days=5, embargo_pct=0.01):
         """
-        :param n_splits: Number of splits for the underlying TimeSeriesSplit.
+        :param n_splits: Number of splits.
         :param purge_buffer_days: A buffer (in days) to purge from the training set
-                                  before the validation set starts. This accounts for
-                                  any time gaps or market closures.
-        :param embargo_pct: Percentage of the dataset to "embargo" after each test set,
-                            to prevent leakage from the test set into the next training set.
+                                  before the validation set starts.
+        :param embargo_pct: Percentage of the entire dataset to use as an embargo gap
+                            between the training and test sets.
         """
         self.n_splits = n_splits
         self.purge_buffer_days = purge_buffer_days
         self.embargo_pct = embargo_pct
-        self.tscv = TimeSeriesSplit(n_splits=self.n_splits)
 
     def get_n_splits(self, X=None, y=None, groups=None):
         return self.n_splits
 
     def split(self, X: pd.DataFrame, y: pd.Series = None, event_end_times: pd.Series = None):
         """
-        Generates purged train/test indices.
-
-        :param X: The input features DataFrame, must have a DatetimeIndex.
-        :param y: The target variable (not used directly, but required for API compatibility).
-        :param event_end_times: A Series with a DatetimeIndex matching X, where each
-                                value is the timestamp when the event for that observation
-                                ended (e.g., when a barrier was hit).
+        Generates purged and embargoed train/test indices.
         """
         if not isinstance(X.index, pd.DatetimeIndex):
             raise ValueError("X must have a DatetimeIndex.")
         if event_end_times is None:
             raise ValueError("The 'event_end_times' series is required for purging.")
-        if not X.index.equals(event_end_times.index):
-            raise ValueError("X and event_end_times must have the same index.")
 
-        indices = np.arange(X.shape[0])
+        n_samples = len(X)
+        indices = np.arange(n_samples)
+        embargo_size = int(n_samples * self.embargo_pct)
         purge_buffer = pd.Timedelta(days=self.purge_buffer_days)
-        embargo_size = int(X.shape[0] * self.embargo_pct)
 
-        for train_indices, test_indices in self.tscv.split(X):
-            # --- Embargo Logic ---
-            # The test set is followed by an embargo period.
-            # The next training set cannot start until after this embargo.
-            # TimeSeriesSplit handles this implicitly by never re-using test data in training.
-            # However, we add an explicit embargo check for correctness demonstration,
-            # though it's naturally handled by the forward-only nature of the split.
+        # Create the boundaries for each fold, similar to TimeSeriesSplit
+        # We will have n_splits + 1 segments
+        fold_bounds = np.linspace(0, n_samples, self.n_splits + 2, dtype=int)
 
-            test_end_idx = test_indices[-1]
-            embargo_start_idx = test_end_idx + 1
+        for i in range(self.n_splits):
+            test_start = fold_bounds[i+1]
+            test_end = fold_bounds[i+2]
 
-            # This is more for conceptual clarity; the next fold's train_indices
-            # from TimeSeriesSplit will already start after this point.
+            # The training set ends before the embargo period begins
+            train_end = test_start - embargo_size
 
-            # --- Purging Logic ---
-            test_start_time = X.index[test_indices[0]]
+            if train_end < 0:
+                continue
 
-            # Get the end times for the training observations
-            train_end_times = event_end_times.iloc[train_indices]
+            # --- Define initial train/test splits ---
+            train_indices_initial = indices[0:train_end]
+            test_indices = indices[test_start:test_end]
 
-            # Identify training observations that finish after the purge buffer starts
-            # These are the "contaminated" observations.
-            overlapping_indices = train_end_times[train_end_times > (test_start_time - purge_buffer)].index
+            if len(train_indices_initial) == 0:
+                continue
 
-            # Get the integer positions of the overlapping indices
+            # --- Apply Purging ---
+            test_start_time = X.index[test_start]
+            train_label_end_times = event_end_times.iloc[train_indices_initial]
+
+            overlapping_indices = train_label_end_times[train_label_end_times > (test_start_time - purge_buffer)].index
+
             overlapping_locs = X.index.get_indexer_for(overlapping_indices)
 
-            # Remove these overlapping observations from the training set
-            purged_train_indices = np.setdiff1d(train_indices, overlapping_locs)
+            purged_train_indices = np.setdiff1d(train_indices_initial, overlapping_locs)
 
             yield purged_train_indices, test_indices

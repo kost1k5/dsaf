@@ -8,8 +8,9 @@ import joblib
 import json
 import argparse
 import matplotlib.pyplot as plt
-from sklearn.metrics import f1_score
-from sklearn.preprocessing import LabelEncoder
+from sklearn.metrics import f1_score, classification_report
+from sklearn.preprocessing import LabelEncoder, StandardScaler
+from sklearn.pipeline import Pipeline
 from functools import partial
 
 # Adjust the path to allow imports from the 'src' directory
@@ -21,43 +22,32 @@ from src.ml.validation import PurgedTimeSeriesSplit
 def select_features(X: pd.DataFrame, y: pd.Series, shap_threshold=0.01, corr_threshold=0.75):
     """
     Performs a two-stage feature selection process on a given training set.
-    1. SHAP-based selection to find important features.
-    2. Correlation-based pruning to remove redundant features.
     """
-    print("\n--- Starting Feature Selection ---")
-    print(f"Feature selection running on training data of shape: {X.shape}")
+    print(f"  [Feature Selection] Running on training data of shape: {X.shape}")
 
     # --- Stage 1: SHAP-based Feature Importance ---
-    print("Stage 1: Calculating SHAP values to identify important features...")
     le = LabelEncoder()
     y_encoded = le.fit_transform(y)
-
     model = lgb.LGBMClassifier(objective='multiclass', n_estimators=100, random_state=42, n_jobs=-1)
     model.fit(X, y_encoded)
 
     explainer = shap.TreeExplainer(model)
     shap_values = explainer.shap_values(X)
 
-    # Restore robust SHAP aggregation logic
-    if isinstance(shap_values, list): # Standard multi-class output
+    if isinstance(shap_values, list):
         shap_sum = np.abs(np.stack(shap_values)).mean(axis=(0, 1))
-    else: # Binary classification or other formats
+    else:
         shap_sum = np.abs(shap_values).mean(axis=0)
 
-    importance_df = pd.DataFrame({'feature': X.columns, 'shap_importance': shap_sum})
-    importance_df = importance_df.sort_values(by='shap_importance', ascending=False)
-
+    importance_df = pd.DataFrame({'feature': X.columns, 'shap_importance': shap_sum}).sort_values(by='shap_importance', ascending=False)
     total_importance = importance_df['shap_importance'].sum()
     importance_df['shap_importance_norm'] = importance_df['shap_importance'] / total_importance if total_importance > 0 else 0
 
     selected_features_stage1 = importance_df[importance_df['shap_importance_norm'] > shap_threshold]['feature'].tolist()
-    print(f"Stage 1 (SHAP) selected {len(selected_features_stage1)} features.")
 
     # --- Stage 2: Correlation-based Pruning ---
-    print(f"Stage 2: Pruning highly correlated features (threshold: {corr_threshold})...")
     X_shap_selected = X[selected_features_stage1]
     corr_matrix = X_shap_selected.corr().abs()
-
     upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
 
     to_drop = set()
@@ -65,54 +55,53 @@ def select_features(X: pd.DataFrame, y: pd.Series, shap_threshold=0.01, corr_thr
         correlated_features = upper_tri.index[upper_tri[column] > corr_threshold].tolist()
         for feature in correlated_features:
             if feature not in to_drop and column not in to_drop:
-                importance_of_col = importance_df.loc[importance_df['feature'] == column, 'shap_importance'].iloc[0]
-                importance_of_feature = importance_df.loc[importance_df['feature'] == feature, 'shap_importance'].iloc[0]
-                if importance_of_col < importance_of_feature: to_drop.add(column)
+                imp_col = importance_df.loc[importance_df['feature'] == column, 'shap_importance'].iloc[0]
+                imp_feat = importance_df.loc[importance_df['feature'] == feature, 'shap_importance'].iloc[0]
+                if imp_col < imp_feat: to_drop.add(column)
                 else: to_drop.add(feature)
 
-    if to_drop: print(f"Dropped {len(to_drop)} features due to high correlation: {list(to_drop)}")
-
     final_features = [f for f in selected_features_stage1 if f not in to_drop]
-    print(f"--- Feature Selection Complete: {len(final_features)} features selected ---")
+    print(f"  [Feature Selection] Completed. Selected {len(final_features)} features.")
+    return final_features
 
-    return final_features, shap_values, X
-
-def objective(trial, X, y, event_end_times, selected_features):
+def objective(trial, X_train, y_train, event_end_times, selected_features):
     """
-    Objective function for Optuna hyperparameter tuning, using a fixed set of features.
+    Objective function for Optuna hyperparameter tuning within a single CV fold.
     """
     params = {
-        'objective': 'multiclass', 'num_class': 3, 'metric': 'multi_logloss',
-        'verbosity': -1, 'boosting_type': 'gbdt', 'random_state': 42,
         'n_estimators': trial.suggest_int('n_estimators', 200, 1000),
         'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1),
         'num_leaves': trial.suggest_int('num_leaves', 20, 150),
         'max_depth': trial.suggest_int('max_depth', 5, 15),
     }
 
-    X_selected = X[selected_features]
-    y_encoded = LabelEncoder().fit_transform(y)
+    pipeline = Pipeline([
+        ('scaler', StandardScaler()),
+        ('model', lgb.LGBMClassifier(objective='multiclass', num_class=3, random_state=42, **params))
+    ])
 
-    tscv = PurgedTimeSeriesSplit(n_splits=3, purge_buffer_days=5)
+    X_selected = X_train[selected_features]
+    y_encoded = LabelEncoder().fit_transform(y_train)
+
+    # Inner CV loop for hyperparameter tuning
+    inner_cv = PurgedTimeSeriesSplit(n_splits=3, purge_buffer_days=5, embargo_pct=0.01)
     scores = []
+    for inner_train_idx, inner_val_idx in inner_cv.split(X_selected, y_encoded, event_end_times=event_end_times.loc[X_selected.index]):
+        if len(inner_train_idx) == 0 or len(inner_val_idx) == 0: continue
 
-    for train_index, val_index in tscv.split(X_selected, y_encoded, event_end_times=event_end_times):
-        if len(train_index) == 0 or len(val_index) == 0: continue
+        X_inner_train, X_inner_val = X_selected.iloc[inner_train_idx], X_selected.iloc[inner_val_idx]
+        y_inner_train, y_inner_val = y_encoded[inner_train_idx], y_encoded[inner_val_idx]
 
-        X_train_fold, X_val_fold = X_selected.iloc[train_index], X_selected.iloc[val_index]
-        y_train_fold, y_val_fold = y_encoded[train_index], y_encoded[val_index]
-
-        model = lgb.LGBMClassifier(**params)
-        model.fit(X_train_fold, y_train_fold)
-        preds = model.predict(X_val_fold)
-        scores.append(f1_score(y_val_fold, preds, average='weighted', zero_division=0.0))
+        pipeline.fit(X_inner_train, y_inner_train)
+        preds = pipeline.predict(X_inner_val)
+        scores.append(f1_score(y_inner_val, preds, average='weighted', zero_division=0.0))
 
     return np.mean(scores) if scores else -1.0
 
 def main(asset: str, timeframe: str):
     print(f"\n--- Creating Production Model for {asset} ({timeframe}) ---")
 
-    # --- 1. Load Data ---
+    # --- 1. Load and Prepare Data ---
     LABELED_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'labeled')
     labeled_path = os.path.join(LABELED_DATA_DIR, f'{asset}_{timeframe}_labeled.parquet')
     try:
@@ -122,70 +111,84 @@ def main(asset: str, timeframe: str):
     except Exception as e:
         print(f"Error loading data: {e}"); return
 
-    # --- 2. Prepare Full Dataset ---
     metadata_cols = ['label', 'event_end_time']
     feature_cols = [col for col in df.columns if col not in metadata_cols]
+    X_full = df[feature_cols].select_dtypes(include=np.number).copy()
+    y_full = df['label'].copy()
+    event_end_times_full = df['event_end_time'].copy()
 
-    X_full = df[feature_cols].select_dtypes(include=np.number)
-    y_full = df['label']
-    event_end_times_full = df['event_end_time']
-
-    # --- 3. Robust Data Cleaning ---
     X_full.replace([np.inf, -np.inf], np.nan, inplace=True)
-    # Drop columns with too many NaNs before imputing
-    min_required_data = len(X_full) * 0.8
-    X_full.dropna(axis=1, thresh=min_required_data, inplace=True)
-    # Simple imputation for any remaining NaNs
-    X_full.fillna(method='ffill', inplace=True)
-    X_full.fillna(0, inplace=True) # Fill any remaining at the start
+    X_full.fillna(method='ffill', inplace=True); X_full.fillna(0, inplace=True)
 
-    # Align all dataframes after cleaning X
-    y_full = y_full.loc[X_full.index]
-    event_end_times_full = event_end_times_full.loc[X_full.index]
+    # --- 2. Walk-Forward Validation and In-Fold Feature Selection ---
+    outer_cv = PurgedTimeSeriesSplit(n_splits=5, purge_buffer_days=5, embargo_pct=0.01)
+    all_reports = []
+    final_features_list = []
 
-    # --- 4. Feature Selection on a Representative Training Set ---
-    # Use the first 80% of data for a stable feature selection
-    train_size = int(len(X_full) * 0.8)
-    X_train_fs = X_full.iloc[:train_size]
-    y_train_fs = y_full.iloc[:train_size]
+    print("\n--- Starting Walk-Forward Validation with In-Fold Feature Selection ---")
+    for fold, (train_idx, test_idx) in enumerate(outer_cv.split(X_full, y_full, event_end_times_full)):
+        print(f"\n--- Processing Fold {fold+1}/{outer_cv.get_n_splits()} ---")
+        X_train, X_test = X_full.iloc[train_idx], X_full.iloc[test_idx]
+        y_train, y_test = y_full.iloc[train_idx], y_full.iloc[test_idx]
 
-    final_selected_features, shap_values_plot, X_plot = select_features(X_train_fs, y_train_fs)
+        # Step 2a: Select features ONL.Y on the current training data
+        selected_features = select_features(X_train, y_train)
+        final_features_list.append(selected_features)
 
-    REPORTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'reports')
-    os.makedirs(REPORTS_DIR, exist_ok=True)
-    shap_plot_path = os.path.join(REPORTS_DIR, f'{asset}_{timeframe}_shap_summary.png')
-    shap.summary_plot(shap_values_plot, X_plot, show=False, max_display=40)
-    plt.savefig(shap_plot_path, bbox_inches='tight'); plt.close()
-    print(f"\nSaved SHAP summary plot to: {shap_plot_path}")
+        # Step 2b: Tune hyperparameters using an inner CV loop on the training data
+        print("  [Hyperparameter Tuning] Running Optuna study for this fold...")
+        objective_with_data = partial(objective, X_train=X_train, y_train=y_train, event_end_times=event_end_times_full, selected_features=selected_features)
+        study = optuna.create_study(direction='maximize')
+        study.optimize(objective_with_data, n_trials=25) # Fewer trials for speed in the inner loop
 
-    # --- 5. Hyperparameter Tuning using Selected Features ---
-    print("\nRunning Optuna hyperparameter search...")
-    objective_with_features = partial(objective, selected_features=final_selected_features)
-    study = optuna.create_study(direction='maximize')
-    study.optimize(lambda trial: objective_with_features(trial, X_full, y_full, event_end_times_full), n_trials=50)
+        # Step 2c: Train model with best params on the full training data for this fold
+        print("  [Model Training] Training fold model with best parameters...")
+        best_params = study.best_params
+        pipeline = Pipeline([
+            ('scaler', StandardScaler()),
+            ('model', lgb.LGBMClassifier(objective='multiclass', num_class=3, random_state=42, **best_params))
+        ])
+        y_train_encoded = LabelEncoder().fit_transform(y_train)
+        pipeline.fit(X_train[selected_features], y_train_encoded)
 
-    best_params = study.best_params
-    print(f"Best trial F1-score: {study.best_value}")
-    print(f"Best params found: {best_params}")
+        # Step 2d: Evaluate on the test set for this fold
+        print("  [Evaluation] Evaluating model on out-of-sample test data...")
+        y_test_encoded = LabelEncoder().fit_transform(y_test)
+        preds = pipeline.predict(X_test[selected_features])
+        report = classification_report(y_test_encoded, preds, output_dict=True)
+        all_reports.append(report)
+        print(f"  Fold {fold+1} F1-Score (weighted): {report['weighted avg']['f1-score']:.4f}")
 
-    # --- 6. Train Final Production Model ---
-    print("\nTraining final production model...")
-    final_params = { 'objective': 'multiclass', 'num_class': 3, 'random_state': 42, **best_params }
+    # --- 3. Aggregate and Display Final Results ---
+    avg_f1 = np.mean([r['weighted avg']['f1-score'] for r in all_reports])
+    print("\n--- Walk-Forward Validation Complete ---")
+    print(f"Average F1-Score across all folds: {avg_f1:.4f}")
 
-    X_final = X_full[final_selected_features]
-    y_final_encoded = LabelEncoder().fit_transform(y_full)
+    # --- 4. Train and Save Final Production Model ---
+    print("\nTraining final production model on the full dataset...")
+    # Use features from the last, most recent fold for the final model
+    final_features_to_save = final_features_list[-1] if final_features_list else []
 
-    final_model = lgb.LGBMClassifier(**final_params)
-    final_model.fit(X_final, y_final_encoded)
+    if not final_features_to_save:
+        print("Error: No features were selected. Cannot train final model.")
+        return
+
+    # Retrain on the full dataset with the best overall params (or params from last fold's study)
+    final_pipeline = Pipeline([
+        ('scaler', StandardScaler()),
+        ('model', lgb.LGBMClassifier(objective='multiclass', num_class=3, random_state=42, **best_params))
+    ])
+    y_full_encoded = LabelEncoder().fit_transform(y_full)
+    final_pipeline.fit(X_full[final_features_to_save], y_full_encoded)
     print("Final model training complete.")
 
-    # --- 7. Save Model and Feature List ---
+    # Save the model and feature list
     PROD_MODEL_DIR = os.path.join(os.path.dirname(__file__), '..', 'models', 'production')
     os.makedirs(PROD_MODEL_DIR, exist_ok=True)
-    joblib.dump(final_model, os.path.join(PROD_MODEL_DIR, f"prod_model_{asset}_{timeframe}.lgb"))
+    joblib.dump(final_pipeline, os.path.join(PROD_MODEL_DIR, f"prod_model_{asset}_{timeframe}.joblib"))
     with open(os.path.join(PROD_MODEL_DIR, f"prod_features_{asset}_{timeframe}.json"), 'w') as f:
-        json.dump(final_selected_features, f)
-    print("Production model and feature list saved.")
+        json.dump(final_features_to_save, f)
+    print(f"Production model and feature list ({len(final_features_to_save)} features) saved.")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Production Model Creation, Selection, and Tuning Orchestrator")

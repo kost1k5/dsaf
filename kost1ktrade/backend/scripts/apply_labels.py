@@ -33,14 +33,23 @@ def main(asset: str, timeframe: str, tp_mult: float, sl_mult: float, time_limit_
 
     # 2. Apply triple-barrier labeling
     # Convert time limit from hours to number of periods based on timeframe
-    if 'h' in timeframe:
-        periods_in_hour = 1
-        time_limit_periods = int(time_limit_h * periods_in_hour)
-    elif 'd' in timeframe:
-        periods_in_day = 24
-        time_limit_periods = int(time_limit_h / periods_in_day) if time_limit_h >= 24 else 1
-    else: # default to hours for other timeframes like '15m' etc.
-        # This is a simplification, a more robust solution would parse the timeframe string
+    try:
+        if 'h' in timeframe:
+            hours_per_period = int(timeframe.replace('h', ''))
+            time_limit_periods = time_limit_h // hours_per_period
+        elif 'd' in timeframe:
+            days_per_period = int(timeframe.replace('d', ''))
+            time_limit_periods = time_limit_h // (days_per_period * 24)
+        elif 'm' in timeframe:
+            minutes_per_period = int(timeframe.replace('m', ''))
+            time_limit_periods = (time_limit_h * 60) // minutes_per_period
+        else:
+            time_limit_periods = time_limit_h # Fallback for 1h or unknown
+
+        # Ensure at least 1 period for the vertical barrier
+        time_limit_periods = max(1, time_limit_periods)
+    except (ValueError, ZeroDivisionError):
+        print(f"Warning: Could not parse timeframe '{timeframe}'. Defaulting holding period to {time_limit_h} periods.")
         time_limit_periods = time_limit_h
 
     print(f"Applying labels with TP={tp_mult}*ATR, SL={sl_mult}*ATR, Hold={time_limit_periods} periods.")
@@ -81,7 +90,7 @@ if __name__ == '__main__':
     parser.add_argument("--timeframe", type=str, default="1h", help="The OHLCV timeframe to use.")
     parser.add_argument("--tp", type=float, default=1.5, help="Take-profit ATR multiplier.")
     parser.add_argument("--sl", type=float, default=1.0, help="Stop-loss ATR multiplier.")
-    parser.add_argument("--hold", type=int, default=12, help="Holding period in hours for the vertical barrier.")
+    parser.add_argument("--hold", type=int, default=48, help="Holding period in hours for the vertical barrier. Default is 48h (e.g., 12 periods on a 4h chart).")
 
     args = parser.parse_args()
 
