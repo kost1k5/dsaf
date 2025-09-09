@@ -58,7 +58,7 @@ class IndicatorSettings(BaseModel):
     MACD_SLOW: int = 26
     MACD_SIGNAL: int = 9
     SMA_PERIOD: int = 20
-    SMA_LONG_PERIOD: int = 100
+    SMA_LONG_PERIOD: int = 50
     STOCH_K_PERIOD: int = 14
     STOCH_D_PERIOD: int = 3
     AO_FAST_PERIOD: int = 5

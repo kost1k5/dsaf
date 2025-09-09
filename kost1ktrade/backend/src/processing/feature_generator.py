@@ -411,9 +411,27 @@ class FeatureGenerator:
 
         # Create binary flag for events within 24 hours
         one_day = pd.Timedelta(days=1)
-        self.df['is_high_impact_event_in_next_24h'] = ((time_diff > pd.Timedelta(0)) & (time_diff <= one_day)).astype(int)
+        self.df['is_high_impact_event_in_next_24h'] = ((time_diff >= pd.Timedelta(0)) & (time_diff <= one_day)).astype(int)
 
-        self._log("  - Added 'minutes_to_next_event' and 'is_high_impact_event_in_next_24h' features.")
+        # --- Create News Filter Feature ---
+        # Find the time to the PREVIOUS event as well
+        merged_df_prev = pd.merge_asof(
+            self.df.sort_index(),
+            high_impact_events.add_suffix('_event_prev'),
+            left_index=True,
+            right_index=True,
+            direction='backward' # Find previous event
+        )
+        time_diff_prev = merged_df_prev.index - merged_df_prev['timestamp_event_prev']
+
+        # A news event is active if we are within 60 mins AFTER it, or 60 mins BEFORE the next one
+        one_hour = pd.Timedelta(minutes=60)
+        after_event = (time_diff_prev >= pd.Timedelta(0)) & (time_diff_prev <= one_hour)
+        before_event = (time_diff >= pd.Timedelta(0)) & (time_diff <= one_hour)
+
+        self.df['news_filter_60min'] = (after_event | before_event).astype(int)
+
+        self._log("  - Added 'minutes_to_next_event', 'is_high_impact_event_in_next_24h', and 'news_filter_60min' features.")
         return self
 
     def check_and_transform_stationarity(self):
