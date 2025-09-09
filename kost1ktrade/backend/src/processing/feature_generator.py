@@ -34,6 +34,8 @@ class FeatureGenerator:
         # Standardize all dataframes
         # The check above ensures ohlcv_df is valid, so we can safely copy.
         self.df = self._standardize_ohlcv(ohlcv_df, "ohlcv_df").copy()
+        self._log("  - Calculating log returns for price stationarity.")
+        self.df['log_returns'] = np.log(self.df['close']).diff()
 
         self.ohlcv_4h = self._standardize_ohlcv(ohlcv_df_4h, "ohlcv_4h")
         self.ohlcv_1d = self._standardize_ohlcv(ohlcv_df_1d, "ohlcv_1d")
@@ -179,7 +181,7 @@ class FeatureGenerator:
         return vwap.rename('VWAP_D')
 
     def add_technical_indicators(self):
-        self._log("\n[Step 1/8] Adding Technical Indicators (using TA-Lib)")
+        self._log("\n[Step 1/9] Adding Technical Indicators (using TA-Lib)")
         # Prepare numpy arrays for TA-Lib
         high, low, close, volume = self.df['high'].values, self.df['low'].values, self.df['close'].values, self.df['volume'].values
 
@@ -203,11 +205,25 @@ class FeatureGenerator:
         # Other parts of the code expect 'ATRr_14' from pandas-ta, so we match that name.
         self.df['ATRr_14'] = talib.ATR(high, low, close, timeperiod=14)
 
-        self._log("  - Calculating Bollinger Bands (length: 20)")
+        self._log("  - Calculating Bollinger Bands & Width (length: 20)")
         upper, middle, lower = talib.BBANDS(close, timeperiod=20, nbdevup=2.0, nbdevdn=2.0, matype=0)
         self.df['BBU_20_2.0'] = upper
         self.df['BBM_20_2.0'] = middle
         self.df['BBL_20_2.0'] = lower
+        # Replace infinities with NaN, as BBM can be 0
+        bbw = (self.df['BBU_20_2.0'] - self.df['BBL_20_2.0']) / self.df['BBM_20_2.0']
+        self.df['BBW_20_2.0'] = bbw.replace([np.inf, -np.inf], np.nan)
+
+        self._log("  - Calculating Stochastic Oscillator (14, 3, 3)")
+        slowk, slowd = talib.STOCH(high, low, close, fastk_period=14, slowk_period=3, slowk_matype=0, slowd_period=3, slowd_matype=0)
+        self.df['STOCH_slowk'] = slowk
+        self.df['STOCH_slowd'] = slowd
+
+        self._log("  - Calculating MACD (12, 26, 9)")
+        macd, macdsignal, macdhist = talib.MACD(close, fastperiod=12, slowperiod=26, signalperiod=9)
+        self.df['MACD_12_26_9'] = macd
+        self.df['MACDs_12_26_9'] = macdsignal
+        self.df['MACDh_12_26_9'] = macdhist
 
         self._log("  - Calculating On-Balance Volume (OBV)")
         self.df['OBV'] = talib.OBV(close, volume)
@@ -228,7 +244,7 @@ class FeatureGenerator:
         return self
 
     def add_multi_timeframe_features(self):
-        self._log("\n[Step 2/8] Adding Multi-Timeframe Features (using TA-Lib)")
+        self._log("\n[Step 2/9] Adding Multi-Timeframe Features (using TA-Lib)")
         for tf_df, tf_name in [(self.ohlcv_4h, "4h"), (self.ohlcv_1d, "1d")]:
             if tf_df is None or tf_df.empty:
                 self._log(f"  - Skipping {tf_name} timeframe, data not available.")
@@ -260,7 +276,7 @@ class FeatureGenerator:
         return self
 
     def add_derivative_features(self):
-        self._log("\n[Step 3/8] Adding Derivative Features")
+        self._log("\n[Step 3/9] Adding Derivative Features")
         if self.funding_rate is None or self.funding_rate.empty:
             self._log("  - Funding rate data not available or standardized. Skipping derivative features.")
             return self
@@ -280,7 +296,7 @@ class FeatureGenerator:
         return self
 
     def add_sentiment_features(self):
-        self._log("\n[Step 4/8] Adding Sentiment Features")
+        self._log("\n[Step 4/9] Adding Sentiment Features")
         if self.fng is not None and not self.fng.empty:
             self._log("  - Merging Fear & Greed Index data.")
             self.df = pd.merge_asof(self.df, self.fng['fng_value'], left_index=True, right_index=True, direction='backward')
@@ -301,7 +317,7 @@ class FeatureGenerator:
         return self
 
     def add_cross_market_features(self):
-        self._log("\n[Step 5/8] Adding Cross-Market Features")
+        self._log("\n[Step 5/9] Adding Cross-Market Features")
         if self.macro is not None and not self.macro.empty:
             self._log(f"  - Merging macro data ({', '.join(self.macro.columns)}).")
             if not self.df.index.is_monotonic_increasing:
@@ -327,7 +343,7 @@ class FeatureGenerator:
         return self
 
     def add_time_based_features(self):
-        self._log("\n[Step 6/8] Adding Time-Based Features")
+        self._log("\n[Step 6/9] Adding Time-Based Features")
         self.df['hour_of_day'] = self.df.index.hour
         self.df['day_of_week'] = self.df.index.dayofweek
         self._log("  - Added 'hour_of_day' and 'day_of_week'.")
@@ -344,7 +360,7 @@ class FeatureGenerator:
         return self
 
     def add_lag_features(self):
-        self._log("\n[Step 7/8] Adding Lag Features")
+        self._log("\n[Step 7/9] Adding Lag Features")
         lags = [3, 6, 12, 24]
         self._log(f"  - Lagging columns with periods: {lags}")
         self.df['close_pct_change'] = self.df['close'].pct_change()
@@ -360,7 +376,7 @@ class FeatureGenerator:
         return self
 
     def add_interaction_features(self):
-        self._log("\n[Step 8/8] Adding Interaction Features")
+        self._log("\n[Step 8/9] Adding Interaction Features")
         if 'RSI_14' in self.df.columns and 'ATRr_14' in self.df.columns:
             self._log("  - Creating 'rsi_vol_norm' (RSI normalized by ATR).")
             atr_normalized = self.df['ATRr_14'] / self.df['close']
@@ -403,6 +419,16 @@ class FeatureGenerator:
             self._log(f"  -> ADF test failed for series. Error: {e}. Marking as non-stationary.")
             return 1.0
 
+    def _cleanup_raw_data(self):
+        """Removes raw price columns to prevent lookahead bias or non-stationarity issues."""
+        self._log("\n[Bonus Step] Cleaning up raw price data...")
+        # Note: 'volume' is kept for indicators like OBV and MFI, and its stationarity
+        # is handled by the check_and_transform_stationarity step.
+        cols_to_drop = ['open', 'high', 'low', 'close']
+        self.df.drop(columns=cols_to_drop, inplace=True, errors='ignore')
+        self._log(f"  - Dropped columns: {cols_to_drop}")
+        return self
+
     def generate_all_features(self):
         """
         Runs the full feature generation pipeline.
@@ -415,6 +441,8 @@ class FeatureGenerator:
         self.add_time_based_features()
         self.add_lag_features()
         self.add_interaction_features()
+
+        self._cleanup_raw_data()
 
         self._log("\n[Bonus Step] Optimizing memory by downcasting float types...")
         for col in self.df.select_dtypes(include=['float64']).columns:
