@@ -160,6 +160,6 @@ def main(asset: str, timeframe: str):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Feature Generation Orchestrator")
     parser.add_argument("--asset", type=str, default="BTC", help="The crypto asset to process.")
-    parser.add_argument("--timeframe", type=str, default="1h", help="The OHLCV timeframe to use.")
+    parser.add_argument("--timeframe", type=str, default="4h", help="The OHLCV timeframe to use.")
     args = parser.parse_args()
     main(asset=args.asset, timeframe=args.timeframe)

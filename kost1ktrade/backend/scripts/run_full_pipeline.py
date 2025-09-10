@@ -39,14 +39,15 @@ def run_command(command: list):
         error_message = f"---!!! SCRIPT FAILED: Executable not found at {executable} !!!---\n"
         return False, error_message
 
-def run_pipeline_for_asset(symbol: str):
+from itertools import repeat
+
+def run_pipeline_for_asset(symbol: str, timeframe: str):
     """
     Worker function to run the full pipeline for a single asset.
     This function will be executed in a separate process.
     """
     asset = parse_asset_from_symbol(symbol)
-    timeframe = settings.TIMEFRAME
-    print(f"--- Starting full pipeline for asset: {asset} ---")
+    print(f"--- Starting full pipeline for asset: {asset} on timeframe: {timeframe} ---")
 
     pipeline_steps = [
         ("Feature Processing", ["scripts/process_features.py", "--asset", asset, "--timeframe", timeframe]),
@@ -113,13 +114,18 @@ def main():
     # Step 2: Process all assets in parallel
     print("\n--- Step 2: Starting Parallel Asset Processing ---")
     symbols_to_process = settings.SYMBOLS
+    timeframe_to_use = settings.TIMEFRAME
+    print(f"Pipeline will be run on the '{timeframe_to_use}' timeframe for all assets.")
 
     # Use as many processes as there are CPUs, but not more than the number of symbols
     num_processes = min(multiprocessing.cpu_count(), len(symbols_to_process))
     print(f"Initializing a pool of {num_processes} processes to handle {len(symbols_to_process)} assets.")
 
+    # Prepare arguments for starmap
+    args_for_starmap = zip(symbols_to_process, repeat(timeframe_to_use))
+
     with multiprocessing.Pool(processes=num_processes) as pool:
-        results = pool.map(run_pipeline_for_asset, symbols_to_process)
+        results = pool.starmap(run_pipeline_for_asset, args_for_starmap)
 
     print("\n--- Step 2: Parallel Processing Finished ---")
     print("\n--- Final Results ---")
