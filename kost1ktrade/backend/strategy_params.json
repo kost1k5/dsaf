@@ -49,5 +49,14 @@
         "type": "range",
         "bb_period": 20,
         "bb_std_dev": 2
-    }
+    },
+    "rsi_macd_hybrid": {
+        "type": "range",
+        "rsi_period": 14,
+        "oversold_threshold": 30,
+        "overbought_threshold": 70,
+        "fast_period": 12,
+        "slow_period": 26,
+        "signal_period": 9
+}
 }

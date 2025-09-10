@@ -1,3 +1,0 @@
-# Ignore large data artifacts
-*.csv
-*.parquet

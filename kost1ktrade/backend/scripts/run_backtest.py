@@ -22,7 +22,7 @@ def calculate_sortino_for_optuna(predictions: pd.DataFrame) -> float:
     # For multiclass, we need a strategy to turn predictions into trades.
     # A simple strategy: Buy on proba_buy > threshold, Sell on proba_sell > threshold.
     # We'll use a fixed threshold for optimization.
-    threshold = 0.6 # A bit higher to be more selective
+    threshold = 0.7 # A bit higher to be more selective
     initial_capital = 10000.0
     risk_per_trade = 0.01
     tp_atr_mult = 2.0
