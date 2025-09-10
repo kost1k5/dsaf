@@ -47,6 +47,8 @@ def run_pipeline_for_asset(symbol: str, timeframe: str):
     This function will be executed in a separate process.
     """
     asset = parse_asset_from_symbol(symbol)
+    # HARDCODED TIMEFRAME to ensure correct execution
+    timeframe = "4h"
     print(f"--- Starting full pipeline for asset: {asset} on timeframe: {timeframe} ---")
 
     pipeline_steps = [
