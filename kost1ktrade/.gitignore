@@ -28,3 +28,4 @@ yarn-error.log
 
 # Logs
 *.log
+kost1ktrade/backend/data/*.db
