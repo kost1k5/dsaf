@@ -3,22 +3,17 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 
 # --- Nested Models for Organization ---
+# These models define the structure of the settings.
+# By not providing default values here, we make them mandatory.
+# Pydantic will require them to be present in the environment (e.g., the .env file).
 
 class DBSettings(BaseModel):
-    # USER: str = "postgres"
-    # PASS: str = "Kostya1790"
-    # HOST: str = "localhost"
-    # PORT: int = 5432
-    # NAME: str = "trading_bot_data"
-
     @property
     def DATABASE_URL(self) -> str:
         """Constructs the full database URL."""
         import os
-        # Get the absolute path to the 'backend' directory
         backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         db_path = os.path.join(backend_dir, 'data', 'local_database.db')
-        # Ensure the data directory exists
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
         return f"sqlite:///{db_path}"
 
@@ -28,54 +23,78 @@ class OKXKeys(BaseModel):
     PASSPHRASE: str
 
 class RiskManagementSettings(BaseModel):
-    MAX_DAILY_DRAWDOWN_PCT: float = 0.03
-    MAX_CONCURRENT_POSITIONS: int = 4
-    RISK_PER_TRADE: float = 0.03
-    MIN_RISK_PER_TRADE: float = 0.005
-    VOLATILITY_RISK_ADJUSTMENT_FACTOR: float = 1.0
-    MAX_DAILY_LOSS_PCT: float = 0.05
-    # New settings for ATR-based position sizing
-    RISK_PER_TRADE_PCT: float = 1.0  # e.g., 1.0 for 1%
-    ATR_MULTIPLIER: float = 2.0      # e.g., 2.0 for a 2x ATR stop loss
+    MAX_DAILY_DRAWDOWN_PCT: float
+    MAX_CONCURRENT_POSITIONS: int
+    RISK_PER_TRADE: float
+    MIN_RISK_PER_TRADE: float
+    VOLATILITY_RISK_ADJUSTMENT_FACTOR: float
+    MAX_DAILY_LOSS_PCT: float
+    RISK_PER_TRADE_PCT: float
+    ATR_MULTIPLIER: float
 
 class TradeManagementSettings(BaseModel):
-    ATR_MULTIPLIER_FOR_SL: float = 1.2
-    ATR_MULTIPLIER_FOR_TP1: float = 1.5
-    ATR_MULTIPLIER_FOR_TP2: float = 3.0
-    CORRELATION_RISK_REDUCTION_FACTOR: float = 0.7
-    VOLATILITY_SPIKE_FACTOR: float = 2.5
-    CORRELATION_THRESHOLD: float = 0.7
+    ATR_MULTIPLIER_FOR_SL: float
+    ATR_MULTIPLIER_FOR_TP1: float
+    ATR_MULTIPLIER_FOR_TP2: float
+    CORRELATION_RISK_REDUCTION_FACTOR: float
+    VOLATILITY_SPIKE_FACTOR: float
+    CORRELATION_THRESHOLD: float
 
 class MLModelSettings(BaseModel):
-    CONFIDENCE_THRESHOLD: float = 0.4
-    ATR_LABEL_THRESHOLD: float = 0.4
+    CONFIDENCE_THRESHOLD: float
+    ATR_LABEL_THRESHOLD: float
+    MIN_TRADES_FOR_EVAL: int
+    SHAP_THRESHOLD: float
+    CORR_THRESHOLD: float
+    OPTUNA_TRIALS: int
+    MIN_TRAIN_SAMPLES: int
+
+class EvaluationSettings(BaseModel):
+    INITIAL_CAPITAL: float
+    RISK_PER_TRADE: float
+    COMMISSION_RATE: float
+    SLIPPAGE_RATE: float
+    TP_ATR_MULT: float
+    SL_ATR_MULT: float
+
+class BacktestStrategySettings(BaseModel):
+    TP_ATR_MULT: float
+    SL_ATR_MULT: float
+    CONFIDENCE_THRESHOLD: float
+    MAX_HOLDING_PERIOD: int
+    HIGH_CONFIDENCE_THRESHOLD: float
+    HIGH_RISK_PCT: float
+    MED_RISK_PCT: float
+    LOW_RISK_PCT: float
+    LOSS_STREAK_THRESHOLD: int
+    TRADING_PAUSE_HOURS: int
 
 class IndicatorSettings(BaseModel):
-    RSI_PERIOD: int = 14
-    EMA_FAST_PERIOD: int = 12
-    EMA_SLOW_PERIOD: int = 26
-    BB_PERIOD: int = 20
-    BB_STD_DEV: int = 2
-    ATR_PERIOD: int = 14
-    ADX_PERIOD: int = 14
-    VWAP_PERIOD: int = 20
-    MACD_FAST: int = 12
-    MACD_SLOW: int = 26
-    MACD_SIGNAL: int = 9
-    SMA_PERIOD: int = 20
-    SMA_LONG_PERIOD: int = 50
-    STOCH_K_PERIOD: int = 14
-    STOCH_D_PERIOD: int = 3
-    AO_FAST_PERIOD: int = 5
-    AO_SLOW_PERIOD: int = 34
-    PSAR_ACCELERATION: float = 0.02
-    PSAR_MAXIMUM: float = 0.2
-    KC_LENGTH: int = 20
-    KC_MULTIPLIER: float = 2.0
-    KC_ATR_LENGTH: int = 14
-    IC_TENKAN: int = 9
-    IC_KIJUN: int = 26
-    IC_SENKOU_B: int = 52
+    RSI_PERIOD: int
+    EMA_FAST_PERIOD: int
+    EMA_SLOW_PERIOD: int
+    BB_PERIOD: int
+    BB_STD_DEV: int
+    ATR_PERIOD: int
+    ADX_PERIOD: int
+    VWAP_PERIOD: int
+    MACD_FAST: int
+    MACD_SLOW: int
+    MACD_SIGNAL: int
+    SMA_PERIOD: int
+    SMA_LONG_PERIOD: int
+    STOCH_K_PERIOD: int
+    STOCH_D_PERIOD: int
+    AO_FAST_PERIOD: int
+    AO_SLOW_PERIOD: int
+    PSAR_ACCELERATION: float
+    PSAR_MAXIMUM: float
+    KC_LENGTH: int
+    KC_MULTIPLIER: float
+    KC_ATR_LENGTH: int
+    IC_TENKAN: int
+    IC_KIJUN: int
+    IC_SENKOU_B: int
 
 # --- Main Settings Class ---
 
@@ -93,16 +112,20 @@ class Settings(BaseSettings):
     OKX_REAL: Optional[OKXKeys] = None
     OKX_DEMO: Optional[OKXKeys] = None
 
-    # --- APIs & Services ---
+    # --- APIs & Services (Secrets) ---
     TELEGRAM_TOKEN: Optional[str] = None
     TELEGRAM_CHAT_ID: Optional[str] = None
     NEWS_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
     FRED_API_KEY: Optional[str] = None
 
-    # --- General Bot Settings ---
-    # Raw comma-separated string for symbols from .env
-    SYMBOLS_RAW: str = "BTC-USDT,ETH-USDT,SOL-USDT,LINK-USDT"
+    # --- General Bot Settings (from .env) ---
+    SYMBOLS_RAW: str
+    OKX_WS_URL: str
+    MAX_CANDLES: int
+    TIMEFRAME: str
+    COMMANDER_SYMBOL: str
+    DATA_HISTORY_DAYS: int
 
     @computed_field
     @property
@@ -110,30 +133,17 @@ class Settings(BaseSettings):
         """Returns a list of symbols from the raw string."""
         return [item.strip() for item in self.SYMBOLS_RAW.split(',')]
 
-    OKX_WS_URL: str = "wss://ws.okx.com:8443/ws/v5/public"
-    MAX_CANDLES: int = 5000
-    TIMEFRAME: str = "4h"
-    COMMANDER_SYMBOL: str = "BTC-USDT-SWAP"
-    DATA_HISTORY_DAYS: int = 1095
+    # --- Backtest Settings (from .env) ---
+    BACKTEST_COMMISSION_PCT: float
+    BACKTEST_SLIPPAGE_PCT: float
 
-    # --- Backtest Settings ---
-    BACKTEST: RiskManagementSettings = Field(default_factory=RiskManagementSettings)
-    BACKTEST_COMMISSION_PCT: float = 0.001
-    BACKTEST_SLIPPAGE_PCT: float = 0.0005
-
-    # --- Live Trading Settings ---
-    RISK: RiskManagementSettings = Field(default_factory=RiskManagementSettings)
-    TRADE: TradeManagementSettings = Field(default_factory=TradeManagementSettings)
-
-    # --- ML & Indicator Settings ---
-    ML: MLModelSettings = Field(default_factory=MLModelSettings)
-    INDICATORS: IndicatorSettings = Field(default_factory=IndicatorSettings)
+    # --- Nested Settings Models (populated from .env via parent__child syntax) ---
+    RISK: RiskManagementSettings
+    TRADE: TradeManagementSettings
+    ML: MLModelSettings
+    INDICATORS: IndicatorSettings
+    EVAL: EvaluationSettings
+    BACKTEST_STRATEGY: BacktestStrategySettings
 
 # Instantiate the settings
 settings = Settings()
-
-# Example of how to access a nested setting:
-# from src.core.config import settings
-# print(settings.DB.DATABASE_URL)
-# print(settings.OKX_REAL.API_KEY)
-# print(settings.INDICATORS.RSI_PERIOD)

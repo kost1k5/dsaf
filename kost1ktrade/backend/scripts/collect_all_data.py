@@ -64,9 +64,9 @@ def main(days_history: int):
             print("Macro data is already up to date.")
 
         print("\n--- Collecting Economic Calendar Events ---")
-        # The new function fetches all available recent and upcoming events from OKX
-        # and does not require date parameters.
-        fetch_and_store_economic_calendar()
+        # The new function uses the existing authenticated data_collector instance
+        # to handle API keys and signing automatically.
+        fetch_and_store_economic_calendar(data_collector=data_collector)
 
 
         print("\n--- Collecting Fear & Greed Index ---")

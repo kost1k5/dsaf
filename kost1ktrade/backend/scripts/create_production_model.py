@@ -18,13 +18,17 @@ import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.ml.validation import PurgedTimeSeriesSplit
+from src.core.config import settings
 
-def select_features(X: pd.DataFrame, y: pd.Series, shap_threshold=0.01, corr_threshold=0.75):
+def select_features(X: pd.DataFrame, y: pd.Series):
     """
     Performs a two-stage feature selection process on a given training set.
     Returns the final list of features and data for plotting.
     """
+    shap_threshold = settings.ML.SHAP_THRESHOLD
+    corr_threshold = settings.ML.CORR_THRESHOLD
     print(f"  [Feature Selection] Running on training data of shape: {X.shape}")
+    print(f"  [Feature Selection] Using SHAP threshold: {shap_threshold}, Correlation threshold: {corr_threshold}")
 
     le = LabelEncoder()
     y_encoded = le.fit_transform(y)
@@ -160,7 +164,6 @@ def main(asset: str, timeframe: str):
     plt.savefig(shap_plot_path, bbox_inches='tight'); plt.close()
 
     # --- 3. Walk-Forward Validation and Hyperparameter Tuning ---
-    MIN_TRAIN_SAMPLES = 50
     outer_cv = PurgedTimeSeriesSplit(n_splits=5, purge_buffer_days=5, embargo_pct=0.01)
     all_reports = []
     successful_folds = 0
@@ -173,14 +176,14 @@ def main(asset: str, timeframe: str):
         y_train, y_test = y_full.iloc[train_idx], y_full.iloc[test_idx]
 
         # Add a check for minimum fold size to prevent crashes on small datasets
-        if len(X_train) < MIN_TRAIN_SAMPLES:
-            print(f"  WARNING: Skipping Fold {fold+1}/{n_splits} for {asset}: Insufficient training data ({len(X_train)} samples < min {MIN_TRAIN_SAMPLES}).")
+        if len(X_train) < settings.ML.MIN_TRAIN_SAMPLES:
+            print(f"  WARNING: Skipping Fold {fold+1}/{n_splits} for {asset}: Insufficient training data ({len(X_train)} samples < min {settings.ML.MIN_TRAIN_SAMPLES}).")
             continue
 
         print("  [Hyperparameter Tuning] Running Optuna study for this fold...")
         objective_with_data = partial(objective, X_train=X_train, y_train=y_train, event_end_times=event_end_times_full, selected_features=final_selected_features)
         study = optuna.create_study(direction='maximize')
-        study.optimize(objective_with_data, n_trials=25)
+        study.optimize(objective_with_data, n_trials=settings.ML.OPTUNA_TRIALS)
 
         best_params = study.best_params
         print(f"  Best F1-score in fold tuning: {study.best_value:.4f}")
