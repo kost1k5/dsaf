@@ -9,34 +9,51 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.core.config import settings
 from src.core.utils import parse_asset_from_symbol
 
-def run_command(command: list):
-    """Runs a command using subprocess and captures output."""
-    # This function is now used by the worker, so it should return status and output.
-
-    # Define the base directory to set the CWD (Current Working Directory)
+def run_command(command: list, asset: str = "PIPELINE"):
+    """
+    Runs a command using subprocess and streams its output in real-time.
+    Prepends the asset name to each line for clarity in parallel execution.
+    """
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-
-    # Always use the current active interpreter (the one activated by PDM).
-    # This is the most reliable and cross-platform way to run the sub-script.
     executable = sys.executable
 
     try:
-        # Run the python script directly using the current interpreter
-        process = subprocess.run(
+        # Use Popen to stream output in real-time
+        process = subprocess.Popen(
             [executable] + command,
-            check=True, text=True, capture_output=True,
-            cwd=base_dir # Ensure the script runs from the project root
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            cwd=base_dir,
+            bufsize=1, # Line-buffered
+            universal_newlines=True
         )
-        return True, process.stdout
-    except subprocess.CalledProcessError as e:
-        error_message = f"---!!! SCRIPT FAILED: {' '.join(command)} !!!---\n"
-        error_message += f"---!!! Return Code: {e.returncode} !!!---\n"
-        error_message += f"---!!! STDOUT: ---\n{e.stdout}\n"
-        error_message += f"---!!! STDERR: ---\n{e.stderr}\n"
-        return False, error_message
+
+        # Stream stdout
+        if process.stdout:
+            for line in process.stdout:
+                # Prepend asset to each line for clarity in parallel logs
+                print(f"[{asset}] {line}", end='')
+
+        # Wait for the process to complete and get the exit code
+        process.wait()
+
+        # Check for errors after streaming all output
+        if process.returncode != 0:
+            # Capture any remaining error output
+            error_output = process.stderr.read() if process.stderr else ""
+            error_message = f"\n---!!! SCRIPT FAILED: {' '.join(command)} !!!---\n"
+            error_message += f"---!!! Return Code: {process.returncode} !!!---\n"
+            error_message += f"---!!! STDERR: ---\n{error_output}\n"
+            return False, error_message
+
+        return True, "Success" # Output is already streamed, so we just need status
+
     except FileNotFoundError:
-        # This case is very unlikely when using sys.executable
         error_message = f"---!!! SCRIPT FAILED: Executable not found at {executable} !!!---\n"
+        return False, error_message
+    except Exception as e:
+        error_message = f"---!!! UNEXPECTED ERROR in run_command: {e} !!!---\n"
         return False, error_message
 
 from itertools import repeat
@@ -52,17 +69,22 @@ def run_pipeline_for_asset(symbol: str, timeframe: str):
     pipeline_steps = [
         ("Feature Processing", ["scripts/process_features.py", "--asset", asset, "--timeframe", timeframe]),
         ("Label Application", ["scripts/apply_labels.py", "--asset", asset, "--timeframe", timeframe]),
-        ("Production Model Creation & Evaluation", ["scripts/create_production_model.py", "--asset", asset, "--timeframe", timeframe]),
+        ("Model Training", ["scripts/train_xgboost_model.py", "--asset", asset, "--timeframe", timeframe]),
+        ("Model Evaluation", ["scripts/evaluate_model.py", "--asset", asset, "--timeframe", timeframe]),
+        ("Walk-Forward Optimization", ["scripts/run_wfo.py", "--asset", asset, "--timeframe", timeframe]),
+        ("Backtesting", ["scripts/run_backtest.py", "--asset", asset, "--timeframe", timeframe]),
+        ("Production Model Creation", ["scripts/create_production_model.py", "--asset", asset, "--timeframe", timeframe]),
     ]
 
     for i, (step_name, step_command) in enumerate(pipeline_steps):
-        print(f"[{asset}] Running Step {i+1}/{len(pipeline_steps)}: {step_name}...")
-        print(f"[{asset}] > {' '.join(step_command)}")
-        success, output = run_command(step_command)
+        print(f"\n[{asset}] Running Step {i+1}/{len(pipeline_steps)}: {step_name}...")
+        print(f"[{asset}] Running command: python {' '.join(step_command)}")
+        success, output = run_command(step_command, asset=asset)
         if not success:
             print(f"---!!! PIPELINE FAILED FOR ASSET: {asset} at step: {step_name} !!!---")
-            print(output) # Print the detailed error message
+            print(output) # Print the detailed error message from run_command
             return f"FAILED: {asset}"
+        # No need for a success print here as the output is streamed
         print(f"[{asset}] Finished Step {i+1}/{len(pipeline_steps)}: {step_name}.")
 
 
