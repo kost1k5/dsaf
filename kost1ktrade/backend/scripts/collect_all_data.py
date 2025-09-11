@@ -1,6 +1,6 @@
 import os
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, UTC
 import time
 import argparse
 import sys
@@ -34,7 +34,7 @@ def main(days_history: int):
         CRYPTO_ASSETS = settings.SYMBOLS
         # Collect data for all relevant timeframes for multi-timeframe analysis
         TIMEFRAMES = ['1h', '4h', '1d']
-        end_date = datetime.utcnow()
+        end_date = datetime.now(UTC)
 
         # --- Initialize Collectors with DB Session ---
         data_collector = DataCollector(exchange_id='okx', db_session=db)
