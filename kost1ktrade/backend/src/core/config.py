@@ -14,8 +14,13 @@ class DBSettings(BaseModel):
     @property
     def DATABASE_URL(self) -> str:
         """Constructs the full database URL."""
-        # return f"postgresql+psycopg2://{self.USER}:{self.PASS}@{self.HOST}:{self.PORT}/{self.NAME}"
-        return "sqlite:///data/local_database.db"
+        import os
+        # Get the absolute path to the 'backend' directory
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        db_path = os.path.join(backend_dir, 'data', 'local_database.db')
+        # Ensure the data directory exists
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        return f"sqlite:///{db_path}"
 
 class OKXKeys(BaseModel):
     API_KEY: str
