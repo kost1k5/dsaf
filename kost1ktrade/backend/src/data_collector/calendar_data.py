@@ -41,7 +41,7 @@ def fetch_and_store_economic_calendar(
         print(f"  - Fetching calendar data for {country}...")
         run_input = {
             "country": country,
-            "importances": importances,
+            "importances": ", ".join(importances),
             "fromDate": start_date,
             "toDate": end_date,
         }
