@@ -47,8 +47,6 @@ def run_pipeline_for_asset(symbol: str, timeframe: str):
     This function will be executed in a separate process.
     """
     asset = parse_asset_from_symbol(symbol)
-    # HARDCODED TIMEFRAME to ensure correct execution
-    timeframe = "4h"
     print(f"--- Starting full pipeline for asset: {asset} on timeframe: {timeframe} ---")
 
     pipeline_steps = [
@@ -106,7 +104,10 @@ def main():
     # Step 1: Run data collection for all assets (must be serial)
     print("\n--- Step 1: Starting Serial Data Collection ---")
     # This script now handles its own incremental logic.
-    success, output = run_command(["scripts/collect_all_data.py"])
+    # We pass the configured number of days for the initial history pull.
+    days_arg = str(settings.DATA_HISTORY_DAYS)
+    print(f"Data collection will use an initial history of {days_arg} days.")
+    success, output = run_command(["scripts/collect_all_data.py", "--days", days_arg])
     if not success:
         print("\nFATAL: Data collection step failed. Cannot proceed.")
         print(output)

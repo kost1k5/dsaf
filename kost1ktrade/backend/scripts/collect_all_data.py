@@ -5,15 +5,18 @@ import time
 import argparse
 import sys
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 
 # Adjust the path to allow imports from the 'src' directory
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src.database.session import SessionLocal
+from src.database.models import Candle
 from src.data_collector.collector import DataCollector
 from src.data_collector.macro_collector import MacroDataCollector
 from src.data_collector.sentiment_collector import SentimentCollector
 from src.data_collector.calendar_data import fetch_and_store_economic_calendar
+from src.core.config import settings
 
 def main(days_history: int):
     """
@@ -27,8 +30,10 @@ def main(days_history: int):
     }
     try:
         # --- Configuration ---
-        CRYPTO_ASSETS = ['BTC', 'ETH', 'SOL', 'LINK']
-        TIMEFRAMES = ['1h', '4h', '1d']
+        # Use settings from the central config file
+        CRYPTO_ASSETS = settings.SYMBOLS
+        # Only collect data for the timeframe specified in the settings
+        TIMEFRAMES = [settings.TIMEFRAME]
         end_date = datetime.utcnow()
 
         # --- Initialize Collectors with DB Session ---
@@ -150,16 +155,26 @@ def main(days_history: int):
                 print(f"Funding rate data for {asset} is already up to date.")
             time.sleep(1)
 
-        print("\n" + "="*50)
-        print("=== DATA COLLECTION SUMMARY" + " "*25 + "===")
-        print("="*50)
+        print("\n" + "="*60)
+        print("=== FINAL DATA COLLECTION SUMMARY" + " "*29 + "===")
+        print("="*60)
+        print("\n--- Asset-Agnostic Data ---")
         for data_type, count in summary.get("asset_agnostic", {}).items():
-            print(f"- {data_type:<20}: {count} records")
+            print(f"  - {data_type:<20}: Fetched {count} records")
+
+        print("\n--- Crypto-Specific Data ---")
         for asset, details in summary.get("crypto_specific", {}).items():
-            print(f"\n--- {asset} ---")
+            print(f"\n* Asset: {asset}")
+            # Query the DB for actual date ranges and counts
+            start_date = db.query(func.min(Candle.open_time)).filter(Candle.symbol.like(f'{asset}%')).scalar()
+            end_date = db.query(func.max(Candle.open_time)).filter(Candle.symbol.like(f'{asset}%')).scalar()
+
+            if start_date and end_date:
+                print(f"  - Date Range in DB  : {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')}")
+
             for data_type, count in details.items():
-                print(f"  - {data_type:<18}: {count} records")
-        print("="*50 + "\n")
+                print(f"  - {data_type:<20}: Fetched {count} new records")
+        print("="*60 + "\n")
 
         print("\n--- Data collection complete! ---")
     finally:

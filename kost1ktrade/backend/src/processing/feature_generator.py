@@ -436,7 +436,8 @@ class FeatureGenerator:
 
     def check_and_transform_stationarity(self):
         self._log("\n[Bonus Step] Checking for Feature Stationarity")
-        exclude_cols = ['open', 'high', 'low', 'close', 'volume', 'EMA_200']
+        # Exclude columns that are known to be non-stationary or are needed in their raw form later.
+        exclude_cols = ['open', 'high', 'low', 'close', 'volume', 'EMA_200', 'ATRr_14']
         for col in self.df.columns.copy():
             if col not in exclude_cols and pd.api.types.is_numeric_dtype(self.df[col]):
                 p_value = self.test_stationarity(self.df[col])
@@ -472,7 +473,8 @@ class FeatureGenerator:
         self._log("\n[Bonus Step] Cleaning up raw price data...")
         # Note: 'volume' is kept for indicators like OBV and MFI, and its stationarity
         # is handled by the check_and_transform_stationarity step.
-        cols_to_drop = ['open', 'high', 'low', 'close']
+        # We KEEP 'close' as it's needed for the labeling step.
+        cols_to_drop = ['open', 'high', 'low']
         self.df.drop(columns=cols_to_drop, inplace=True, errors='ignore')
         self._log(f"  - Dropped columns: {cols_to_drop}")
         return self

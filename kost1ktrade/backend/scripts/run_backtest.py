@@ -139,16 +139,24 @@ def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.Data
     Performs walk-forward validation with nested hyperparameter tuning.
     """
     print(f"Starting Walk-Forward Validation with {n_splits} splits...")
+    # Set a higher threshold to ensure folds are large enough for calibration
+    MIN_TRAIN_SAMPLES = 200
 
     tscv = TimeSeriesSplit(n_splits=n_splits)
 
     out_of_sample_preds = []
+    successful_folds = 0
 
     for i, (train_index, test_index) in enumerate(tscv.split(X)):
         print(f"\n--- Processing Fold {i+1}/{n_splits} ---")
 
         X_train, X_test = X.iloc[train_index], X.iloc[test_index]
         y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+
+        if len(X_train) < MIN_TRAIN_SAMPLES:
+            print(f"  WARNING: Skipping Fold {i+1}/{n_splits}: Insufficient training data ({len(X_train)} samples < min {MIN_TRAIN_SAMPLES}).")
+            continue
+
         metadata_train, metadata_test = metadata.loc[X_train.index], metadata.loc[X_test.index]
 
         print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
@@ -176,21 +184,25 @@ def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.Data
         # --- Prediction on Out-of-Sample (OOS) Data ---
         y_pred_proba = calibrated_model.predict_proba(X_test)
 
-        # Combine results into a dataframe
+        # This is the robust fix for the IndexError
+        proba_df = pd.DataFrame(0, index=X_test.index, columns=[0, 1, 2])
+        proba_df[calibrated_model.classes_] = y_pred_proba
+
         results_df = pd.DataFrame({
             'timestamp': X_test.index,
             'y_true': y_test.values,
-            'proba_sell': y_pred_proba[:, 0],
-            'proba_hold': y_pred_proba[:, 1],
-            'proba_buy': y_pred_proba[:, 2],
+            'proba_sell': proba_df[0].values,
+            'proba_hold': proba_df[1].values,
+            'proba_buy': proba_df[2].values,
             'close': metadata_test['close'].values,
             'atr': metadata_test['atr'].values,
             'EMA_200': metadata_test['EMA_200'].values
         })
         out_of_sample_preds.append(results_df)
+        successful_folds += 1
 
-    print("\nWalk-Forward Validation complete.")
-    return pd.concat(out_of_sample_preds)
+    print(f"\nWalk-Forward Validation complete. {successful_folds}/{n_splits} folds were successfully processed.")
+    return pd.concat(out_of_sample_preds) if out_of_sample_preds else pd.DataFrame(), successful_folds
 
 
 def main(asset: str, timeframe: str, metric: str):
@@ -234,7 +246,12 @@ def main(asset: str, timeframe: str, metric: str):
 
 
     # 4. Run Walk-Forward Validation
-    oos_predictions = run_walk_forward_validation(X, y, metadata, metric, n_splits=5)
+    n_splits = 5
+    oos_predictions, successful_folds = run_walk_forward_validation(X, y, metadata, metric, n_splits=n_splits)
+
+    if oos_predictions.empty:
+        print("\nBacktest could not be run as no out-of-sample predictions were generated.")
+        return
 
     # 5. Save the out-of-sample predictions
     output_path = os.path.join(RESULTS_DIR, f'{asset}_{timeframe}_oos_predictions.parquet')
@@ -243,14 +260,15 @@ def main(asset: str, timeframe: str, metric: str):
     print(oos_predictions.head())
 
     # (A) Run the new detailed backtest for logging and dynamic sizing
-    run_detailed_backtest(oos_predictions, df, asset, timeframe)
+    run_detailed_backtest(oos_predictions, df, asset, timeframe, successful_folds=successful_folds, total_folds=n_splits)
 
 
-def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, asset: str, timeframe: str, initial_capital=10000.0, max_leverage=10.0, commission_rate=0.001):
+def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, asset: str, timeframe: str, successful_folds: int, total_folds: int, initial_capital=10000.0, max_leverage=10.0, commission_rate=0.001):
     """
     Runs a realistic, event-driven backtest simulation with enhanced logic.
     """
     print("\n--- Running Realistic Event-Driven Backtest Simulation (with Enhanced Logic) ---")
+    MIN_SUCCESSFUL_FOLDS = 3
 
     RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
     os.makedirs(RESULTS_DIR, exist_ok=True)
@@ -428,7 +446,18 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
         print(f"  - Writing last 100 trades to {log_path}")
         with open(log_path, 'w', encoding='utf-8') as f:
             f.write(f"--- Trade Log for {asset} ({timeframe}) ---\n")
-            f.write(f"--- Final Capital: ${capital:.2f} ---\n\n")
+            f.write(f"--- Final Capital: ${capital:.2f} ---\n")
+
+            # Add the new validity reporting
+            f.write(f"--- (Report based on {successful_folds} out of {total_folds} validation folds) ---\n")
+            if successful_folds < MIN_SUCCESSFUL_FOLDS:
+                f.write("\n" + "="*40 + "\n")
+                f.write("  WARNING: STATISTICALLY INSIGNIFICANT RESULTS\n")
+                f.write(f"  The number of successful validation folds ({successful_folds}) is below the threshold of {MIN_SUCCESSFUL_FOLDS}.\n")
+                f.write("  Interpret these backtest results with caution.\n")
+                f.write("="*40 + "\n")
+
+            f.write("\n") # Add a newline before the first trade
 
             log_trades = trades[-100:]
             for i, trade in enumerate(log_trades):

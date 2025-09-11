@@ -39,6 +39,11 @@ def select_features(X: pd.DataFrame, y: pd.Series, shap_threshold=0.01, corr_thr
     else:
         shap_sum = np.abs(shap_values).mean(axis=0)
 
+    # If shap_sum is 2D (e.g., from a multi-class model not returning a list),
+    # take the mean over the class axis to get a single importance value per feature.
+    if shap_sum.ndim > 1:
+        shap_sum = shap_sum.mean(axis=1)
+
     importance_df = pd.DataFrame({'feature': X.columns, 'shap_importance': shap_sum}).sort_values(by='shap_importance', ascending=False)
     total_importance = importance_df['shap_importance'].sum()
     importance_df['shap_importance_norm'] = importance_df['shap_importance'] / total_importance if total_importance > 0 else 0
@@ -65,12 +70,20 @@ def select_features(X: pd.DataFrame, y: pd.Series, shap_threshold=0.01, corr_thr
     # For the plot, we'll use the SHAP values corresponding to the final selected features
     final_shap_values = []
     if isinstance(shap_values, list):
+        # Case 1: shap_values is a list of 2D arrays (one per class)
         for i in range(len(shap_values)):
             sh_df = pd.DataFrame(shap_values[i], columns=X.columns)
             final_shap_values.append(sh_df[final_features].values)
     else:
-        sh_df = pd.DataFrame(shap_values, columns=X.columns)
-        final_shap_values = sh_df[final_features].values
+        # Case 2: shap_values is a numpy array (can be 2D for binary or 3D for multiclass)
+        if shap_values.ndim == 3:
+            # For a 3D array (samples, features, classes), we slice along the feature axis.
+            feature_indices = [X.columns.get_loc(f) for f in final_features]
+            final_shap_values = shap_values[:, feature_indices, :]
+        else:
+            # For a 2D array, we can use a DataFrame to select columns.
+            sh_df = pd.DataFrame(shap_values, columns=X.columns)
+            final_shap_values = sh_df[final_features].values
 
     return final_features, final_shap_values, X[final_features]
 
@@ -147,14 +160,22 @@ def main(asset: str, timeframe: str):
     plt.savefig(shap_plot_path, bbox_inches='tight'); plt.close()
 
     # --- 3. Walk-Forward Validation and Hyperparameter Tuning ---
+    MIN_TRAIN_SAMPLES = 50
     outer_cv = PurgedTimeSeriesSplit(n_splits=5, purge_buffer_days=5, embargo_pct=0.01)
     all_reports = []
+    successful_folds = 0
 
     print("\n--- Starting Walk-Forward Validation with Hyperparameter Tuning ---")
+    n_splits = outer_cv.get_n_splits()
     for fold, (train_idx, test_idx) in enumerate(outer_cv.split(X_full, y_full, event_end_times_full)):
-        print(f"\n--- Processing Fold {fold+1}/{outer_cv.get_n_splits()} ---")
+        print(f"\n--- Processing Fold {fold+1}/{n_splits} for {asset} ---")
         X_train, X_test = X_full.iloc[train_idx], X_full.iloc[test_idx]
         y_train, y_test = y_full.iloc[train_idx], y_full.iloc[test_idx]
+
+        # Add a check for minimum fold size to prevent crashes on small datasets
+        if len(X_train) < MIN_TRAIN_SAMPLES:
+            print(f"  WARNING: Skipping Fold {fold+1}/{n_splits} for {asset}: Insufficient training data ({len(X_train)} samples < min {MIN_TRAIN_SAMPLES}).")
+            continue
 
         print("  [Hyperparameter Tuning] Running Optuna study for this fold...")
         objective_with_data = partial(objective, X_train=X_train, y_train=y_train, event_end_times=event_end_times_full, selected_features=final_selected_features)
@@ -176,14 +197,18 @@ def main(asset: str, timeframe: str):
         report = classification_report(y_test_encoded, preds, output_dict=True, zero_division=0)
         all_reports.append(report)
         print(f"  Fold {fold+1} Out-of-Sample F1-Score (weighted): {report['weighted avg']['f1-score']:.4f}")
+        successful_folds += 1
 
     # --- 4. Aggregate and Display Final Results ---
     if all_reports:
         avg_f1 = np.mean([r['weighted avg']['f1-score'] for r in all_reports])
-        print(f"\n--- Walk-Forward Validation Complete ---")
+        print(f"\n--- Walk-Forward Validation Complete ({successful_folds}/{n_splits} folds successful) ---")
         print(f"Average Out-of-Sample F1-Score across all folds: {avg_f1:.4f}")
     else:
         print("\n--- Walk-Forward Validation Failed: No folds were processed. ---")
+        print("This is likely because the dataset is too small for the number of CV splits.")
+        print("Consider using a longer data history.")
+        return # Exit gracefully
 
     # --- 5. Train and Save Final Production Model ---
     if not final_selected_features:
@@ -203,6 +228,13 @@ def main(asset: str, timeframe: str):
     with open(os.path.join(PROD_MODEL_DIR, f"prod_features_{asset}_{timeframe}.json"), 'w') as f:
         json.dump(final_selected_features, f)
     print(f"Production model and feature list ({len(final_selected_features)} features) saved.")
+
+    # Also save features to the location expected by run_backtest.py
+    backtest_features_path = os.path.join(REPORTS_DIR, f'{asset}_{timeframe}_selected_features.txt')
+    with open(backtest_features_path, 'w') as f:
+        for feature in final_selected_features:
+            f.write(f"{feature}\n")
+    print(f"Saved feature list for backtester at: {backtest_features_path}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Production Model Creation, Selection, and Tuning Orchestrator")

@@ -109,6 +109,7 @@ class Settings(BaseSettings):
     MAX_CANDLES: int = 5000
     TIMEFRAME: str = "4h"
     COMMANDER_SYMBOL: str = "BTC-USDT-SWAP"
+    DATA_HISTORY_DAYS: int = 1095
 
     # --- Backtest Settings ---
     BACKTEST: RiskManagementSettings = Field(default_factory=RiskManagementSettings)
