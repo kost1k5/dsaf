@@ -38,21 +38,23 @@ def fetch_and_store_economic_calendar(
     all_events = []
 
     for country in countries:
-        print(f"  - Fetching calendar data for {country}...")
-        run_input = {
-            "country": country,
-            "importances": ", ".join(importances),
-            "fromDate": start_date,
-            "toDate": end_date,
-        }
+        # Loop through each importance level and make a separate API call
+        for importance in importances:
+            print(f"  - Fetching calendar data for {country} (importance: {importance})...")
+            run_input = {
+                "country": country,
+                "importances": importance, # Pass one importance level at a time
+                "fromDate": start_date,
+                "toDate": end_date,
+            }
 
-        try:
-            run = client.actor("pintostudio/economic-calendar-data-investing-com").call(run_input=run_input)
-            for item in client.dataset(run["defaultDatasetId"]).iterate_items():
-                all_events.append(item)
-        except Exception as e:
-            print(f"  - An error occurred while fetching calendar data for {country}: {e}")
-            continue
+            try:
+                run = client.actor("pintostudio/economic-calendar-data-investing-com").call(run_input=run_input)
+                for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+                    all_events.append(item)
+            except Exception as e:
+                print(f"  - An error occurred while fetching calendar data for {country} (importance: {importance}): {e}")
+                continue
 
     if not all_events:
         print("No economic events found for the specified criteria across all countries.")
