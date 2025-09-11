@@ -65,8 +65,8 @@ def main(days_history: int):
 
         print("\n--- Collecting Economic Calendar Events ---")
         # Fetch a wide range of data to ensure we have historical and future events
-        calendar_start_date = (end_date - timedelta(days=days_history)).strftime('%d/%m/%Y')
-        calendar_end_date = (end_date + timedelta(days=30)).strftime('%d/%m/%Y')
+        calendar_start_date = (end_date - timedelta(days=days_history)).strftime('%Y-%m-%d')
+        calendar_end_date = (end_date + timedelta(days=30)).strftime('%Y-%m-%d')
         print(f"Fetching calendar events from {calendar_start_date} to {calendar_end_date}...")
         # This function will handle its own database saving and prints.
         # We don't need to capture a summary count here as it's not used elsewhere.
