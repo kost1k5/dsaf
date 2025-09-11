@@ -1,23 +1,27 @@
-import yfinance as yf
+import requests
 import pandas as pd
-from datetime import datetime, timezone
+from datetime import datetime
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy import func
+from functools import reduce
 
 from src.database.models import MacroData
+from src.core.config import settings
 
 class MacroDataCollector:
     """
-    A class to collect macroeconomic data using the yfinance library.
+    A class to collect macroeconomic data using the FRED API.
     """
     def __init__(self, db_session: Session):
         self.db = db_session
-        # Tickers for S&P 500 (SPY), VIX Index, and US Dollar Index (DXY)
-        self.tickers = {
-            'SPY': 'SPY',
-            'VIX': '^VIX',
-            'DXY': 'DX-Y.NYB'
+        self.api_key = settings.FRED_API_KEY
+        self.api_url = "https://api.stlouisfed.org/fred/series/observations"
+        # Mapping of desired symbols to their FRED Series IDs
+        self.series_map = {
+            'SPY': 'SP500',      # S&P 500 Index
+            'VIX': 'VIXCLS',     # VIX Volatility Index
+            'DXY': 'DTWEXBGS'  # Trade Weighted U.S. Dollar Index
         }
 
     def get_latest_macro_timestamp(self) -> datetime:
@@ -51,42 +55,69 @@ class MacroDataCollector:
         stmt = stmt.on_conflict_do_nothing(index_elements=['date'])
         self.db.execute(stmt)
         self.db.commit()
-        # result.rowcount is not reliable with ON CONFLICT statements.
-        # Return the number of records we attempted to insert.
         return len(records)
 
     def fetch_data(self, start_date: str, end_date: str) -> pd.DataFrame:
         """
-        Fetches historical data for SPY, VIX, and DXY.
+        Fetches historical data for SPY, VIX, and DXY from the FRED API.
 
         :param start_date: The start date in 'YYYY-MM-DD' format.
         :param end_date: The end date in 'YYYY-MM-DD' format.
-        :return: A pandas DataFrame with 'Adj Close' prices for the tickers.
+        :return: A pandas DataFrame with prices for the tickers.
         """
-        print(f"Fetching macro data for tickers {list(self.tickers.values())} from {start_date} to {end_date}...")
-        try:
-            # Download data from yfinance
-            data = yf.download(list(self.tickers.values()), start=start_date, end=end_date, progress=False, auto_adjust=True)
-
-            if data.empty:
-                print("Warning: No data returned from yfinance.")
-                return pd.DataFrame()
-
-            # With auto_adjust=True (default), yfinance returns the adjusted close price in the 'Close' column.
-            close_prices = data['Close']
-
-            # Rename columns to be more intuitive (e.g., '^VIX' -> 'VIX')
-            close_prices = close_prices.rename(columns={v: k for k, v in self.tickers.items()})
-
-            # Forward-fill missing values, which is common for market data (e.g., weekends, holidays)
-            close_prices = close_prices.ffill()
-
-            print(f"Successfully fetched {len(close_prices)} data points.")
-            return close_prices
-
-        except Exception as e:
-            print(f"An error occurred while fetching data from yfinance: {e}")
+        if not self.api_key:
+            print("Warning: FRED_API_KEY is not set. Skipping macroeconomic data collection.")
             return pd.DataFrame()
+
+        all_series_dfs = []
+        for symbol, series_id in self.series_map.items():
+            print(f"Fetching FRED data for {symbol} (Series ID: {series_id})...")
+            params = {
+                "series_id": series_id,
+                "api_key": self.api_key,
+                "file_type": "json",
+                "observation_start": start_date,
+                "observation_end": end_date,
+                "sort_order": "asc",
+            }
+            try:
+                response = requests.get(self.api_url, params=params)
+                response.raise_for_status()  # Raise an exception for bad status codes
+                data = response.json()
+
+                observations = data.get("observations", [])
+                if not observations:
+                    print(f"  -> No observations found for {symbol}.")
+                    continue
+
+                df = pd.DataFrame(observations)
+                df = df[['date', 'value']]
+                df['date'] = pd.to_datetime(df['date'])
+                # FRED data sometimes contains '.' for missing values, convert to NaN
+                df['value'] = pd.to_numeric(df['value'], errors='coerce')
+                df = df.rename(columns={'value': symbol}).set_index('date')
+                all_series_dfs.append(df)
+                print(f"  -> Successfully fetched {len(df)} data points for {symbol}.")
+
+            except requests.exceptions.RequestException as e:
+                print(f"  -> An error occurred while fetching data for {symbol}: {e}")
+                continue
+            except Exception as e:
+                print(f"  -> An unexpected error occurred for {symbol}: {e}")
+                continue
+
+        if not all_series_dfs:
+            return pd.DataFrame()
+
+        # Merge all dataframes on the date index
+        # Start with the first dataframe and outer join the rest onto it
+        merged_df = reduce(lambda left, right: pd.merge(left, right, on='date', how='outer'), all_series_dfs)
+
+        # FRED data is daily, so forward-fill to cover weekends/holidays for a consistent dataset
+        merged_df = merged_df.ffill()
+
+        print(f"Successfully merged data for all symbols. Final shape: {merged_df.shape}")
+        return merged_df
 
 from src.database.session import SessionLocal
 
