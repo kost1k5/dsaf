@@ -32,8 +32,8 @@ def main(days_history: int):
         # --- Configuration ---
         # Use settings from the central config file
         CRYPTO_ASSETS = settings.SYMBOLS
-        # Only collect data for the timeframe specified in the settings
-        TIMEFRAMES = [settings.TIMEFRAME]
+        # Collect data for all relevant timeframes for multi-timeframe analysis
+        TIMEFRAMES = ['1h', '4h', '1d']
         end_date = datetime.utcnow()
 
         # --- Initialize Collectors with DB Session ---

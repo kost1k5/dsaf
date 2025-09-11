@@ -35,29 +35,34 @@ def fetch_and_store_economic_calendar(
         importances = ["high", "medium"]
 
     client = ApifyClient(api_token)
+    all_events = []
 
-    run_input = {
-        "countries": countries,
-        "importances": importances,
-        "fromDate": start_date,
-        "toDate": end_date,
-    }
+    for country in countries:
+        print(f"  - Fetching calendar data for {country}...")
+        run_input = {
+            "country": country,
+            "importances": importances,
+            "fromDate": start_date,
+            "toDate": end_date,
+        }
 
+        try:
+            run = client.actor("pintostudio/economic-calendar-data-investing-com").call(run_input=run_input)
+            for item in client.dataset(run["defaultDatasetId"]).iterate_items():
+                all_events.append(item)
+        except Exception as e:
+            print(f"  - An error occurred while fetching calendar data for {country}: {e}")
+            continue
+
+    if not all_events:
+        print("No economic events found for the specified criteria across all countries.")
+        return
+
+    df = pd.DataFrame(all_events)
+    print(f"Successfully fetched a total of {len(df)} economic events from Apify.")
+
+    # --- Data Processing and Storage ---
     try:
-        run = client.actor("pintostudio/economic-calendar-data-investing-com").call(run_input=run_input)
-
-        events = []
-        for item in client.dataset(run["defaultDatasetId"]).iterate_items():
-            events.append(item)
-
-        if not events:
-            print("No economic events found for the specified criteria.")
-            return
-
-        df = pd.DataFrame(events)
-        print(f"Successfully fetched {len(df)} economic events from Apify.")
-
-        # --- Data Processing and Storage ---
         df['event_datetime_utc'] = pd.to_datetime(df['date'] + ' ' + df['time'], format='%d/%m/%Y %H:%M', utc=True)
 
         db: Session = SessionLocal()
@@ -82,9 +87,8 @@ def fetch_and_store_economic_calendar(
             print("Finished storing economic events.")
         finally:
             db.close()
-
     except Exception as e:
-        print(f"An error occurred while fetching or storing economic calendar data: {e}")
+        print(f"An error occurred while processing or storing economic calendar data: {e}")
 
 if __name__ == '__main__':
     # Example usage
