@@ -4,6 +4,7 @@ import talib
 from statsmodels.tsa.stattools import adfuller
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 import os
+import sys
 
 class FeatureGenerator:
     """
@@ -70,7 +71,9 @@ class FeatureGenerator:
     def _log(self, message: str):
         """Logs a message to the console and the designated log file."""
         print(message)
+        sys.stdout.flush()
         self.log_file.write(message + '\n')
+        self.log_file.flush()
 
     def _standardize_generic(self, df, name, time_cols):
         """Standardizes a generic dataframe to have a 'timestamp' DatetimeIndex."""
