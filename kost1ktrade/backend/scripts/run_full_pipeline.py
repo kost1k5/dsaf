@@ -82,12 +82,14 @@ def run_pipeline_for_asset(symbol: str, timeframe: str):
     asset = parse_asset_from_symbol(symbol)
     print(f"--- Starting full pipeline for asset: {asset} on timeframe: {timeframe} ---")
 
+    # The pipeline for a single asset
     pipeline_steps = [
         ("Feature Processing", ["scripts/process_features.py", "--asset", asset, "--timeframe", timeframe]),
         ("Label Application", ["scripts/apply_labels.py", "--asset", asset, "--timeframe", timeframe]),
-        ("Model Training", ["scripts/train_xgboost_model.py", "--asset", asset, "--timeframe", timeframe]),
+        # Note: train_xgboost_model.py expects '--symbols' but works with a single symbol.
+        ("Model Training", ["scripts/train_xgboost_model.py", "--symbols", asset, "--timeframe", timeframe]),
         ("Model Evaluation", ["scripts/evaluate_model.py", "--asset", asset, "--timeframe", timeframe]),
-        ("Walk-Forward Optimization", ["scripts/run_wfo.py", "--asset", asset, "--timeframe", timeframe]),
+        # Note: run_wfo.py is for classic strategies and is excluded from this ML pipeline.
         ("Backtesting", ["scripts/run_backtest.py", "--asset", asset, "--timeframe", timeframe]),
         ("Production Model Creation", ["scripts/create_production_model.py", "--asset", asset, "--timeframe", timeframe]),
     ]
