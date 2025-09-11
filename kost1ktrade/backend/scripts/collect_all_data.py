@@ -17,7 +17,7 @@ from src.data_collector.macro_collector import MacroDataCollector
 from src.data_collector.sentiment_collector import SentimentCollector
 from src.data_collector.calendar_data import fetch_and_store_economic_calendar
 from src.core.config import settings
-
+from src.core.utils import parse_asset_from_symbol
 def main(days_history: int):
     """
     Main orchestration script to collect all required data sources,
@@ -88,9 +88,11 @@ def main(days_history: int):
             print(f"-> Saved {count} new news items (database handles conflicts).")
 
         # --- 2. Collect Crypto-Specific Data (Incremental) ---
-        for asset in CRYPTO_ASSETS:
+        for raw_symbol in settings.SYMBOLS:
+            asset = parse_asset_from_symbol(raw_symbol)
             summary["crypto_specific"][asset] = {}
-            print(f"\n{'='*20} Collecting data for {asset} {'='*20}")
+            print(f"\n{'='*20} Collecting data for {asset} (from {raw_symbol}) {'='*20}")
+            # Construct the ccxt-compatible symbol for the swap market
             symbol = f"{asset}/USDT:USDT"
 
             # --- OHLCV Data ---
