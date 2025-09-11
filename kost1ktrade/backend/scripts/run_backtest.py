@@ -279,17 +279,18 @@ def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, as
     trades = []
     minsk_tz = ZoneInfo("Europe/Minsk")
 
-    # --- Strategy Parameters (MODIFIED) ---
-    tp_atr_mult = 2.0  # Increased R:R to 2:1
-    sl_atr_mult = 1.0
-    confidence_threshold = 0.6
-    max_holding_period = 24 # candles
-    high_confidence_threshold = 0.8
-    high_risk_pct = 0.02
-    med_risk_pct = 0.01
-    low_risk_pct = 0.005
-    loss_streak_threshold = 3 # Circuit breaker after 3 losses
-    trading_pause_duration = pd.Timedelta(hours=24)
+    # --- Strategy Parameters (from config) ---
+    s = settings.BACKTEST_STRATEGY
+    tp_atr_mult = s.TP_ATR_MULT
+    sl_atr_mult = s.SL_ATR_MULT
+    confidence_threshold = s.CONFIDENCE_THRESHOLD
+    max_holding_period = s.MAX_HOLDING_PERIOD
+    high_confidence_threshold = s.HIGH_CONFIDENCE_THRESHOLD
+    high_risk_pct = s.HIGH_RISK_PCT
+    med_risk_pct = s.MED_RISK_PCT
+    low_risk_pct = s.LOW_RISK_PCT
+    loss_streak_threshold = s.LOSS_STREAK_THRESHOLD
+    trading_pause_duration = pd.Timedelta(hours=s.TRADING_PAUSE_HOURS)
 
     # --- Backtest State (MODIFIED) ---
     in_position = False

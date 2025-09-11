@@ -8,22 +8,20 @@ from sklearn.metrics import precision_score, recall_score, f1_score
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.core.config import settings
+
 def calculate_financial_metrics(
     predictions: pd.DataFrame,
     buy_threshold: float,
-    sell_threshold: float,
-    initial_capital: float = 10000.0,
-    risk_per_trade: float = 0.01,
-    commission_rate: float = 0.0005, # 0.05%
-    slippage_rate: float = 0.0005,   # 0.05%
-    tp_atr_mult: float = 2.0,
-    sl_atr_mult: float = 1.0
+    sell_threshold: float
 ):
     """
     Simulates long and short trades with fixed fractional risk management.
     """
-    capital = initial_capital
-    equity_curve = [initial_capital]
+    # Load settings from the config object
+    s = settings.EVAL
+    capital = s.INITIAL_CAPITAL
+    equity_curve = [s.INITIAL_CAPITAL]
     trades_list = []
 
     for _, row in predictions.iterrows():
@@ -39,17 +37,17 @@ def calculate_financial_metrics(
             continue
 
         # --- Position Sizing (same for long and short) ---
-        risk_in_money = capital * risk_per_trade
+        risk_in_money = capital * s.RISK_PER_TRADE
         atr_at_entry = row['atr']
         if atr_at_entry == 0: continue
 
-        stop_loss_distance_price = sl_atr_mult * atr_at_entry
+        stop_loss_distance_price = s.SL_ATR_MULT * atr_at_entry
         position_size_asset = risk_in_money / stop_loss_distance_price
         position_value_usd = position_size_asset * row['close']
 
         # --- Cost Calculation ---
-        entry_commission = position_value_usd * commission_rate
-        slippage_cost = position_value_usd * slippage_rate
+        entry_commission = position_value_usd * s.COMMISSION_RATE
+        slippage_cost = position_value_usd * s.SLIPPAGE_RATE
 
         # --- PnL Calculation ---
         pnl = 0
@@ -57,20 +55,20 @@ def calculate_financial_metrics(
         # y_true is mapped: 0=Sell(-1), 1=Hold(0), 2=Buy(1)
         if trade_type == 'buy':
             if row['y_true'] == 2: # Win
-                pnl = position_size_asset * (tp_atr_mult * atr_at_entry)
+                pnl = position_size_asset * (s.TP_ATR_MULT * atr_at_entry)
                 is_win = True
             else: # Loss
-                pnl = -position_size_asset * (sl_atr_mult * atr_at_entry)
+                pnl = -position_size_asset * (s.SL_ATR_MULT * atr_at_entry)
         elif trade_type == 'sell':
             # For a short trade, a win means price hits the lower barrier (TP), loss means hitting upper barrier (SL)
             if row['y_true'] == 0: # Win
-                pnl = position_size_asset * (sl_atr_mult * atr_at_entry)
+                pnl = position_size_asset * (s.SL_ATR_MULT * atr_at_entry)
                 is_win = True
             else: # Loss
-                pnl = -position_size_asset * (tp_atr_mult * atr_at_entry)
+                pnl = -position_size_asset * (s.TP_ATR_MULT * atr_at_entry)
 
         # --- Net PnL and Capital Update ---
-        exit_commission = (position_value_usd + pnl) * commission_rate
+        exit_commission = (position_value_usd + pnl) * s.COMMISSION_RATE
         net_pnl = pnl - entry_commission - exit_commission - slippage_cost
 
         capital += net_pnl
@@ -142,11 +140,11 @@ def main(asset: str, timeframe: str):
     results_df = pd.DataFrame(results)
 
     # --- (Z) Constraint on Threshold Optimization ---
-    MIN_TRADES = 1000
-    realistic_results_df = results_df[results_df['total_trades'] >= MIN_TRADES]
+    min_trades = settings.ML.MIN_TRADES_FOR_EVAL
+    realistic_results_df = results_df[results_df['total_trades'] >= min_trades]
 
     if realistic_results_df.empty:
-        print(f"CRITICAL: No threshold combination produced the minimum required {MIN_TRADES} trades.")
+        print(f"CRITICAL: No threshold combination produced the minimum required {min_trades} trades.")
         # Optional: Print the best of the insufficient-trade results for diagnostics
         if not results_df.empty:
             best_insufficient_row = results_df.loc[results_df['sharpe_ratio'].idxmax()]

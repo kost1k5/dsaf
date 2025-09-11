@@ -5,10 +5,12 @@ from sqlalchemy.orm import Session
 
 from src.database.session import SessionLocal
 from src.database.models import EconomicCalendarEvent
+from src.data_collector.collector import DataCollector # Import the main collector
 
-def fetch_and_store_economic_calendar(countries: list = None):
+def fetch_and_store_economic_calendar(data_collector: DataCollector, countries: list = None):
     """
-    Fetches economic calendar data from the OKX v5 API and stores it.
+    Fetches economic calendar data from the OKX v5 API using the provided
+    authenticated DataCollector instance and stores it.
     """
     print("--- Fetching Economic Calendar Data from OKX API ---")
 
@@ -16,24 +18,24 @@ def fetch_and_store_economic_calendar(countries: list = None):
         countries = ['US', 'CN', 'EU', 'GB', 'JP'] # Default countries
 
     country_str = ",".join(countries)
-    url = f"https://www.okx.com/api/v5/public/economic-calendar?country={country_str}"
+
+    # ccxt requires the path for the implicit API call
+    path = 'api/v5/public/economic-calendar'
+    params = {'country': country_str}
 
     all_events = []
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
+        # Use the authenticated fetch method from the existing DataCollector instance
+        # This will automatically handle signing and headers
+        data = data_collector.exchange.fetch(path, 'public', 'GET', params)
 
-        if data.get('code') == '0':
-            events = data.get('data', [])
-            if events:
-                all_events.extend(events[0]) # The data is nested in a list
-            print(f"Successfully fetched {len(all_events)} events from OKX.")
-        else:
-            print(f"Error from OKX API: {data.get('msg')}")
-            return
+        # The OKX API nests the actual data inside a 'data' key and another list
+        events = data.get('data', [])
+        if events:
+            all_events.extend(events[0])
+        print(f"Successfully fetched {len(all_events)} events from OKX.")
 
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"An error occurred while fetching data from OKX: {e}")
         return
 
@@ -53,12 +55,10 @@ def fetch_and_store_economic_calendar(countries: list = None):
 
             exists = db.query(EconomicCalendarEvent).filter_by(event_id=event_id).first()
             if not exists:
-                # Convert timestamp from milliseconds to a datetime object
                 ts = event.get('dateTimestamp')
                 if not ts:
                     continue
 
-                # Importance mapping: OKX uses 1,2,3 for low,med,high
                 importance_map = {'1': 'low', '2': 'medium', '3': 'high'}
                 importance_str = importance_map.get(str(event.get('importance')), 'low')
 
@@ -88,4 +88,6 @@ def fetch_and_store_economic_calendar(countries: list = None):
         db.close()
 
 if __name__ == '__main__':
-    fetch_and_store_economic_calendar()
+    # This script is not meant to be run standalone anymore,
+    # as it requires an initialized DataCollector.
+    print("This script should be called from the main data collection pipeline.")
