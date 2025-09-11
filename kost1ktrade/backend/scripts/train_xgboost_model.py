@@ -95,6 +95,9 @@ def train_xgboost_model(symbol: str, timeframe: str, start_date: str, end_date: 
     """
     print(f"\n--- Starting XGBoost Model Training for {symbol} ---")
 
+    # Construct the full symbol name required by the data cacher
+    full_symbol = f"{symbol}/USDT:USDT"
+
     # Steps 1-5: Data Fetching, Feature Creation, and Feature Selection
     # This part is identical to the LightGBM script to ensure a fair comparison.
 
@@ -102,7 +105,7 @@ def train_xgboost_model(symbol: str, timeframe: str, start_date: str, end_date: 
     start_dt = datetime.strptime(start_date, '%Y-%m-%d')
     end_dt = datetime.strptime(end_date, '%Y-%m-%d')
     cacher = DataCacher(db_path='data/historical_data.db')
-    df = cacher.fetch_and_cache_data(symbol, timeframe, start_dt, end_dt)
+    df = cacher.fetch_and_cache_data(full_symbol, timeframe, start_dt, end_dt)
     cacher.close()
     if df.empty: return
 

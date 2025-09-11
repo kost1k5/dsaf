@@ -147,7 +147,8 @@ def main(asset: str, timeframe: str):
     event_end_times_full = df['event_end_time'].copy()
 
     X_full.replace([np.inf, -np.inf], np.nan, inplace=True)
-    X_full.fillna(method='ffill', inplace=True); X_full.fillna(0, inplace=True)
+    X_full.ffill(inplace=True)
+    X_full.fillna(0, inplace=True)
     y_full = y_full.loc[X_full.index]
     event_end_times_full = event_end_times_full.loc[X_full.index]
 

@@ -398,10 +398,17 @@ class FeatureGenerator:
             self._log(f"    - Merge strategy: pd.merge_asof (backward on index)")
             self._log(f"    - Shape before merge: {self.df.shape}")
             self.df = pd.merge_asof(self.df.sort_index(), daily_sentiment.sort_index(), left_index=True, right_index=True, direction='backward')
-            self.df['news_sentiment'] = self.df['news_sentiment'].ffill()
-            self._log(f"    - Shape after merge: {self.df.shape}")
+
+            # Check if the merge resulted in any valid sentiment data
+            if 'news_sentiment' in self.df.columns and self.df['news_sentiment'].notna().any():
+                self.df['news_sentiment'] = self.df['news_sentiment'].ffill()
+                self._log(f"    - Merge successful. Shape after merge: {self.df.shape}")
+            else:
+                self.df['news_sentiment'] = 0
+                self._log("    - No matching news sentiment data for the given timeframe. Set to 0.")
         else:
-            self._log("  - No news data available. Skipping news sentiment.")
+            self._log("  - No news data available. Creating a neutral 'news_sentiment' column with value 0.")
+            self.df['news_sentiment'] = 0
         self._log(f"  - Sentiment feature step complete.")
         return self
 
@@ -569,8 +576,8 @@ class FeatureGenerator:
             self._log(f"  -> Series has too few observations ({len(series)}) for ADF test. Marking as non-stationary by default.")
             return 1.0
         if series.nunique() < 2:
-            self._log(f"  -> Series is constant. Marking as non-stationary.")
-            return 1.0
+            self._log(f"  -> Series is constant. Marking as stationary to prevent transformation.")
+            return 0.0
         try:
             # Use AIC to automatically select the optimal lag.
             self._log(f"  -> Running ADF test with autolag='AIC' on {len(series)} observations...")
