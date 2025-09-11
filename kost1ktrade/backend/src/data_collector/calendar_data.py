@@ -1,101 +1,91 @@
-import os
+import requests
 import pandas as pd
-from datetime import datetime, timedelta
-from apify_client import ApifyClient
-
-from src.core.config import settings
-from src.database.session import SessionLocal
-from src.database.models import EconomicCalendarEvent
+from datetime import datetime
 from sqlalchemy.orm import Session
 
-def fetch_and_store_economic_calendar(
-    start_date: str,
-    end_date: str,
-    countries: list = None,
-    importances: list = None
-):
-    """
-    Fetches economic calendar data from Apify and stores it in the database.
+from src.database.session import SessionLocal
+from src.database.models import EconomicCalendarEvent
 
-    :param start_date: The start date in 'dd/mm/yyyy' format.
-    :param end_date: The end date in 'dd/mm/yyyy' format.
-    :param countries: A list of countries to fetch data for.
-    :param importances: A list of importance levels ('high', 'medium', 'low').
+def fetch_and_store_economic_calendar(countries: list = None):
     """
-    api_token = settings.APIFY_API_TOKEN
-    if not api_token:
-        print("Warning: APIFY_API_TOKEN is not set in the environment. Skipping economic calendar data collection.")
-        return
-
-    print("--- Fetching Economic Calendar Data from Apify ---")
+    Fetches economic calendar data from the OKX v5 API and stores it.
+    """
+    print("--- Fetching Economic Calendar Data from OKX API ---")
 
     if countries is None:
-        countries = ["united states", "china", "germany", "united kingdom", "japan"]
-    if importances is None:
-        importances = ["high", "medium"]
+        countries = ['US', 'CN', 'EU', 'GB', 'JP'] # Default countries
 
-    client = ApifyClient(api_token)
+    country_str = ",".join(countries)
+    url = f"https://www.okx.com/api/v5/public/economic-calendar?country={country_str}"
+
     all_events = []
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        data = response.json()
 
-    for country in countries:
-        # Loop through each importance level and make a separate API call
-        for importance in importances:
-            print(f"  - Fetching calendar data for {country} (importance: {importance})...")
-            run_input = {
-                "country": country,
-                "importances": importance, # Pass one importance level at a time
-                "fromDate": start_date,
-                "toDate": end_date,
-            }
+        if data.get('code') == '0':
+            events = data.get('data', [])
+            if events:
+                all_events.extend(events[0]) # The data is nested in a list
+            print(f"Successfully fetched {len(all_events)} events from OKX.")
+        else:
+            print(f"Error from OKX API: {data.get('msg')}")
+            return
 
-            try:
-                run = client.actor("pintostudio/economic-calendar-data-investing-com").call(run_input=run_input)
-                for item in client.dataset(run["defaultDatasetId"]).iterate_items():
-                    all_events.append(item)
-            except Exception as e:
-                print(f"  - An error occurred while fetching calendar data for {country} (importance: {importance}): {e}")
-                continue
-
-    if not all_events:
-        print("No economic events found for the specified criteria across all countries.")
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred while fetching data from OKX: {e}")
         return
 
-    df = pd.DataFrame(all_events)
-    print(f"Successfully fetched a total of {len(df)} economic events from Apify.")
+    if not all_events:
+        print("No economic events found for the specified criteria.")
+        return
 
     # --- Data Processing and Storage ---
+    db: Session = SessionLocal()
     try:
-        df['event_datetime_utc'] = pd.to_datetime(df['date'] + ' ' + df['time'], format='%d/%m/%Y %H:%M', utc=True)
+        print("Storing economic events in the database...")
+        new_events_count = 0
+        for event in all_events:
+            event_id = event.get('id')
+            if not event_id:
+                continue
 
-        db: Session = SessionLocal()
-        try:
-            print("Storing economic events in the database...")
-            for _, row in df.iterrows():
-                # Check if event already exists to prevent duplicates
-                exists = db.query(EconomicCalendarEvent).filter_by(event_id=row['id']).first()
-                if not exists:
-                    db_event = EconomicCalendarEvent(
-                        event_id=row['id'],
-                        event_datetime=row['event_datetime_utc'],
-                        country=row['zone'],
-                        importance=row['importance'],
-                        event_name=row['event'],
-                        actual=row.get('actual'),
-                        forecast=row.get('forecast'),
-                        previous=row.get('previous')
-                    )
-                    db.add(db_event)
+            exists = db.query(EconomicCalendarEvent).filter_by(event_id=event_id).first()
+            if not exists:
+                # Convert timestamp from milliseconds to a datetime object
+                ts = event.get('dateTimestamp')
+                if not ts:
+                    continue
+
+                # Importance mapping: OKX uses 1,2,3 for low,med,high
+                importance_map = {'1': 'low', '2': 'medium', '3': 'high'}
+                importance_str = importance_map.get(str(event.get('importance')), 'low')
+
+                db_event = EconomicCalendarEvent(
+                    event_id=event_id,
+                    event_datetime=datetime.utcfromtimestamp(int(ts) / 1000),
+                    country=event.get('country'),
+                    importance=importance_str,
+                    event_name=event.get('event'),
+                    actual=event.get('actual'),
+                    forecast=event.get('forecast'),
+                    previous=event.get('previous')
+                )
+                db.add(db_event)
+                new_events_count += 1
+
+        if new_events_count > 0:
             db.commit()
-            print("Finished storing economic events.")
-        finally:
-            db.close()
+            print(f"Finished storing {new_events_count} new economic events.")
+        else:
+            print("No new events to store.")
+
     except Exception as e:
-        print(f"An error occurred while processing or storing economic calendar data: {e}")
+        print(f"An error occurred during DB operations: {e}")
+        db.rollback()
+    finally:
+        db.close()
 
 if __name__ == '__main__':
-    # Example usage
-    today = datetime.now()
-    start = (today - timedelta(days=365)).strftime('%d/%m/%Y')
-    end = (today + timedelta(days=30)).strftime('%d/%m/%Y')
-
-    fetch_and_store_economic_calendar(start_date=start, end_date=end)
+    fetch_and_store_economic_calendar()

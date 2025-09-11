@@ -98,7 +98,6 @@ class Settings(BaseSettings):
     TELEGRAM_CHAT_ID: Optional[str] = None
     NEWS_API_KEY: Optional[str] = None
     GEMINI_API_KEY: Optional[str] = None
-    APIFY_API_TOKEN: Optional[str] = None
     FRED_API_KEY: Optional[str] = None
 
     # --- General Bot Settings ---

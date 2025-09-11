@@ -2,6 +2,22 @@
 
 This document provides instructions for developing the Kost1kTrade project.
 
+---
+
+## Core Data Pipeline (As of September 2025)
+
+This section provides a high-level overview of the main data pipeline, which was significantly overhauled to improve reliability and observability.
+
+-   **Main Entry Point:** The entire pipeline is executed via `kost1ktrade/backend/scripts/run_full_pipeline.py`. This script is responsible for data collection and then processing each asset in parallel.
+-   **Subprocess Execution:** The pipeline uses a custom `run_command` function that leverages multithreading to stream `stdout` and `stderr` in real-time. This is critical for debugging and prevents the application from hanging.
+-   **Data Sources:**
+    -   **Macroeconomic Data (SPY, VIX, DXY):** Sourced from the **FRED API**. The implementation is in `kost1ktrade/backend/src/data_collector/macro_collector.py`. Requires a `FRED_API_KEY` in the `.env` file.
+    -   **Economic Calendar:** Sourced from the **native OKX v5 API**. The implementation is in `kost1ktrade/backend/src/data_collector/calendar_data.py`. This is a public endpoint and does not require an API key.
+    -   **Feature Generation:** The core logic for feature engineering is in `kost1ktrade/backend/src/processing/feature_generator.py`. This file contains extensive logging for each step.
+-   **Dependencies:** All dependencies are managed by `pdm` in the `kost1ktrade/backend/pyproject.toml` file. Always use `pdm install` after pulling changes to this file.
+
+---
+
 ## General
 - The project follows a monorepo structure with a Python backend and a JavaScript/TypeScript frontend.
 - The user prefers detailed explanations of progress and clear commit messages.

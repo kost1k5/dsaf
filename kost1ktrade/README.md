@@ -1,93 +1,82 @@
-# Kost1kTrade: Full Setup and Launch Guide
+# Kost1kTrade: Руководство по настройке и запуску
 
-This document provides a complete, step-by-step guide to set up the project, generate the trading model, and run the application.
+Этот документ содержит полное пошаговое руководство по настройке проекта, созданию торговой модели и запуску приложения.
 
 ---
 
-### **Step 1: One-Time Project Setup**
+### **Шаг 1: Первоначальная настройка проекта**
 
-This step only needs to be performed once.
+Этот шаг необходимо выполнить только один раз.
 
-1.  **Install Dependencies:**
-    *   **Backend (Python):** Navigate to the `kost1ktrade/backend` directory and run:
+1.  **Установка зависимостей:**
+    *   **Бэкенд (Python):** Перейдите в каталог `kost1ktrade/backend` и выполните:
         ```bash
         pdm install
         ```
 
-    *   **Frontend (JavaScript):** Navigate to the `kost1ktrade/frontend` directory and run:
+    *   **Фронтенд (JavaScript):** Перейдите в каталог `kost1ktrade/frontend` и выполните:
         ```bash
         npm install
         ```
 
-2.  **Configure Environment Variables:**
-    *   In the `kost1ktrade/backend` directory, copy the `.env.example` file to a new file named `.env`.
-    *   Open the `.env` file and fill in your API keys for the exchange and your Telegram Bot token.
+2.  **Настройка переменных окружения:**
+    *   В каталоге `kost1ktrade/backend` скопируйте файл `.env.example` в новый файл с именем `.env`.
+    *   Откройте файл `.env` и впишите ваши ключи API для биржи OKX, Telegram и FRED.
+    *   **ВАЖНО:** Для работы нового сборщика макроэкономических данных необходим ключ `FRED_API_KEY`. Получить его можно бесплатно на [сайте FRED](https://fred.stlouisfed.org/docs/api/api_key.html).
 
-3.  **Initialize the Database:**
-    *   From the `kost1ktrade/backend` directory, run the following command to create the database tables:
+3.  **Инициализация базы данных:**
+    *   Из каталога `kost1ktrade/backend` выполните следующую команду для создания таблиц в базе данных:
         ```bash
         pdm run python scripts/create_tables.py
         ```
+    *   *Примечание:* Вы можете добавить флаг `--recreate`, чтобы полностью удалить и пересоздать все таблицы.
 
 ---
 
-### **Step 2: Generate the Production Trading Model**
+### **Шаг 2: Создание торговых моделей**
 
-This is the new core workflow. This process runs the entire quantitative analysis pipeline to produce the final, production-ready model that the live bot will use.
+Это новый основной рабочий процесс. Этот процесс запускает весь количественный конвейер для создания готовых к работе моделей, которые будет использовать бот.
 
-**You should run this script whenever you want to generate or update the trading models for all symbols configured in your `.env` file.**
+**Вы должны запускать этот скрипт каждый раз, когда хотите создать или обновить торговые модели для всех активов, настроенных в вашем `.env` файле.**
 
-This single command will execute the entire quantitative pipeline (data collection, feature engineering, labeling, training, and saving) for all assets.
+Эта единственная команда выполнит весь количественный конвейер (сбор данных, инжиниринг признаков, разметку, обучение, оценку, бэктестинг и сохранение) для всех активов.
 
-From the `kost1ktrade/backend` directory, run:
+Из каталога `kost1ktrade/backend` выполните:
 ```bash
 pdm run python scripts/run_full_pipeline.py
 ```
 
-After the script finishes, new production-ready models will be available in the `kost1ktrade/backend/models/production/` directory. The bot will automatically find and use these new models the next time it makes a prediction.
+После завершения работы скрипта новые готовые к работе модели будут доступны в каталоге `kost1ktrade/backend/models/production/`. Бот автоматически найдет и будет использовать эти новые модели при следующем запуске.
 
 ---
 
-### **Step 3: Run the Application**
+### **Шаг 3: Запуск приложения**
 
-Once the setup is done and the model is generated, you can run the application.
+После завершения настройки и создания моделей вы можете запустить приложение.
 
-1.  **Navigate to the project's root directory** (the one that contains the `ecosystem.config.js` file).
+1.  **Перейдите в корневой каталог проекта** (тот, который содержит файл `ecosystem.config.js`).
 
-2.  **Start the application using PM2 (Recommended):**
+2.  **Запустите приложение с помощью PM2 (рекомендуется):**
     ```bash
     pm2 start ecosystem.config.js
     ```
 
-The trading bot and the web interface are now running. The bot will use the model you generated in Step 2.
+Торговый бот и веб-интерфейс теперь запущены. Бот будет использовать модели, которые вы сгенерировали на шаге 2.
 
-*   **Web Interface:** `http://localhost:5173`
-*   **To monitor logs:** `pm2 logs`
-*   **To stop the application:** `pm2 stop all`
+*   **Веб-интерфейс:** `http://localhost:5173`
+*   **Для мониторинга логов:** `pm2 logs`
+*   **Для остановки приложения:** `pm2 stop all`
 
 ---
 
-### **Step 4: Reviewing Logs**
+### **Шаг 4: Анализ логов**
 
-After running the `run_full_pipeline.py` script, two new log files are generated in the `kost1ktrade/backend` directory. These files provide detailed insights into the model generation and backtesting process.
+После запуска `run_full_pipeline.py` в каталоге `kost1ktrade/backend` создаются лог-файлы для каждого актива.
 
-1.  **`indicator_log.txt`**:
-    *   **Purpose:** This file details the entire feature generation process. It shows which technical indicators were calculated, what parameters were used (e.g., RSI with a length of 14), and how other data sources like sentiment and macro data were merged.
-    *   **Use Case:** Use this log to understand exactly how the data for the model is being prepared.
+*   **`indicator_log_{ASSET}.txt`**:
+    *   **Назначение:** В этом файле подробно описывается весь процесс генерации признаков для конкретного актива (например, `BTC`). Он показывает, какие технические индикаторы были рассчитаны, какие параметры использовались, и как были объединены другие источники данных.
+    *   **Использование:** Используйте этот лог, чтобы понять, как именно готовятся данные для модели.
 
-2.  **`full_log.txt`**:
-    *   **Purpose:** This file contains a detailed backtest report of the last 100 simulated trades based on the generated model's predictions.
-    *   **Key Features:**
-        *   **Dynamic Position Sizing:** The backtest uses a dynamic position sizing strategy based on the model's confidence:
-            *   **> 80% confidence:** 15% of capital is risked.
-            *   **> 70% confidence:** 5% of capital is risked.
-            *   **> 60% confidence:** 3% of capital is risked.
-        *   **Detailed Trade Info:** For each trade, the log includes the entry/exit times, Take Profit and Stop Loss levels, the model's confidence for the trade, and the resulting PnL.
-    *   **Use Case:** Analyze this log to evaluate the trading performance of the model and understand how the dynamic risk management works.
-
-#### **Alternative: Manual/Development Launch**
-
-You can also run the backend and frontend in separate terminals for development.
-
-*   **Backend:** In `kost1ktrade/backend`, run `pdm run uvicorn src.api.main:app --reload`
-*   **Frontend:** In `kost1ktrade/frontend`, run `npm run dev`
+*   **Вывод в консоли:**
+    *   **Назначение:** Благодаря последним изменениям, теперь весь процесс, включая обучение, оценку и бэктестинг, выводится в консоль в реальном времени. Вы можете видеть, какой шаг выполняется для какого актива.
+    *   **Использование:** Наблюдайте за выводом в консоли, чтобы отслеживать прогресс и выявлять ошибки на любом из 7 этапов конвейера.

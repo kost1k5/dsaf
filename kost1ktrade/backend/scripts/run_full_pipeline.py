@@ -2,6 +2,8 @@ import subprocess
 import sys
 import os
 import multiprocessing
+import threading
+from io import StringIO
 
 # Adjust the path to allow imports from the 'src' directory
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -11,43 +13,57 @@ from src.core.utils import parse_asset_from_symbol
 
 def run_command(command: list, asset: str = "PIPELINE"):
     """
-    Runs a command using subprocess and streams its output in real-time.
-    Prepends the asset name to each line for clarity in parallel execution.
+    Runs a command using subprocess and streams its output in real-time
+    by reading stdout and stderr in separate threads to prevent deadlocks.
     """
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     executable = sys.executable
 
+    # Thread-safe way to capture stderr output
+    stderr_capture = StringIO()
+
+    def stream_reader(pipe, prefix, output_capture=None):
+        """Reads and prints lines from a stream (pipe)."""
+        if not pipe:
+            return
+        try:
+            for line in iter(pipe.readline, ''):
+                print(f"[{prefix}] {line}", end='')
+                if output_capture:
+                    output_capture.write(line)
+        finally:
+            pipe.close()
+
     try:
-        # Use Popen to stream output in real-time
         process = subprocess.Popen(
             [executable] + command,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
             cwd=base_dir,
-            bufsize=1, # Line-buffered
+            bufsize=1,
             universal_newlines=True
         )
 
-        # Stream stdout
-        if process.stdout:
-            for line in process.stdout:
-                # Prepend asset to each line for clarity in parallel logs
-                print(f"[{asset}] {line}", end='')
+        stdout_thread = threading.Thread(target=stream_reader, args=(process.stdout, asset))
+        # Use a different prefix for stderr to easily distinguish error lines
+        stderr_thread = threading.Thread(target=stream_reader, args=(process.stderr, f"{asset}-ERR", stderr_capture))
 
-        # Wait for the process to complete and get the exit code
+        stdout_thread.start()
+        stderr_thread.start()
+
+        stdout_thread.join()
+        stderr_thread.join()
+
         process.wait()
 
-        # Check for errors after streaming all output
         if process.returncode != 0:
-            # Capture any remaining error output
-            error_output = process.stderr.read() if process.stderr else ""
             error_message = f"\n---!!! SCRIPT FAILED: {' '.join(command)} !!!---\n"
             error_message += f"---!!! Return Code: {process.returncode} !!!---\n"
-            error_message += f"---!!! STDERR: ---\n{error_output}\n"
+            error_message += f"---!!! STDERR: ---\n{stderr_capture.getvalue()}\n"
             return False, error_message
 
-        return True, "Success" # Output is already streamed, so we just need status
+        return True, "Success"
 
     except FileNotFoundError:
         error_message = f"---!!! SCRIPT FAILED: Executable not found at {executable} !!!---\n"
