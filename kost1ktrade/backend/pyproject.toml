@@ -23,6 +23,7 @@ dependencies = [
     "shap",
     "lightgbm",
     "optuna",
+    "xgboost",
     # Финансы
     "ccxt==4.5.3",
     "yfinance==0.2.40",
@@ -35,7 +36,6 @@ dependencies = [
     "textblob==0.18.0.post0",
     "vaderSentiment==3.3.2",
     "feedparser==6.0.11",
-    "apify-client",
 ]
 
 [tool.pdm]
