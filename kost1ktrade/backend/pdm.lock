@@ -5,7 +5,7 @@
 groups = ["default", "dev"]
 strategy = ["inherit_metadata"]
 lock_version = "4.5.0"
-content_hash = "sha256:9150fc32cf340eddb06be42cbf0d908f0363aeb6d4f6c8a4828e07c30ed33685"
+content_hash = "sha256:52a42768908049d472dbbe744e8df50f845167117f131c921b3ac28da8e5f9e1"
 
 [[metadata.targets]]
 requires_python = ">=3.12"
@@ -248,12 +248,12 @@ files = [
 
 [[package]]
 name = "ccxt"
-version = "4.3.42"
+version = "4.5.3"
 summary = "A JavaScript / TypeScript / Python / C# / PHP cryptocurrency trading library with support for 100+ exchanges"
 groups = ["default"]
 dependencies = [
     "aiodns>=1.1.1; python_version >= \"3.5.2\"",
-    "aiohttp>=3.8; python_version >= \"3.5.2\"",
+    "aiohttp>=3.10.11; python_version >= \"3.5.2\"",
     "certifi>=2018.1.18",
     "cryptography>=2.6.1",
     "requests>=2.18.4",
@@ -262,8 +262,8 @@ dependencies = [
     "yarl>=1.7.2; python_version >= \"3.5.2\"",
 ]
 files = [
-    {file = "ccxt-4.3.42-py2.py3-none-any.whl", hash = "sha256:ec67a22513ebf766776494a9513c4225d69a2758a948a4f0df2d3fafa71892c3"},
-    {file = "ccxt-4.3.42.tar.gz", hash = "sha256:83bd7fa260f88a8dcef11089515e7bfdd2603ae8dd11bb0b62e0f2109484f1ef"},
+    {file = "ccxt-4.5.3-py2.py3-none-any.whl", hash = "sha256:06e44149b4ced33cdb904d0f0fbc82fc2e1e575dbcb22fc115d058511a33b263"},
+    {file = "ccxt-4.5.3.tar.gz", hash = "sha256:a9f6b8c68cf3582290f4e771db7ccab5167d7e920bcf3ac9b09a7dc0b00b6873"},
 ]
 
 [[package]]

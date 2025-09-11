@@ -24,7 +24,7 @@ dependencies = [
     "lightgbm",
     "optuna",
     # Финансы
-    "ccxt==4.3.42",
+    "ccxt==4.5.3",
     "yfinance==0.2.40",
     "TA-Lib",
     # Утилиты и NLP

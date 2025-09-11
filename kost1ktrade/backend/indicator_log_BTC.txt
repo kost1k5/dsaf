@@ -1,0 +1,72 @@
+--- Starting Feature Generation for BTC ---
+  - Calculating log returns for price stationarity.
+  - DataFrame 'ohlcv_1d' is None or empty. Skipping.
+  - DataFrame 'eth_ohlcv' is None or empty. Skipping.
+  - DataFrame 'economic_calendar' is None or empty. Skipping.
+
+[Step 1/8] Adding Technical Indicators (using TA-Lib)
+  - Calculating RSI, ADX, PPO for length: 7
+  - Calculating RSI, ADX, PPO for length: 14
+  - Calculating RSI, ADX, PPO for length: 21
+  - Calculating ATR (length: 14)
+  - Calculating Bollinger Bands & Width (length: 20)
+  - Calculating Stochastic Oscillator (14, 3, 3)
+  - Calculating MACD (12, 26, 9)
+  - Calculating On-Balance Volume (OBV)
+  - Calculating Money Flow Index (MFI as CMF substitute, length: 20)
+  - Calculating Volume Weighted Average Price (VWAP)
+  - Calculating distance from VWAP
+  - Calculating EMA (length: 200)
+  - Generated 38 columns so far.
+
+[Step 2/8] Adding Multi-Timeframe Features (using TA-Lib)
+  - Calculating indicators for 4h timeframe (RSI, PPO)
+  - Merged 4h indicators onto base timeframe.
+  - Skipping 1d timeframe, data not available.
+
+[Step 3/8] Adding Derivative Features
+  - Merging funding rate data.
+  - Calculating funding rate momentum (3-period diff).
+
+[Step 4/8] Adding Sentiment Features
+  - Merging Fear & Greed Index data.
+  - Calculating VADER sentiment from news headlines.
+  - Merged daily news sentiment.
+
+[Step 5/8] Adding Economic Calendar Features
+  - Economic calendar data not available. Skipping.
+
+[Step 6/8] Adding Cross-Market Features
+  - Macro data not available or standardized. Skipping cross-market features.
+  - No ETH data available for correlation.
+
+[Step 7/8] Adding Time-Based Features
+  - Added 'hour_of_day' and 'day_of_week'.
+  - Calculating 24-period rolling volatility.
+
+[Step 8/9] Adding Lag Features
+  - Lagging columns with periods: [3, 6, 12, 24]
+    - Lagging 'close_pct_change'
+    - Lagging 'volume'
+    - Lagging 'funding_rate'
+
+[Bonus Step] Cleaning up raw price data...
+  - Dropped columns: ['open', 'high', 'low']
+
+[Bonus Step] Optimizing memory by downcasting float types...
+  - Downcasting complete.
+
+[Bonus Step] Checking for Feature Stationarity
+  - Column 'BBU_20_2.0' is not stationary (p-value: 0.9387). Applying transformation.
+  - Column 'BBM_20_2.0' is not stationary (p-value: 0.9348). Applying transformation.
+  - Column 'BBL_20_2.0' is not stationary (p-value: 0.9504). Applying transformation.
+  - Column 'OBV' is not stationary (p-value: 0.4427). Applying transformation.
+  - Column 'VWAP_D' is not stationary (p-value: 0.9510). Applying transformation.
+  - Column 'funding_rate' is not stationary (p-value: 0.4548). Applying transformation.
+  -> Series has too few observations (8) for ADF test with maxlag=48. Skipping.
+  - Column 'funding_rate_lag_3' is not stationary (p-value: 0.3827). Applying transformation.
+  - Column 'funding_rate_lag_6' is not stationary (p-value: 0.3719). Applying transformation.
+  - Column 'funding_rate_lag_12' is not stationary (p-value: 0.3719). Applying transformation.
+  - Column 'funding_rate_lag_24' is not stationary (p-value: 0.3896). Applying transformation.
+
+--- Feature Generation Complete ---
