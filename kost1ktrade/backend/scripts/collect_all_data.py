@@ -45,6 +45,8 @@ def main(days_history: int):
         print("\n--- Collecting Macroeconomic Data ---")
         latest_macro_ts = macro_collector.get_latest_macro_timestamp()
         if latest_macro_ts:
+            # Assume the timestamp from the DB is UTC, make it aware before comparison
+            latest_macro_ts = latest_macro_ts.replace(tzinfo=UTC)
             start_date_macro = latest_macro_ts + timedelta(days=1)
             print(f"Found existing macro data up to {latest_macro_ts.strftime('%Y-%m-%d')}.")
         else:
