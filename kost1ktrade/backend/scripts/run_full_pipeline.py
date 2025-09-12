@@ -121,26 +121,31 @@ def main():
 
     BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 
-    # --- Data Directory Reset ---
-    print("\n--- Resetting Data Directory ---")
-    DATA_DIR = os.path.join(BASE_DIR, 'data')
-    if os.path.exists(DATA_DIR):
-        print(f"Deleting existing data directory: {DATA_DIR}")
+    # --- Directory Reset ---
+    print("\n--- Resetting Output Directories ---")
+    DIRS_TO_RESET = ['data', 'reports', 'models']
+
+    for dir_name in DIRS_TO_RESET:
+        dir_path = os.path.join(BASE_DIR, dir_name)
+
+        if os.path.exists(dir_path):
+            print(f"Deleting existing directory: {dir_path}")
+            try:
+                shutil.rmtree(dir_path)
+                print(f"-> Successfully removed {dir_name} directory.")
+            except Exception as e:
+                print(f"---!!! FAILED to delete {dir_name} directory: {e} !!!---")
+                sys.exit(1)
+
+        print(f"Creating new directory: {dir_path}")
         try:
-            shutil.rmtree(DATA_DIR)
-            print("-> Successfully removed data directory.")
+            os.makedirs(dir_path, exist_ok=True)
+            print(f"-> Successfully created {dir_name} directory.")
         except Exception as e:
-            print(f"---!!! FAILED to delete data directory: {e} !!!---")
+            print(f"---!!! FAILED to create {dir_name} directory: {e} !!!---")
             sys.exit(1)
 
-    print(f"Creating new data directory: {DATA_DIR}")
-    try:
-        os.makedirs(DATA_DIR, exist_ok=True)
-        print("-> Successfully created data directory.")
-    except Exception as e:
-        print(f"---!!! FAILED to create data directory: {e} !!!---")
-        sys.exit(1)
-    print("--- Data directory reset complete ---")
+    print("--- Output directories reset complete ---")
 
 
     # --- Log File Management ---
