@@ -57,6 +57,7 @@ def optimize_hyperparameters_xgb(X_train, y_train, n_trials=50):
             'gamma': trial.suggest_float('gamma', 1e-7, 1.0, log=True),
             'lambda': trial.suggest_float('lambda', 1e-7, 1.0, log=True),  # L2 regularization
             'alpha': trial.suggest_float('alpha', 1e-7, 1.0, log=True),   # L1 regularization
+            'tree_method': 'gpu_hist',  # Use GPU for training
             'random_state': 42,
             'n_jobs': -1
         }
@@ -149,6 +150,7 @@ def train_xgboost_model(symbol: str, timeframe: str):
         num_class=3,
         eval_metric='mlogloss',
         random_state=42,
+        tree_method='gpu_hist',  # Use GPU for training final model
         **best_params
     )
     final_model.fit(X_train, y_train)
