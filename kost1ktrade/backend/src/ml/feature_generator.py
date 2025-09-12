@@ -82,9 +82,10 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # --- NEW: Cyclical Time-Based Features ---
     print("Adding cyclical time-based features...")
-    if 'open_time' in df_feat.columns and pd.api.types.is_datetime64_any_dtype(df_feat['open_time']):
-        hour = df_feat['open_time'].dt.hour
-        day_of_week = df_feat['open_time'].dt.dayofweek
+    # The index should be datetime at this point due to the fix at the start of the function.
+    if isinstance(df_feat.index, pd.DatetimeIndex):
+        hour = df_feat.index.hour
+        day_of_week = df_feat.index.dayofweek
         df_feat['hour_sin'] = np.sin(2 * np.pi * hour / 24)
         df_feat['hour_cos'] = np.cos(2 * np.pi * hour / 24)
         df_feat['day_of_week_sin'] = np.sin(2 * np.pi * day_of_week / 7)
