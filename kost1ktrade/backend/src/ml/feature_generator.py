@@ -34,125 +34,80 @@ def _calculate_vwap(df: pd.DataFrame) -> pd.Series:
 def create_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Enriches the candle DataFrame with a variety of technical indicator features
-    using the TA-Lib library.
+    using the TA-Lib library, with methodological improvements.
     """
     print("Generating a rich set of TA features (using TA-Lib)...")
 
-    # Create a copy to avoid modifying the original DataFrame
     df_feat = df.copy()
+    df_feat['log_returns'] = np.log(df_feat['close']).diff()
 
-    # Prepare numpy arrays for TA-Lib
     open_p, high, low, close, volume = df_feat['open'].values, df_feat['high'].values, df_feat['low'].values, df_feat['close'].values, df_feat['volume'].values
 
-    # Momentum Indicators
+    # --- Base Indicators ---
     df_feat['RSI_14'] = talib.RSI(close)
     macd, macdsignal, macdhist = talib.MACD(close)
     df_feat['MACD_12_26_9'] = macd
     df_feat['MACDs_12_26_9'] = macdsignal
     df_feat['MACDh_12_26_9'] = macdhist
-    ppo_line_np = talib.PPO(close, fastperiod=12, slowperiod=26, matype=0)
-    ppo_signal_np = talib.EMA(ppo_line_np, timeperiod=9)
-    ppo_line_series = pd.Series(ppo_line_np, index=df_feat.index)
-    ppo_signal_series = pd.Series(ppo_signal_np, index=df_feat.index)
-    ppo_hist_series = ppo_line_series - ppo_signal_series
-    df_feat['PPO_12_26_9'] = ppo_line_series
-    df_feat['PPOs_12_26_9'] = ppo_signal_series
-    df_feat['PPOh_12_26_9'] = ppo_hist_series
-    df_feat['ROC_10'] = talib.ROC(close)
-    slowk, slowd = talib.STOCH(high, low, close)
-    df_feat['STOCHk_14_3_3'] = slowk
-    df_feat['STOCHd_14_3_3'] = slowd
-    df_feat['AO'] = _calculate_ao(high, low)
-
-    # Trend Indicators
     df_feat['ADX_14'] = talib.ADX(high, low, close)
-    aroondown, aroonup = talib.AROON(high, low)
-    df_feat['AROOND_14'] = aroondown
-    df_feat['AROONU_14'] = aroonup
-    df_feat['AROONOSC_14'] = talib.AROONOSC(high, low)
-    df_feat['PSAR'] = talib.SAR(high, low)
     df_feat['SMA_20'] = talib.SMA(close, timeperiod=20)
     df_feat['SMA_50'] = talib.SMA(close, timeperiod=50)
     df_feat['SMA_200'] = talib.SMA(close, timeperiod=200)
-
-    # Volatility Indicators
-    # The 'r' in 'ATRr' from pandas-ta means 'raw'. talib.ATR is raw by default.
     df_feat['ATRr_14'] = talib.ATR(high, low, close, timeperiod=14)
     upper, middle, lower = talib.BBANDS(close)
     df_feat['BBU_20_2.0'] = upper
     df_feat['BBM_20_2.0'] = middle
     df_feat['BBL_20_2.0'] = lower
-    kc_upper, kc_middle, kc_lower = _calculate_kc(high, low, close)
-    df_feat['KCUe_20_2'] = kc_upper
-    df_feat['KCMe_20_2'] = kc_middle
-    df_feat['KCLe_20_2'] = kc_lower
-
-    # Volume Indicators
     df_feat['OBV'] = talib.OBV(close, volume)
-    # Using MFI as a substitute for CMF
-    df_feat['CMF_20'] = talib.MFI(high, low, close, volume, timeperiod=20)
-    # Calculate VWAP, assuming the DataFrame index is a DatetimeIndex
     if isinstance(df_feat.index, pd.DatetimeIndex):
         df_feat['VWAP_D'] = _calculate_vwap(df_feat)
     else:
-        print("Warning: DataFrame index is not DatetimeIndex, cannot calculate VWAP.")
         df_feat['VWAP_D'] = np.nan
 
-    # --- Basic & Additional Time-Series Features (NEW) ---
-    df_feat['SMA_10'] = talib.SMA(close, timeperiod=10)
-    df_feat['STD_20'] = talib.STDDEV(close, timeperiod=20)
-    df_feat['H-L'] = high - low
-    df_feat['C-O'] = close - open
+    # --- NEW: Statistical & Market Regime Features ---
+    print("Adding statistical and market regime features...")
+    # Volume Z-Score
+    volume_mean_20 = df_feat['volume'].rolling(window=20).mean()
+    volume_std_20 = df_feat['volume'].rolling(window=20).std()
+    df_feat['volume_z_score_20'] = (df_feat['volume'] - volume_mean_20) / volume_std_20.replace(0, np.nan)
+    # Rolling Skewness and Kurtosis
+    window_30d = 30 * 24 # Assuming 1h timeframe
+    df_feat['rolling_skew_30d'] = df_feat['log_returns'].rolling(window=window_30d).skew()
+    df_feat['rolling_kurt_30d'] = df_feat['log_returns'].rolling(window=window_30d).kurt()
 
-    # Ratio of SMAs
-    if 'SMA_50' in df_feat.columns and 'SMA_20' in df_feat.columns:
-        # To avoid division by zero
-        df_feat['SMA20_50_Ratio'] = df_feat['SMA_20'] / df_feat['SMA_50'].replace(0, np.nan)
 
-    # --- Feature Stationarity Transformations ---
-    print("Transforming features to be stationary...")
-    close_price = df_feat['close']
-
-    # Normalize price-based indicators
-    for col in df_feat.columns:
-        # SMAs, PSAR, VWAP, and the moving average lines of BBands/KC
-        if col.startswith(('SMA_', 'PSAR', 'BBM_', 'KCMe_', 'VWAP_')) and not col.endswith(('_pct', '_normalized')):
-             if col in df_feat.columns:
-                df_feat[f'{col}_normalized'] = (close_price / df_feat[col]) - 1
-                df_feat.drop(columns=[col], inplace=True)
-
-    # Normalize MACD lines (histogram is already stationary)
-    for col in df_feat.columns:
-        if col.startswith('MACD_') and not col.startswith('MACDh_') and not col.endswith('_normalized'):
-            if col in df_feat.columns:
-                df_feat[f'{col}_normalized'] = df_feat[col] / close_price
-                df_feat.drop(columns=[col], inplace=True)
-
-    # Transform OBV from cumulative to period-over-period change
-    obv_col = next((col for col in df_feat.columns if col.startswith('OBV')), None)
-    if obv_col:
-        # Use the original column name for the new feature name for clarity
-        df_feat[f'{obv_col}_pct_change'] = df_feat[obv_col].pct_change(periods=14) # Using a 14-period change
-        df_feat.drop(columns=[obv_col], inplace=True)
-
-    # Normalize other newly added raw-price features
-    for col in ['H-L', 'C-O', 'STD_20']:
-        if col in df_feat.columns:
-            df_feat[f'{col}_normalized'] = df_feat[col] / close_price
-            df_feat.drop(columns=[col], inplace=True)
-
-    # Add custom time-based and return features
-    # Ensure 'open_time' is a datetime object before accessing dt properties
+    # --- NEW: Cyclical Time-Based Features ---
+    print("Adding cyclical time-based features...")
     if 'open_time' in df_feat.columns and pd.api.types.is_datetime64_any_dtype(df_feat['open_time']):
-        df_feat['hour'] = df_feat['open_time'].dt.hour
-        df_feat['day_of_week'] = df_feat['open_time'].dt.dayofweek
+        hour = df_feat['open_time'].dt.hour
+        day_of_week = df_feat['open_time'].dt.dayofweek
+        df_feat['hour_sin'] = np.sin(2 * np.pi * hour / 24)
+        df_feat['hour_cos'] = np.cos(2 * np.pi * hour / 24)
+        df_feat['day_of_week_sin'] = np.sin(2 * np.pi * day_of_week / 7)
+        df_feat['day_of_week_cos'] = np.cos(2 * np.pi * day_of_week / 7)
 
+    # --- IMPROVED: Feature Stationarity and Normalization ---
+    print("Normalizing features and ensuring stationarity...")
+    atr = df_feat['ATRr_14'].replace(0, np.nan)
+
+    # 1. Normalize price-based indicators by ATR
+    df_feat['dist_from_bbm_norm'] = (df_feat['close'] - df_feat['BBM_20_2.0']) / atr
+    df_feat['dist_from_vwap_norm'] = (df_feat['close'] - df_feat['VWAP_D']) / atr
+    df_feat['dist_from_sma200_norm'] = (df_feat['close'] - df_feat['SMA_200']) / atr
+
+    # 2. Make OBV stationary with .diff()
+    df_feat['OBV_diff'] = df_feat['OBV'].diff()
+
+    # 3. Drop original, non-stationary columns that have been replaced
+    cols_to_drop = [
+        'SMA_20', 'SMA_50', 'SMA_200', 'BBU_20_2.0', 'BBM_20_2.0', 'BBL_20_2.0',
+        'VWAP_D', 'OBV'
+    ]
+    df_feat.drop(columns=cols_to_drop, inplace=True, errors='ignore')
+
+    # Add return features for labeling/analysis if needed later
     for n in [1, 2, 4, 8, 16]:
         df_feat[f'return_{n}h'] = df_feat['close'].pct_change(n)
-
-    # Note: We do not drop NaNs here anymore. This will be handled in the main training
-    # script after labels are also generated, ensuring we only drop rows that are
-    # truly unusable for training.
 
     print(f"Feature generation complete. New shape: {df_feat.shape}")
 

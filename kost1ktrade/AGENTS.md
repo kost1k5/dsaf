@@ -13,7 +13,7 @@ This section provides a high-level overview of the main data pipeline, which was
 -   **Data Sources:**
     -   **Macroeconomic Data (SPY, VIX, DXY):** Sourced from the **FRED API**. The implementation is in `kost1ktrade/backend/src/data_collector/macro_collector.py`. Requires a `FRED_API_KEY` in the `.env` file.
     -   **Economic Calendar:** Sourced from the **native OKX v5 API**. The implementation is in `kost1ktrade/backend/src/data_collector/calendar_data.py`. This is a public endpoint and does not require an API key.
-    -   **Feature Generation:** The core logic for feature engineering is in `kost1ktrade/backend/src/processing/feature_generator.py`. This file contains extensive logging for each step.
+    -   **Feature Generation:** The project contains two feature generators. The primary one for the ML pipeline is `kost1ktrade/backend/src/ml/feature_generator.py`, which is a streamlined function used directly by the training scripts. A more complex, class-based generator with detailed logging exists at `kost1ktrade/backend/src/processing/feature_generator.py` for more general-purpose or future use.
 -   **Dependencies:** All dependencies are managed by `pdm` in the `kost1ktrade/backend/pyproject.toml` file. Always use `pdm install` after pulling changes to this file.
 
 ---
@@ -93,7 +93,14 @@ This update represents a major architectural evolution, turning the system into 
 - **Walk-Forward Optimization**: The new `scripts/run_wfo.py` script allows for robust WFO of strategy parameters. This is a powerful tool for validating strategy robustness.
 - **Pairs Discovery**: The `scripts/find_cointegrated_pairs.py` script automates the process of finding correlated and cointegrated asset pairs suitable for the new pairs trading strategy.
 - **XGBoost Model Training**: The `scripts/train_xgboost_model.py` script has been added as an alternative to the LightGBM trainer, allowing for experimentation with different ML algorithms.
-- **Enhanced Feature Engineering**: The `ml/feature_generator.py` module has been updated with new features, including `High-Low` volatility, `Close-Open` impulse, and additional SMAs and standard deviation metrics. All new price-based features are normalized for stationarity.
+- **Enhanced Feature Engineering**: The `ml/feature_generator.py` module has been significantly updated with improved methodologies and new features:
+    - **Methodological Improvements:**
+        - **Cyclical Time Encoding:** `hour_of_day` and `day_of_week` are now encoded as sin/cos pairs to preserve their cyclical nature.
+        - **ATR-Normalized Distances:** Price-based indicators (like distance from BBM, VWAP, SMA200) are now normalized by the Average True Range (ATR) instead of simple percentage change, making them more robust to volatility changes.
+        - **Improved Stationarity:** The OBV feature is now made stationary using `.diff()` instead of `.pct_change()` to avoid issues with zero-crossings.
+    - **New Features:**
+        - **Volume Z-Score:** A 20-period Z-score for volume has been added to detect anomalous volume activity.
+        - **Market Regime Indicators:** Rolling 30-day skewness and kurtosis of log returns have been added to help the model assess tail risk and return distribution asymmetry.
 
 ---
 
