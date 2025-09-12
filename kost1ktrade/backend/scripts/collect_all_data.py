@@ -66,7 +66,7 @@ def main(days_history: int):
             print("Macro data is already up to date.")
 
         print("\n--- Collecting Economic Calendar Events ---")
-        # This function is now self-contained and uses the requests library directly.
+        # Using requests library directly, no longer needs data_collector
         fetch_and_store_economic_calendar()
 
 
