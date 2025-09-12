@@ -1,12 +1,9 @@
 import requests
-import time
 from datetime import datetime
 from sqlalchemy.orm import Session
 
 from src.database.session import SessionLocal
 from src.database.models import EconomicCalendarEvent
-# The DataCollector import is no longer needed for this function
-# from src.data_collector.collector import DataCollector
 
 def fetch_and_store_economic_calendar(countries: list = None):
     """
@@ -16,27 +13,19 @@ def fetch_and_store_economic_calendar(countries: list = None):
     print("--- Fetching Economic Calendar Data from OKX API ---")
 
     if countries is None:
-        # Default countries can be modified here if needed
         countries = ['US', 'CN', 'EU', 'GB', 'JP']
 
     base_url = "https://www.okx.com"
     endpoint = "/api/v5/public/economic-calendar"
-
-    # OKX API uses 'country' for a comma-separated list, not 'region'
-    params = {
-        "country": ",".join(countries),
-    }
+    params = {"country": ",".join(countries)}
 
     all_events = []
     try:
         response = requests.get(base_url + endpoint, params=params)
-        response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
-
+        response.raise_for_status()
         data = response.json()
 
-        # According to OKX docs, code "0" means success
         if data.get("code") == "0":
-            # The data is nested in a list within the 'data' key
             event_list = data.get("data", [])
             if event_list:
                 all_events = event_list[0]
@@ -48,7 +37,7 @@ def fetch_and_store_economic_calendar(countries: list = None):
     except requests.exceptions.RequestException as e:
         print(f"An error occurred during the network request: {e}")
         return
-    except ValueError: # Catches JSON decoding errors
+    except ValueError:
         print(f"Failed to decode JSON from response. Response text: {response.text}")
         return
 
@@ -56,10 +45,8 @@ def fetch_and_store_economic_calendar(countries: list = None):
         print("No economic events found for the specified criteria.")
         return
 
-    # --- Data Processing and Storage (largely unchanged) ---
     db: Session = SessionLocal()
     try:
-        print("Storing economic events in the database...")
         new_events_count = 0
         for event in all_events:
             event_id = event.get('id')
@@ -101,6 +88,5 @@ def fetch_and_store_economic_calendar(countries: list = None):
         db.close()
 
 if __name__ == '__main__':
-    # This function can now be run standalone for testing
     print("Running standalone test for fetch_and_store_economic_calendar...")
     fetch_and_store_economic_calendar()

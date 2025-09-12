@@ -41,6 +41,7 @@ async def lifespan(app: FastAPI):
             "instrument": "BTC-USDT-SWAP",
             "target_events": ["CPI", "FOMC", "Non-Farm Payrolls"],
             "risk_percent": 0.01,  # 1%
+            "atr_timeframe": "5m", # Timeframe for ATR calculation
             "atr_multiplier": 2.5,
             "time_exit_minutes": 30
         }

@@ -30,6 +30,7 @@ class NewsWebsocketClient:
         self.instrument = self.config.get("instrument", "BTC-USDT-SWAP")
         self.risk_percent = self.config.get("risk_percent", 0.01)
         self.atr_multiplier = self.config.get("atr_multiplier", 2.5)
+        self.atr_timeframe = self.config.get("atr_timeframe", "5m")
         self.time_exit_minutes = self.config.get("time_exit_minutes", 30)
 
     def _on_message(self, ws, message):
@@ -117,10 +118,11 @@ class NewsWebsocketClient:
             print(f"Account equity: ${account_equity:,.2f}")
 
             # 2. Fetch recent candles for ATR calculation
-            ohlcv = self.exchange.fetch_ohlcv(self.instrument, '5m', limit=20)
+            print(f"Fetching recent {self.atr_timeframe} candles for ATR calculation...")
+            ohlcv = self.exchange.fetch_ohlcv(self.instrument, self.atr_timeframe, limit=20)
             df = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
             atr = talib.ATR(df['high'], df['low'], df['close'], timeperiod=14).iloc[-1]
-            print(f"Latest 14-period ATR (5m): {atr:.4f}")
+            print(f"Latest 14-period ATR ({self.atr_timeframe}): {atr:.4f}")
 
             # 3. Get entry price and calculate stop loss
             ticker = self.exchange.fetch_ticker(self.instrument)
@@ -155,14 +157,21 @@ class NewsWebsocketClient:
             print(json.dumps(market_order, indent=2))
 
             # 6. Place the stop-loss order
-            sl_params = {'stopLoss': {'sl': str(stop_loss_price)}}
-            print(f"Placing STOP order at ${stop_loss_price:,.2f}...")
-            # Note: For OKX, stop orders are placed via create_order with specific params
-            # The exact params can vary, this is a common pattern.
-            # We place an order for the opposite side.
             sl_side = 'sell' if side == 'buy' else 'buy'
+            # For OKX, stop market orders are placed by specifying the trigger price in the params
+            # and setting the order type to 'market'. The 'stop' type in create_order is a unified ccxt concept.
+            # We will use the 'market' type with stop parameters.
+            # The most reliable way is to specify the order type in params for clarity.
+            sl_params = {
+                'tdMode': 'cross',
+                'slTriggerPx': str(stop_loss_price),
+                'slOrdPx': '-1',  # A value of -1 indicates a market order for the stop loss
+            }
+            print(f"Placing STOP MARKET order with trigger at ${stop_loss_price:,.2f}...")
+            # Note: CCXT unifies this. A 'stop' order with no price becomes a stop-market.
+            # Let's use the most explicit and correct params for OKX.
             stop_order = self.exchange.create_order(
-                self.instrument, 'stop', sl_side, num_contracts, stop_loss_price, params={'tdMode': 'cross'}
+                self.instrument, 'market', sl_side, num_contracts, params=sl_params
             )
             print("Stop-loss order placed successfully:")
             print(json.dumps(stop_order, indent=2))
@@ -196,9 +205,9 @@ class NewsWebsocketClient:
                 side = 'sell' if contracts > 0 else 'buy'
                 print(f"Position found: {contracts} contracts. Placing closing MARKET {side.upper()} order.")
 
-                # The 'create_market_order' for closing a position might need specific params
-                close_params = {'posSide': position_to_close['side']}
-                closing_order = self.exchange.create_market_order(instrument_id, side, abs(contracts), params=close_params)
+                # For one-way mode (default), no special params are needed to close.
+                # Simply sending an order for the opposite side is sufficient.
+                closing_order = self.exchange.create_market_order(instrument_id, side, abs(contracts))
                 print("Position closed successfully:")
                 print(json.dumps(closing_order, indent=2))
             else:
