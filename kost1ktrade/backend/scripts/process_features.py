@@ -16,7 +16,8 @@ from sqlalchemy import func
 def load_data_from_db(db: Session, asset: str, timeframe: str) -> pd.DataFrame:
     """
     Loads all necessary raw data from the database for a given asset and
-    merges them into a single comprehensive DataFrame.
+    merges them into a single comprehensive DataFrame, ensuring all indexes are
+    properly converted to datetime objects.
     """
     print(f"Loading and merging data for {asset} ({timeframe}) from database...")
     symbol = f"{asset}/USDT:USDT"
@@ -29,43 +30,42 @@ def load_data_from_db(db: Session, asset: str, timeframe: str) -> pd.DataFrame:
     )
     if main_df.empty:
         raise FileNotFoundError(f"Critical data 'ohlcv' not found for asset {asset}. Cannot proceed.")
-
-    # The 'open_time' index is loaded as an int (ms timestamp); convert it to datetime
-    main_df.index = pd.to_datetime(main_df.index, unit='ms')
+    main_df.index = pd.to_datetime(main_df.index, unit='ms') # Explicitly convert from ms timestamp
     main_df.index.name = 'timestamp'
-
-    # --- Additional Timeframe Data ---
-    # We can create these features using resampling now, simplifying the data loading
-    # For now, we will rely on the main feature generator to handle this if needed
 
     # --- External & Macro Data ---
     print("  - Loading Funding Rate, Macro, F&G data...")
+
+    # Funding Rate
     funding_rate_df = pd.read_sql(
         db.query(FundingRate).filter(FundingRate.symbol == symbol).statement,
-        db.bind, index_col='funding_time', parse_dates=['funding_time']
+        db.bind, index_col='funding_time'
     )
     if not funding_rate_df.empty:
+        funding_rate_df.index = pd.to_datetime(funding_rate_df.index) # Ensure datetime index
         funding_rate_df.index.name = 'timestamp'
         main_df = main_df.join(funding_rate_df[['funding_rate']], how='left')
 
-    fng_df = pd.read_sql(db.query(FearGreedIndex).statement, db.bind, index_col='timestamp', parse_dates=['timestamp'])
+    # Fear & Greed Index
+    fng_df = pd.read_sql(db.query(FearGreedIndex).statement, db.bind, index_col='timestamp')
     if not fng_df.empty:
+        fng_df.index = pd.to_datetime(fng_df.index) # Ensure datetime index
         fng_df.index.name = 'timestamp'
         fng_df = fng_df.rename(columns={'value': 'fng_value'})
         main_df = pd.merge_asof(main_df.sort_index(), fng_df[['fng_value']].sort_index(), on='timestamp', direction='backward')
 
-    macro_df = pd.read_sql(db.query(MacroData).statement, db.bind, index_col='date', parse_dates=['date'])
+    # Macro Data
+    macro_df = pd.read_sql(db.query(MacroData).statement, db.bind, index_col='date')
     if not macro_df.empty:
+        macro_df.index = pd.to_datetime(macro_df.index) # Ensure datetime index
         macro_df.index.name = 'timestamp'
         main_df = pd.merge_asof(main_df.sort_index(), macro_df.sort_index(), left_index=True, right_index=True, direction='backward')
 
     # --- Clean up ---
-    # Remove database ID columns that might have been loaded
-    for col in ['id', 'id_x', 'id_y']:
+    for col in ['id', 'id_x', 'id_y', 'symbol', 'interval']:
         if col in main_df.columns:
             main_df.drop(columns=col, inplace=True)
 
-    # Forward-fill data from sources that update less frequently (like F&G, Macro)
     main_df.ffill(inplace=True)
 
     print("Finished loading and merging raw data from database.")
