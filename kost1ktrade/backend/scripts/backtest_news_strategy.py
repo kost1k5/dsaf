@@ -6,6 +6,7 @@ from sqlalchemy import desc, asc
 from datetime import datetime, timedelta
 import sys
 import os
+import time
 
 # Adjust the path to allow imports from the 'src' directory
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -53,23 +54,39 @@ def run_news_backtest():
             print("No historical events found. Cannot run backtest.")
             return
 
-        # 2. Fetch all necessary OHLCV data in one go
-        # In a real-world, larger backtest, this should be done in chunks.
-        print(f"Fetching OHLCV data for {config['instrument']}...")
-        exchange = __import__('ccxt').okx() # Dynamic import for script usage
-        start_date = all_events[0].event_datetime - timedelta(days=1)
+        # 2. Fetch OHLCV data covering the entire event range
+        start_date = all_events[0].event_datetime - timedelta(days=1) # Add buffer for initial ATR
+        end_date = all_events[-1].event_datetime + timedelta(days=1) # Add buffer for final trade
         start_timestamp = int(start_date.timestamp() * 1000)
+        end_timestamp = int(end_date.timestamp() * 1000)
 
-        # Fetch a large batch of data. This is a simplification.
-        ohlcv = exchange.fetch_ohlcv(config['instrument'], config['atr_timeframe'], since=start_timestamp, limit=100000)
-        if not ohlcv:
-            print("Failed to fetch OHLCV data.")
+        print(f"Fetching OHLCV data for {config['instrument']} from {start_date} to {end_date}...")
+        exchange = __import__('ccxt').okx()
+
+        all_ohlcv = []
+        since = start_timestamp
+        while since < end_timestamp:
+            # OKX fetch_ohlcv limit is 100, but we ask for a bit more just in case
+            # The library will handle the actual limit.
+            ohlcv_chunk = exchange.fetch_ohlcv(config['instrument'], config['atr_timeframe'], since=since, limit=300)
+            if not ohlcv_chunk:
+                break
+
+            all_ohlcv.extend(ohlcv_chunk)
+            since = ohlcv_chunk[-1][0] + 1 # +1 ms to avoid fetching the same candle
+
+            # Be respectful of API limits
+            time.sleep(exchange.rateLimit / 1000)
+
+        if not all_ohlcv:
+            print("Failed to fetch any OHLCV data for the specified range.")
             return
 
-        price_data = pd.DataFrame(ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        price_data = pd.DataFrame(all_ohlcv, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume'])
+        price_data.drop_duplicates(subset=['timestamp'], inplace=True)
         price_data['datetime'] = pd.to_datetime(price_data['timestamp'], unit='ms')
         price_data.set_index('datetime', inplace=True)
-        print(f"Fetched {len(price_data)} price candles.")
+        print(f"Fetched and merged {len(price_data)} unique price candles.")
 
         # --- Backtest Simulation ---
         equity = config['initial_equity']
