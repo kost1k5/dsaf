@@ -47,10 +47,16 @@ def fetch_and_store_economic_calendar(api_key: str, secret_key: str, passphrase:
 
         all_events = []
         if data.get("code") == "0":
-            event_list = data.get("data", [])
-            if event_list:
-                all_events = event_list[0]
-                print(f"Successfully fetched {len(all_events)} events from OKX.")
+            raw_data = data.get("data", [])
+            if raw_data:
+                # Definitively handle both [[...]] and [{...}] formats
+                if isinstance(raw_data[0], list):
+                    all_events = raw_data[0]
+                else:
+                    all_events = raw_data
+                print(f"Successfully parsed {len(all_events)} events from OKX.")
+            else:
+                print("API returned success code but no data.")
         else:
             print(f"API returned an error: {data.get('msg')}")
             return
@@ -58,8 +64,8 @@ def fetch_and_store_economic_calendar(api_key: str, secret_key: str, passphrase:
     except requests.exceptions.RequestException as e:
         print(f"An error occurred during the network request: {e}")
         return
-    except ValueError:
-        print(f"Failed to decode JSON from response. Response text: {response.text}")
+    except (ValueError, IndexError) as e:
+        print(f"Failed to parse JSON or unexpected data structure: {e}")
         return
 
     if not all_events:
@@ -68,14 +74,8 @@ def fetch_and_store_economic_calendar(api_key: str, secret_key: str, passphrase:
 
     db: Session = SessionLocal()
     try:
-        # (The database storage logic remains the same as before)
         new_events_count = 0
         for event in all_events:
-            # Add a type check to handle malformed data from the API
-            if not isinstance(event, dict):
-                print(f"WARNING: Skipping an invalid item in event list (not a dictionary): {event}")
-                continue
-
             event_id = event.get('id')
             if not event_id: continue
             if not db.query(EconomicCalendarEvent).filter_by(event_id=event_id).first():
