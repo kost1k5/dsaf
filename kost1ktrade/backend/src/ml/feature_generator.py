@@ -117,6 +117,9 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     # This is a simple but effective way to ensure models don't get NaN inputs
     df_feat.fillna(0, inplace=True)
 
+    # Reset index to turn 'open_time' back into a column for the calling script
+    df_feat.reset_index(inplace=True)
+
     print(f"Feature generation complete. New shape: {df_feat.shape}")
 
     return df_feat
