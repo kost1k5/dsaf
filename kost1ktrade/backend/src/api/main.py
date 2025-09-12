@@ -15,50 +15,13 @@ from src.core.strategy_loader import get_strategy_class
 from src.data_collector.collector import DataCollector
 from src.api.optimization import router as optimization_router
 import pandas as pd
-from contextlib import asynccontextmanager
-import ccxt
-from src.core.news_websocket_client import NewsWebsocketClient
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # --- Startup Logic ---
-    print("--- Application starting up ---")
+# The NewsWebsocketClient is now decoupled and will be run via a separate script
+# import ccxt
+# from src.core.news_websocket_client import NewsWebsocketClient
+# from contextlib import asynccontextmanager
 
-    # 1. Create a shared CCXT exchange instance
-    try:
-        exchange = ccxt.okx({
-            'options': {'defaultType': 'swap'},
-        })
-        exchange.set_sandbox_mode(True)
-        print("CCXT exchange instance created in SANDBOX/DEMO mode.")
-    except Exception as e:
-        print(f"FATAL: Could not initialize CCXT exchange. Error: {e}")
-        exchange = None
-
-    # 2. Start the News Trading WebSocket Client if the exchange was created
-    if exchange:
-        news_bot_config = {
-            "instrument": "BTC-USDT-SWAP",
-            "target_events": ["CPI", "FOMC", "Non-Farm Payrolls"],
-            "risk_percent": 0.01,  # 1%
-            "atr_timeframe": "5m", # Timeframe for ATR calculation
-            "atr_multiplier": 2.5,
-            "time_exit_minutes": 30
-        }
-        news_client = NewsWebsocketClient(exchange=exchange, config=news_bot_config)
-        news_client.start()
-        app.state.news_client = news_client
-        print("News trading WebSocket client started.")
-
-    yield # The application runs here
-
-    # --- Shutdown Logic ---
-    print("--- Application shutting down ---")
-    if hasattr(app.state, 'news_client') and app.state.news_client:
-        print("Stopping news trading WebSocket client...")
-        app.state.news_client.stop()
-
-app = FastAPI(title="Kost1kTrade API", lifespan=lifespan)
+app = FastAPI(title="Kost1kTrade API")
 router = APIRouter()
 
 @router.get("/balance", tags=["Account"])
