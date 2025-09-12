@@ -52,7 +52,7 @@ def load_data_from_db(db: Session, asset: str, timeframe: str) -> pd.DataFrame:
         fng_df.index = pd.to_datetime(fng_df.index) # Ensure datetime index
         fng_df.index.name = 'timestamp'
         fng_df = fng_df.rename(columns={'value': 'fng_value'})
-        main_df = pd.merge_asof(main_df.sort_index(), fng_df[['fng_value']].sort_index(), on='timestamp', direction='backward')
+        main_df = pd.merge_asof(main_df.sort_index(), fng_df[['fng_value']].sort_index(), left_index=True, right_index=True, direction='backward')
 
     # Macro Data
     macro_df = pd.read_sql(db.query(MacroData).statement, db.bind, index_col='date')
