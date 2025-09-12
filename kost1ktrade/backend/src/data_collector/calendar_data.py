@@ -1,48 +1,62 @@
 import requests
-import pandas as pd
+import time
 from datetime import datetime
 from sqlalchemy.orm import Session
 
 from src.database.session import SessionLocal
 from src.database.models import EconomicCalendarEvent
-from src.data_collector.collector import DataCollector # Import the main collector
+# The DataCollector import is no longer needed for this function
+# from src.data_collector.collector import DataCollector
 
-def fetch_and_store_economic_calendar(data_collector: DataCollector, countries: list = None):
+def fetch_and_store_economic_calendar(countries: list = None):
     """
-    Fetches economic calendar data from the OKX v5 API using the provided
-    authenticated DataCollector instance and stores it.
+    Fetches economic calendar data from the OKX v5 API using the requests
+    library and stores it in the database.
     """
     print("--- Fetching Economic Calendar Data from OKX API ---")
 
     if countries is None:
-        countries = ['US', 'CN', 'EU', 'GB', 'JP'] # Default countries
+        # Default countries can be modified here if needed
+        countries = ['US', 'CN', 'EU', 'GB', 'JP']
 
-    country_str = ",".join(countries)
+    base_url = "https://www.okx.com"
+    endpoint = "/api/v5/public/economic-calendar"
 
-    # Use the generic 'request' method for endpoints not explicitly defined in ccxt
-    path = 'public/economic-calendar'
-    params = {'country': country_str}
+    # OKX API uses 'country' for a comma-separated list, not 'region'
+    params = {
+        "country": ",".join(countries),
+    }
 
     all_events = []
     try:
-        # This will automatically handle signing and headers via the collector's ccxt instance
-        data = data_collector.exchange.request(path, 'public', 'GET', params)
+        response = requests.get(base_url + endpoint, params=params)
+        response.raise_for_status()  # Raise an exception for bad status codes (4xx or 5xx)
 
-        # The OKX API nests the actual data inside a 'data' key and another list
-        events = data.get('data', [])
-        if events:
-            all_events.extend(events[0])
-        print(f"Successfully fetched {len(all_events)} events from OKX.")
+        data = response.json()
 
-    except Exception as e:
-        print(f"An error occurred while fetching data from OKX: {e}")
+        # According to OKX docs, code "0" means success
+        if data.get("code") == "0":
+            # The data is nested in a list within the 'data' key
+            event_list = data.get("data", [])
+            if event_list:
+                all_events = event_list[0]
+                print(f"Successfully fetched {len(all_events)} events from OKX.")
+        else:
+            print(f"API returned an error: {data.get('msg')}")
+            return
+
+    except requests.exceptions.RequestException as e:
+        print(f"An error occurred during the network request: {e}")
+        return
+    except ValueError: # Catches JSON decoding errors
+        print(f"Failed to decode JSON from response. Response text: {response.text}")
         return
 
     if not all_events:
         print("No economic events found for the specified criteria.")
         return
 
-    # --- Data Processing and Storage ---
+    # --- Data Processing and Storage (largely unchanged) ---
     db: Session = SessionLocal()
     try:
         print("Storing economic events in the database...")
@@ -87,6 +101,6 @@ def fetch_and_store_economic_calendar(data_collector: DataCollector, countries: 
         db.close()
 
 if __name__ == '__main__':
-    # This script is not meant to be run standalone anymore,
-    # as it requires an initialized DataCollector.
-    print("This script should be called from the main data collection pipeline.")
+    # This function can now be run standalone for testing
+    print("Running standalone test for fetch_and_store_economic_calendar...")
+    fetch_and_store_economic_calendar()
