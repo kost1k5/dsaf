@@ -66,9 +66,8 @@ def main(days_history: int):
             print("Macro data is already up to date.")
 
         print("\n--- Collecting Economic Calendar Events ---")
-        # The new function uses the existing authenticated data_collector instance
-        # to handle API keys and signing automatically.
-        fetch_and_store_economic_calendar(data_collector=data_collector)
+        # This function is now self-contained and uses the requests library directly.
+        fetch_and_store_economic_calendar()
 
 
         print("\n--- Collecting Fear & Greed Index ---")
