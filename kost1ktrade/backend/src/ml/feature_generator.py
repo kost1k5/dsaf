@@ -39,6 +39,10 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     print("Generating a rich set of TA features (using TA-Lib)...")
 
     df_feat = df.copy()
+    # Ensure we have a DatetimeIndex for time-based features like VWAP
+    if 'open_time' in df_feat.columns and pd.api.types.is_datetime64_any_dtype(df_feat['open_time']):
+        df_feat.set_index('open_time', inplace=True)
+
     df_feat['log_returns'] = np.log(df_feat['close']).diff()
 
     open_p, high, low, close, volume = df_feat['open'].values, df_feat['high'].values, df_feat['low'].values, df_feat['close'].values, df_feat['volume'].values
@@ -108,6 +112,10 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     # Add return features for labeling/analysis if needed later
     for n in [1, 2, 4, 8, 16]:
         df_feat[f'return_{n}h'] = df_feat['close'].pct_change(n)
+
+    # Fill any remaining NaNs with 0 before returning
+    # This is a simple but effective way to ensure models don't get NaN inputs
+    df_feat.fillna(0, inplace=True)
 
     print(f"Feature generation complete. New shape: {df_feat.shape}")
 
