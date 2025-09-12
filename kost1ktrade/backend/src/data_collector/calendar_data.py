@@ -71,6 +71,11 @@ def fetch_and_store_economic_calendar(api_key: str, secret_key: str, passphrase:
         # (The database storage logic remains the same as before)
         new_events_count = 0
         for event in all_events:
+            # Add a type check to handle malformed data from the API
+            if not isinstance(event, dict):
+                print(f"WARNING: Skipping an invalid item in event list (not a dictionary): {event}")
+                continue
+
             event_id = event.get('id')
             if not event_id: continue
             if not db.query(EconomicCalendarEvent).filter_by(event_id=event_id).first():
