@@ -25,10 +25,13 @@ def load_data_from_db(db: Session, asset: str, timeframe: str) -> pd.DataFrame:
     print("  - Loading primary OHLCV data...")
     main_df = pd.read_sql(
         db.query(Candle).filter(Candle.symbol == symbol, Candle.interval == timeframe).statement,
-        db.bind, index_col='open_time', parse_dates=['open_time']
+        db.bind, index_col='open_time'
     )
     if main_df.empty:
         raise FileNotFoundError(f"Critical data 'ohlcv' not found for asset {asset}. Cannot proceed.")
+
+    # The 'open_time' index is loaded as an int (ms timestamp); convert it to datetime
+    main_df.index = pd.to_datetime(main_df.index, unit='ms')
     main_df.index.name = 'timestamp'
 
     # --- Additional Timeframe Data ---
