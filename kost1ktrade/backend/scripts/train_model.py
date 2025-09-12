@@ -1,20 +1,17 @@
 import pandas as pd
 import numpy as np
 import lightgbm as lgb
-from sklearn.model_selection import TimeSeriesSplit, RandomizedSearchCV
-from sklearn.metrics import classification_report
+from sklearn.model_selection import TimeSeriesSplit
+from sklearn.preprocessing import StandardScaler
+from sklearn.metrics import classification_report, f1_score
 import joblib
 import os
 import sys
 import argparse
 from datetime import datetime, timedelta
 import json
-from scipy.stats import randint as sp_randint
-from scipy.stats import uniform as sp_uniform
-from typing import List
 import optuna
 import shap
-from sklearn.metrics import f1_score
 from statsmodels.tsa.stattools import adfuller
 
 # Add the project root to the python path
@@ -41,12 +38,12 @@ def optimize_hyperparameters(X_train, y_train):
             'metric': 'binary_logloss',
             'verbosity': -1,
             'boosting_type': 'gbdt',
-            'is_unbalance': True, # (Г) Address class imbalance
+            'is_unbalance': True,
             'n_estimators': trial.suggest_int('n_estimators', 100, 1000),
             'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
             'num_leaves': trial.suggest_int('num_leaves', 20, 300),
             'max_depth': trial.suggest_int('max_depth', 3, 12),
-            'min_child_samples': trial.suggest_int('min_child_samples', 5, 100),
+            'min_child_samples': trial.suggest_int('min_child_samples', 20, 100), # Increased min_child_samples
             'subsample': trial.suggest_float('subsample', 0.6, 1.0),
             'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
             'random_state': 42,
@@ -66,7 +63,7 @@ def optimize_hyperparameters(X_train, y_train):
         return -1.0 * np.mean(scores)
 
     study = optuna.create_study(direction='minimize')
-    study.optimize(objective, n_trials=50) # n_trials can be adjusted
+    study.optimize(objective, n_trials=100) # Increased to 100
 
     print("Best trial:")
     trial = study.best_trial
@@ -79,8 +76,7 @@ def optimize_hyperparameters(X_train, y_train):
 
 def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
     """
-    Fetches data, prepares it, tunes and trains a LightGBM model, and saves it
-    with a symbol-specific name.
+    Fetches data, prepares it, tunes and trains a LightGBM model, and saves it.
     """
     print(f"\n--- Starting Model Training for {symbol} ({start_date} to {end_date}) ---")
 
@@ -88,15 +84,12 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
     print(f"Fetching historical data for {symbol}...")
     start_dt = datetime.strptime(start_date, '%Y-%m-%d')
     end_dt = datetime.strptime(end_date, '%Y-%m-%d')
-
     cacher = DataCacher(db_path='data/historical_data.db')
     df = cacher.fetch_and_cache_data(symbol, timeframe, start_dt, end_dt)
     cacher.close()
-
     if df.empty:
         print(f"Could not fetch data for {symbol}. Skipping.")
         return
-
     df.reset_index(inplace=True)
     print(f"Successfully fetched {len(df)} candles for {symbol}.")
 
@@ -104,211 +97,101 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
     print("Fetching external data (Fear & Greed, On-chain)...")
     days_in_data = (end_dt - start_dt).days
     fng_df = get_fear_and_greed_index(limit=days_in_data)
-    onchain_df = get_onchain_metrics(days_back=days_in_data)
-
-
-    # Merge external data into the main dataframe
-    df['date'] = df['open_time'].dt.date
-
-    # To prevent lookahead bias, we shift the daily data by 1 day,
-    # so each candle only uses data from the previous day.
     if not fng_df.empty:
+        df['date'] = df['open_time'].dt.date
         fng_df['date'] = fng_df['date'] + timedelta(days=1)
         df = pd.merge(df, fng_df, on='date', how='left')
-        df['fng_value'] = df['fng_value'].fillna(method='ffill')
-    if not onchain_df.empty:
-        onchain_df['date'] = onchain_df['date'] + timedelta(days=1)
-        df = pd.merge(df, onchain_df, on='date', how='left')
-        for col in ['net_exchange_flow', 'sopr', 'mvrv']:
-             if col in df.columns:
-                df[col] = df[col].fillna(method='ffill')
+        df['fng_value'] = df['fng_value'].ffill()
+        df.drop(columns=['date'], inplace=True)
 
-    df.drop(columns=['date'], inplace=True)
-
-
-    # 3. Prepare Data
+    # 3. Create Features & Labels
     print("Creating features and labels...")
     features_df = create_features(df)
-
-    # Handle NaNs from feature generation before creating labels
-    features_df.ffill(inplace=True)
-    features_df.dropna(inplace=True)
-
     labeled_df = create_labels(features_df)
 
-    # 3. Clean and Split Data
+    # 4. Clean Data
     missing_ratios = labeled_df.isnull().sum() / len(labeled_df)
-    cols_to_drop = missing_ratios[missing_ratios > 0.5].index
-    if not cols_to_drop.empty:
-        print(f"Dropping columns with >50% missing values: {cols_to_drop.tolist()}")
-        labeled_df.drop(columns=cols_to_drop, inplace=True)
+    cols_to_drop_missing = missing_ratios[missing_ratios > 0.5].index
+    if not cols_to_drop_missing.empty:
+        print(f"Dropping columns with >50% missing values: {cols_to_drop_missing.tolist()}")
+        labeled_df.drop(columns=cols_to_drop_missing, inplace=True)
 
     labeled_df.dropna(inplace=True)
     print(f"Data shape after cleaning NaNs: {labeled_df.shape}")
-
-    # 4. Verify Stationarity of key features
-    print("\n--- Verifying Feature Stationarity (ADF Test) ---")
-    def run_adf_test(series, name):
-        result = adfuller(series.dropna()) # Drop NaNs for the test
-        p_value = result[1]
-        if p_value > 0.05:
-            print(f"WARNING: Feature '{name}' may be non-stationary (p-value: {p_value:.4f})")
-        else:
-            print(f"Feature '{name}' appears stationary (p-value: {p_value:.4f})")
-
-    # Test a few representative transformed features
-    key_features_to_test = [col for col in labeled_df.columns if 'SMA_50_normalized' in col or 'OBV_pct_change' in col or 'RSI' in col]
-    for feature_name in key_features_to_test:
-        run_adf_test(labeled_df[feature_name], feature_name)
-    print("--- Stationarity Check Complete ---\n")
-
-
     if labeled_df.empty:
         print(f"Not enough data for {symbol} after cleaning. Skipping.")
         return
 
+    # 5. Define Features (X) and Target (y)
     X = labeled_df.drop(columns=['open_time', 'open', 'high', 'low', 'close', 'volume', 'target'])
-    y = labeled_df['target'].copy() # Use copy to avoid SettingWithCopyWarning
-
-    # Map labels from {-1, 1} to {0, 1} for LGBM binary classification
-    y_mapped = y.copy()
-    y_mapped[y_mapped == -1] = 0
-
+    y = labeled_df['target'].copy()
+    y_mapped = y.map({1: 1, -1: 0})
     X.columns = [str(col) for col in X.columns]
 
-    # 5. Feature Selection
+    # 6. Train/Test Split
+    train_size = int(len(X) * 0.9)
+    X_train, X_test = X.iloc[:train_size], X.iloc[train_size:]
+    y_train, y_test = y_mapped.iloc[:train_size], y_mapped.iloc[train_size:]
+
+    # 7. Pre-training Checks and Scaling
+    print(f"Training data shape: {X_train.shape}")
+    if len(X_train) < 1000:
+        print(f"WARNING: Training data has only {len(X_train)} samples, which is less than 1000. Skipping model training for {symbol}.")
+        return
+
+    print("\n--- Scaling Features (StandardScaler) ---")
+    scaler = StandardScaler()
+    X_train = pd.DataFrame(scaler.fit_transform(X_train), index=X_train.index, columns=X_train.columns)
+    X_test = pd.DataFrame(scaler.transform(X_test), index=X_test.index, columns=X_test.columns)
+    print("Features scaled successfully.")
+
+    # 8. Feature Selection
     print("\n--- Feature Selection ---")
-    # First, train a baseline model to get feature importances
-    baseline_model = lgb.LGBMClassifier(objective='binary', random_state=42)
-    baseline_model.fit(X, y_mapped)
+    baseline_model = lgb.LGBMClassifier(objective='binary', random_state=42, is_unbalance=True)
+    baseline_model.fit(X_train, y_train)
+    feature_importances = pd.DataFrame({'feature': X_train.columns, 'importance': baseline_model.feature_importances_}).set_index('feature')
+    print("Top 15 Most Important Features (before selection):\n", feature_importances.sort_values('importance', ascending=False).head(15))
 
-    feature_importances = pd.DataFrame({
-        'feature': X.columns,
-        'importance': baseline_model.feature_importances_
-    }).set_index('feature')
-
-    print("Top 15 Most Important Features (before selection):")
-    print(feature_importances.sort_values('importance', ascending=False).head(15))
-
-    # Correlation Analysis and Pruning
-    print("\nPruning highly correlated features (threshold > 0.9)...")
-    corr_matrix = X.corr().abs()
+    corr_matrix = X_train.corr().abs()
     upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-
-    cols_to_drop = set()
-    for column in upper_tri.columns:
-        highly_correlated_with = upper_tri[column][upper_tri[column] > 0.9].index.tolist()
-        if highly_correlated_with:
-            for correlated_feature in highly_correlated_with:
-                # Compare importances and decide which one to drop
-                if feature_importances.loc[column, 'importance'] >= feature_importances.loc[correlated_feature, 'importance']:
-                    cols_to_drop.add(correlated_feature)
-                else:
-                    cols_to_drop.add(column)
-
-    if cols_to_drop:
-        print(f"Dropping {len(cols_to_drop)} highly correlated features: {list(cols_to_drop)}")
-        X = X.drop(columns=list(cols_to_drop))
-    else:
-        print("No feature pairs found with correlation > 0.9 to prune.")
-
+    to_drop = [column for column in upper_tri.columns if any(upper_tri[column] > 0.9)]
+    print(f"Dropping {len(to_drop)} highly correlated features: {to_drop}")
+    X_train = X_train.drop(columns=to_drop)
+    X_test = X_test.drop(columns=to_drop)
     print("--- Feature Selection Complete ---\n")
 
-    # 6. Train/Test Split (after feature selection)
-    train_size = int(len(X) * 0.9)
-    X_train, X_test = X[:train_size], X[train_size:]
-    y_train, y_test = y_mapped[:train_size], y_mapped[train_size:]
-
-    print(f"Training data shape after feature selection: {X_train.shape}")
-
-    # 7. Model Training & Hyperparameter Tuning
-    # The user can uncomment the following block to run Bayesian Optimization with Optuna.
-    # The default path (below this block) uses standard parameters for a baseline.
-    # ---
-    # print("--- Hyperparameter Tuning (Optuna) ---")
-    # best_params = optimize_hyperparameters(X_train, y_train)
-    # print("\n--- Training Final Model with Best Parameters ---")
-    # best_model = lgb.LGBMClassifier(objective='binary', random_state=42, **best_params)
-    # best_model.fit(X_train, y_train)
-    # ---
-
-    # Active path: Train with default parameters for baseline
+    # 9. Model Training
     print("--- Model Training (default parameters) ---")
-    # (Г) Address class imbalance by setting is_unbalance=True
-    best_model = lgb.LGBMClassifier(objective='binary', random_state=42, is_unbalance=True)
-    best_model.fit(X_train, y_train)
+    model = lgb.LGBMClassifier(objective='binary', random_state=42, is_unbalance=True)
+    model.fit(X_train, y_train)
 
-    # SHAP Analysis
-    print("\n--- SHAP Analysis ---")
-    explainer = shap.TreeExplainer(best_model)
-    shap_values = explainer.shap_values(X_test)
-
-    # We can't plot, so we'll log the mean absolute SHAP values
-    # For binary classification, shap_values is a list of two arrays.
-    # We're interested in the explanations for the positive class (1).
-    shap_sum = np.abs(shap_values[1]).mean(axis=0)
-
-    # Ensure shap_sum is always at least a 1D array
-    shap_sum = np.atleast_1d(shap_sum)
-
-    shap_importance_df = pd.DataFrame([X_train.columns.tolist(), shap_sum.tolist()]).T
-    shap_importance_df.columns = ['feature', 'mean_abs_shap_value']
-    shap_importance_df = shap_importance_df.sort_values('mean_abs_shap_value', ascending=False)
-
-    print("Top 15 Features by Mean Absolute SHAP Value:")
-    print(shap_importance_df.head(15))
-
-    # --- Example of Local SHAP analysis for a single prediction ---
-    # This code can be uncommented and used locally for debugging specific predictions.
-    #
-    # sample_idx = 0 # Index of the sample in the test set to explain
-    # shap_values_single = explainer.shap_values(X_test.iloc[sample_idx])
-    # # For binary classification, shap_values is a list of two arrays (for class 0 and 1)
-    # # We are interested in the explanation for the positive class (Up)
-    # shap_values_for_class_1 = shap_values[1]
-    #
-    # print(f"\n--- Local SHAP Explanation for Test Sample {sample_idx} ---")
-    # print("To visualize this, use a force plot in a Jupyter environment:")
-    # print("shap.initjs()")
-    # print("shap.force_plot(explainer.expected_value[1], shap_values_for_class_1, X_test.iloc[sample_idx])")
-    #
-
-    print("--- Feature Analysis Complete ---\n")
-
-
-    # 6. Final Evaluation
+    # 10. Evaluation
     print(f"--- Final Evaluation for {symbol} ---")
-    y_pred = best_model.predict(X_test)
+    y_pred = model.predict(X_test)
     print(classification_report(y_test, y_pred, target_names=['Down (-1)', 'Up (1)']))
 
-    # 6. Save Model and Features with symbol-specific names
+    # 11. Save Model and Features
     sanitized_symbol = sanitize_symbol(symbol)
     model_file = os.path.join(MODEL_DIR, f"lgbm_classifier_{sanitized_symbol}.joblib")
     features_file = os.path.join(MODEL_DIR, f"features_{sanitized_symbol}.json")
-
     print(f"Saving model for {symbol} to {model_file}")
     os.makedirs(MODEL_DIR, exist_ok=True)
-    joblib.dump(best_model, model_file)
-
-    feature_list = list(X.columns)
+    joblib.dump(model, model_file)
+    joblib.dump(scaler, os.path.join(MODEL_DIR, f"scaler_{sanitized_symbol}.joblib")) # Save the scaler
+    feature_list = list(X_train.columns) # Save final features after selection
     with open(features_file, 'w') as f:
         json.dump(feature_list, f)
-
     print(f"Feature list for {symbol} saved to {features_file}")
     print(f"--- Training for {symbol} Complete ---")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train price prediction models for one or more symbols.")
-
     end_date_default = datetime.now().strftime('%Y-%m-%d')
     start_date_default = (datetime.now() - timedelta(days=2*365)).strftime('%Y-%m-%d')
-
     parser.add_argument("--symbols", nargs='+', default=["BTC/USDT"], help="List of trading symbols to train on (e.g., 'BTC/USDT' 'ETH/USDT').")
     parser.add_argument("--timeframe", type=str, default="1h", help="Timeframe for candles.")
     parser.add_argument("--start_date", type=str, default=start_date_default, help="Start date (YYYY-MM-DD).")
     parser.add_argument("--end_date", type=str, default=end_date_default, help="End date (YYYY-MM-DD).")
-
     args = parser.parse_args()
-
     for symbol in args.symbols:
         train_model(symbol, args.timeframe, args.start_date, args.end_date)
