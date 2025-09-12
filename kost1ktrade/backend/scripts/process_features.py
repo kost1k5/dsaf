@@ -2,80 +2,72 @@ import os
 import pandas as pd
 import argparse
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
+import sys
 
 # Adjust the path to allow imports from the 'src' directory
-import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.processing.feature_generator import FeatureGenerator
+from src.ml.feature_generator import create_features
 from src.database.session import SessionLocal
 from src.database.models import Candle, FundingRate, MacroData, FearGreedIndex, NewsHeadline, EconomicCalendarEvent
 from sqlalchemy import func
 
-def load_data_from_db(db: Session, asset: str, timeframe: str) -> dict:
+def load_data_from_db(db: Session, asset: str, timeframe: str) -> pd.DataFrame:
     """
-    Loads all necessary raw data from the database for a given asset.
+    Loads all necessary raw data from the database for a given asset and
+    merges them into a single comprehensive DataFrame.
     """
-    print(f"Loading data for {asset} at {timeframe} timeframe from database...")
-    data = {}
-
-    # --- OHLCV Data ---
-    print("  - Loading OHLCV data...")
+    print(f"Loading and merging data for {asset} ({timeframe}) from database...")
     symbol = f"{asset}/USDT:USDT"
-    data['ohlcv'] = pd.read_sql(db.query(Candle).filter(Candle.symbol == symbol, Candle.interval == timeframe).statement, db.bind, index_col='open_time', parse_dates=['open_time'])
-    data['ohlcv_4h'] = pd.read_sql(db.query(Candle).filter(Candle.symbol == symbol, Candle.interval == '4h').statement, db.bind, index_col='open_time', parse_dates=['open_time'])
-    data['ohlcv_1d'] = pd.read_sql(db.query(Candle).filter(Candle.symbol == symbol, Candle.interval == '1d').statement, db.bind, index_col='open_time', parse_dates=['open_time'])
 
-    # Rename index to 'timestamp' to match previous structure
-    for key in ['ohlcv', 'ohlcv_4h', 'ohlcv_1d']:
-        if not data[key].empty:
-            data[key].index.name = 'timestamp'
-
-
-    # --- Funding Rate Data ---
-    print("  - Loading Funding Rate data...")
-    data['funding_rate'] = pd.read_sql(db.query(FundingRate).filter(FundingRate.symbol == symbol).statement, db.bind, index_col='funding_time', parse_dates=['funding_time'])
-    if not data['funding_rate'].empty:
-        data['funding_rate'].index.name = 'timestamp'
-
-
-    # --- Asset-Agnostic Data ---
-    print("  - Loading Macro, F&G, News and Calendar data...")
-    data['macro'] = pd.read_sql(db.query(MacroData).statement, db.bind, index_col='date', parse_dates=['date'])
-    data['fng'] = pd.read_sql(db.query(FearGreedIndex).statement, db.bind, index_col='timestamp', parse_dates=['timestamp'])
-    data['news'] = pd.read_sql(db.query(NewsHeadline).statement, db.bind, index_col='published_at', parse_dates=['published_at'])
-    data['economic_calendar'] = pd.read_sql(db.query(EconomicCalendarEvent).statement, db.bind, index_col='event_datetime', parse_dates=['event_datetime'])
-
-    # Rename columns to match previous structure
-    if not data['macro'].empty: data['macro'].index.name = 'Date'
-    if not data['fng'].empty: data['fng'] = data['fng'].rename(columns={'value': 'fng_value'})
-    if not data['news'].empty: data['news'] = data['news'].rename(columns={'published_at': 'published'})
-    if not data['economic_calendar'].empty: data['economic_calendar'].index.name = 'timestamp'
-
-
-    # --- ETH Data for Correlation ---
-    if asset == 'ETH':
-        print("  - Assigning ETH data for context (self-correlation)...")
-        data['eth_ohlcv'] = data['ohlcv'].copy()
-    else:
-        print("  - Loading ETH data for context...")
-        eth_symbol = "ETH/USDT:USDT"
-        data['eth_ohlcv'] = pd.read_sql(db.query(Candle).filter(Candle.symbol == eth_symbol, Candle.interval == timeframe).statement, db.bind, index_col='open_time', parse_dates=['open_time'])
-        if not data['eth_ohlcv'].empty:
-            data['eth_ohlcv'].index.name = 'timestamp'
-
-    if data.get('ohlcv') is None or data.get('ohlcv').empty:
+    # --- Main OHLCV Data ---
+    print("  - Loading primary OHLCV data...")
+    main_df = pd.read_sql(
+        db.query(Candle).filter(Candle.symbol == symbol, Candle.interval == timeframe).statement,
+        db.bind, index_col='open_time', parse_dates=['open_time']
+    )
+    if main_df.empty:
         raise FileNotFoundError(f"Critical data 'ohlcv' not found for asset {asset}. Cannot proceed.")
+    main_df.index.name = 'timestamp'
 
-    # --- Clean up database IDs ---
-    # Remove the 'id' column from all loaded dataframes to prevent it from being used as a feature
-    for name, df in data.items():
-        if df is not None and 'id' in df.columns:
-            df.drop(columns='id', inplace=True)
+    # --- Additional Timeframe Data ---
+    # We can create these features using resampling now, simplifying the data loading
+    # For now, we will rely on the main feature generator to handle this if needed
 
-    print("Finished loading raw data from database.")
-    return data
+    # --- External & Macro Data ---
+    print("  - Loading Funding Rate, Macro, F&G data...")
+    funding_rate_df = pd.read_sql(
+        db.query(FundingRate).filter(FundingRate.symbol == symbol).statement,
+        db.bind, index_col='funding_time', parse_dates=['funding_time']
+    )
+    if not funding_rate_df.empty:
+        funding_rate_df.index.name = 'timestamp'
+        main_df = main_df.join(funding_rate_df[['funding_rate']], how='left')
+
+    fng_df = pd.read_sql(db.query(FearGreedIndex).statement, db.bind, index_col='timestamp', parse_dates=['timestamp'])
+    if not fng_df.empty:
+        fng_df.index.name = 'timestamp'
+        fng_df = fng_df.rename(columns={'value': 'fng_value'})
+        main_df = pd.merge_asof(main_df.sort_index(), fng_df[['fng_value']].sort_index(), on='timestamp', direction='backward')
+
+    macro_df = pd.read_sql(db.query(MacroData).statement, db.bind, index_col='date', parse_dates=['date'])
+    if not macro_df.empty:
+        macro_df.index.name = 'timestamp'
+        main_df = pd.merge_asof(main_df.sort_index(), macro_df.sort_index(), left_index=True, right_index=True, direction='backward')
+
+    # --- Clean up ---
+    # Remove database ID columns that might have been loaded
+    for col in ['id', 'id_x', 'id_y']:
+        if col in main_df.columns:
+            main_df.drop(columns=col, inplace=True)
+
+    # Forward-fill data from sources that update less frequently (like F&G, Macro)
+    main_df.ffill(inplace=True)
+
+    print("Finished loading and merging raw data from database.")
+    return main_df
+
 
 def get_latest_input_timestamp(db: Session, asset: str, timeframe: str) -> datetime:
     """Gets the most recent timestamp from all input data sources for caching purposes."""
@@ -107,44 +99,33 @@ def main(asset: str, timeframe: str):
         latest_input_ts = get_latest_input_timestamp(db, asset, timeframe)
         if os.path.exists(output_path) and latest_input_ts:
             output_mod_time = datetime.fromtimestamp(os.path.getmtime(output_path), tz=timezone.utc)
-            # Make latest_input_ts timezone-aware if it's not already
             if latest_input_ts.tzinfo is None:
                 latest_input_ts = latest_input_ts.replace(tzinfo=timezone.utc)
-
             if output_mod_time > latest_input_ts:
                 print(f"'{output_path}' is already up-to-date. Skipping feature generation.")
                 return
 
-        # 1. Load all data from DB
-        raw_data = load_data_from_db(db, asset, timeframe)
+        # 1. Load and merge all data from DB
+        merged_df = load_data_from_db(db, asset, timeframe)
 
         # --- CRITICAL DATA CHECK ---
-        # Ensure the primary OHLCV data is present before proceeding.
-        main_ohlcv_df = raw_data.get('ohlcv')
-        if main_ohlcv_df is None or main_ohlcv_df.empty:
-            print(f"CRITICAL ERROR: Input OHLCV DataFrame for {asset} on timeframe {timeframe} is empty or missing. Halting execution for this asset.")
-            sys.exit(1) # Exit with a non-zero status code to indicate failure
+        if merged_df.empty:
+            print(f"CRITICAL ERROR: Input DataFrame for {asset} on timeframe {timeframe} is empty after loading. Halting execution.")
+            sys.exit(1)
 
-        # 2. Instantiate Feature Generator
-        feature_generator = FeatureGenerator(
-            asset=asset,
-            ohlcv_df=raw_data['ohlcv'],
-            timeframe=timeframe,
-            ohlcv_df_4h=raw_data.get('ohlcv_4h'),
-            ohlcv_df_1d=raw_data.get('ohlcv_1d'),
-            funding_rate_df=raw_data.get('funding_rate'),
-            macro_df=raw_data.get('macro'),
-            fng_df=raw_data.get('fng'),
-            news_df=raw_data.get('news'),
-            eth_ohlcv_df=raw_data.get('eth_ohlcv'),
-            economic_calendar_df=raw_data.get('economic_calendar')
-        )
+        # 2. Prepare DataFrame for feature generation
+        # The new feature generator expects 'open_time' as a column
+        df_for_features = merged_df.reset_index().rename(columns={'timestamp': 'open_time'})
 
-        # 3. Run the pipeline
-        features_df = feature_generator.generate_all_features()
+        # 3. Generate features using the new function-based generator
+        features_df = create_features(df_for_features)
+
+        # Set the timestamp back as the index
+        features_df.set_index('open_time', inplace=True)
+        features_df.index.name = 'timestamp'
 
         # 4. Save the processed data
-        print(f"[DEBUG] Columns in features_df before saving in process_features: {features_df.columns.tolist()}")
+        print(f"[DEBUG] Columns in features_df before saving: {features_df.columns.tolist()}")
         features_df.to_parquet(output_path)
 
         print(f"\nSuccessfully generated {len(features_df.columns)} features for {asset}.")

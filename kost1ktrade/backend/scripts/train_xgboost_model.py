@@ -1,18 +1,17 @@
 """
 XGBoost Model Trainer
 
-This script is a standalone tool to train a classification model using the XGBoost algorithm.
-It mirrors the main `train_model.py` script but provides an alternative model for comparison.
-
-The script trains a model and saves the artifact to `src/ml/models/`, but it does NOT
-automatically update the live prediction service to use this new model. The `predictor.py`
-service is currently hardcoded to use the LightGBM model.
+This script trains a classification model using the XGBoost algorithm based on
+pre-processed and labeled data.
 
 Workflow:
-1. Run this script to train an XGBoost model for a symbol.
-2. The model artifact (`xgb_classifier_SYMBOL.json`) will be saved.
-3. To use this model for live predictions, `src/ml/predictor.py` would need to be modified
-   to load and use this model type instead of the LightGBM one.
+1. Loads the labeled feature data from a .parquet file.
+2. Defines the feature set (X) and target (y).
+3. Splits data into training and testing sets using a time-series approach.
+4. Performs hyperparameter optimization using Optuna.
+5. Trains the final XGBoost model on the full training set with the best parameters.
+6. Evaluates the model on the test set and prints a classification report.
+7. Saves the trained model artifact and the list of features used.
 """
 import pandas as pd
 import numpy as np
@@ -20,11 +19,11 @@ import xgboost as xgb
 import lightgbm as lgb
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.metrics import classification_report
+from sklearn.preprocessing import StandardScaler
 import joblib
 import os
 import sys
 import argparse
-from datetime import datetime, timedelta
 import json
 import optuna
 import shap
@@ -33,37 +32,36 @@ from sklearn.metrics import f1_score
 # Add the project root to the python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from src.data_collector.data_cacher import DataCacher
-from src.data_collector.external_data import get_fear_and_greed_index, get_onchain_metrics
-from src.ml.feature_generator import create_features, create_labels
-
 # --- Configuration ---
-MODEL_DIR = "src/ml/models"
+MODEL_DIR = os.path.join(os.path.dirname(__file__), '..', 'models', 'production')
+LABELED_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'labeled')
 
-def sanitize_symbol(symbol: str) -> str:
-    """Converts a symbol like 'BTC/USDT' to 'BTC_USDT' for filenames."""
-    return symbol.replace('/', '_')
 
-def optimize_hyperparameters_xgb(X_train, y_train):
+def optimize_hyperparameters_xgb(X_train, y_train, n_trials=50):
     """
     Performs hyperparameter optimization for XGBoost using Optuna.
     """
     def objective(trial):
+        # Define the search space for the hyperparameters
         param = {
-            'objective': 'binary:logistic',
-            'eval_metric': 'logloss',
+            'objective': 'multi:softprob',
+            'num_class': 3,
+            'eval_metric': 'mlogloss',
             'verbosity': 0,
-            'use_label_encoder': False,
             'booster': 'gbtree',
-            'n_estimators': trial.suggest_int('n_estimators', 100, 1000),
-            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3, log=True),
-            'max_depth': trial.suggest_int('max_depth', 3, 10),
-            'subsample': trial.suggest_float('subsample', 0.6, 1.0),
-            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
-            'gamma': trial.suggest_float('gamma', 1e-8, 1.0, log=True),
+            'n_estimators': trial.suggest_int('n_estimators', 200, 1500),
+            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.2, log=True),
+            'max_depth': trial.suggest_int('max_depth', 4, 12),
+            'subsample': trial.suggest_float('subsample', 0.5, 1.0),
+            'colsample_bytree': trial.suggest_float('colsample_bytree', 0.5, 1.0),
+            'gamma': trial.suggest_float('gamma', 1e-7, 1.0, log=True),
+            'lambda': trial.suggest_float('lambda', 1e-7, 1.0, log=True),  # L2 regularization
+            'alpha': trial.suggest_float('alpha', 1e-7, 1.0, log=True),   # L1 regularization
             'random_state': 42,
+            'n_jobs': -1
         }
 
+        # Time-series cross-validation
         tscv = TimeSeriesSplit(n_splits=5)
         scores = []
         for train_index, val_index in tscv.split(X_train):
@@ -72,146 +70,123 @@ def optimize_hyperparameters_xgb(X_train, y_train):
 
             model = xgb.XGBClassifier(**param)
             model.fit(X_train_fold, y_train_fold)
-            preds = model.predict(X_val_fold)
-            scores.append(f1_score(y_val_fold, preds, zero_division=0.0))
 
+            # Predict and calculate F1 score
+            preds = model.predict(X_val_fold)
+            # Use macro F1-score for multiclass classification
+            score = f1_score(y_val_fold, preds, average='macro', zero_division=0.0)
+            scores.append(score)
+
+        # Optuna minimizes the objective, so we return the negative mean F1 score
         return -1.0 * np.mean(scores)
 
+    # Create a study object and optimize the objective function
     study = optuna.create_study(direction='minimize')
-    study.optimize(objective, n_trials=50) # n_trials can be adjusted
+    study.optimize(objective, n_trials=n_trials)
 
     print("Best trial for XGBoost:")
     trial = study.best_trial
-    print(f"  Value (Negative F1): {trial.value}")
+    print(f"  Value (Negative Macro F1): {trial.value}")
     print("  Params: ")
     for key, value in trial.params.items():
         print(f"    {key}: {value}")
 
     return trial.params
 
-def train_xgboost_model(symbol: str, timeframe: str, start_date: str, end_date: str):
+
+def train_xgboost_model(symbol: str, timeframe: str):
     """
-    Main function to train an XGBoost model. Mirrors the LightGBM training script.
+    Main function to train an XGBoost model from a labeled feature file.
     """
     print(f"\n--- Starting XGBoost Model Training for {symbol} ---")
 
-    # Construct the full symbol name required by the data cacher
-    full_symbol = f"{symbol}/USDT:USDT"
+    # 1. Load Data
+    labeled_data_path = os.path.join(LABELED_DATA_DIR, f'{symbol}_{timeframe}_labeled.parquet')
+    try:
+        labeled_df = pd.read_parquet(labeled_data_path)
+        print(f"Loaded labeled data from '{labeled_data_path}'")
+    except FileNotFoundError:
+        print(f"ERROR: Labeled data file not found at '{labeled_data_path}'.")
+        print("Please run 'process_features.py' and 'apply_labels.py' first.")
+        return
 
-    # Steps 1-5: Data Fetching, Feature Creation, and Feature Selection
-    # This part is identical to the LightGBM script to ensure a fair comparison.
+    # 2. Prepare Data (define features and target)
+    # Drop non-feature columns
+    cols_to_drop = ['symbol', 'interval', 'open', 'high', 'low', 'close', 'volume', 'event_end_time', 'label']
+    X = labeled_df.drop(columns=cols_to_drop, errors='ignore')
 
-    # 1. Fetch Data
-    start_dt = datetime.strptime(start_date, '%Y-%m-%d')
-    end_dt = datetime.strptime(end_date, '%Y-%m-%d')
-    cacher = DataCacher(db_path='data/historical_data.db')
-    df = cacher.fetch_and_cache_data(full_symbol, timeframe, start_dt, end_dt)
-    cacher.close()
-    if df.empty: return
+    # Ensure all feature columns are numeric
+    X = X.select_dtypes(include=np.number)
 
-    # 2. External Data
-    days_in_data = (end_dt - start_dt).days
-    fng_df = get_fear_and_greed_index(limit=days_in_data)
-    onchain_df = get_onchain_metrics(days_back=days_in_data)
-    df['date'] = df['open_time'].dt.date
-    if not fng_df.empty:
-        fng_df['date'] = fng_df['date'] + timedelta(days=1)
-        df = pd.merge(df, fng_df, on='date', how='left').fillna(method='ffill')
-    if not onchain_df.empty:
-        onchain_df['date'] = onchain_df['date'] + timedelta(days=1)
-        df = pd.merge(df, onchain_df, on='date', how='left').fillna(method='ffill')
-    df.drop(columns=['date'], inplace=True)
+    y = labeled_df['label'].copy()
 
-    # 3. Prepare Data
-    features_df = create_features(df.reset_index())
-    features_df.ffill(inplace=True)
-    features_df.dropna(inplace=True)
-    labeled_df = create_labels(features_df)
+    # The labels are already -1, 0, 1. XGBoost can handle this if we map them to 0, 1, 2.
+    y_mapped = y.replace({-1: 0, 0: 1, 1: 2})
 
-    missing_ratios = labeled_df.isnull().sum() / len(labeled_df)
-    cols_to_drop = missing_ratios[missing_ratios > 0.5].index
-    labeled_df.drop(columns=cols_to_drop, inplace=True)
-    labeled_df.dropna(inplace=True)
-    if labeled_df.empty: return
+    print(f"Feature set shape: {X.shape}")
+    print(f"Target distribution:\n{y_mapped.value_counts(normalize=True)}")
 
-    X = labeled_df.drop(columns=['open_time', 'open', 'high', 'low', 'close', 'volume', 'target'])
-    y = labeled_df['target'].copy()
-    y_mapped = y.copy()
-    y_mapped[y_mapped == -1] = 0
-    X.columns = [str(col) for col in X.columns]
 
-    # 4. Feature Selection (using a baseline LGBM for speed and consistency with the other script)
-    baseline_model = lgb.LGBMClassifier(objective='binary', random_state=42)
-    baseline_model.fit(X, y_mapped)
-    feature_importances = pd.DataFrame({'feature': X.columns, 'importance': baseline_model.feature_importances_}).set_index('feature')
-    corr_matrix = X.corr().abs()
-    upper_tri = corr_matrix.where(np.triu(np.ones(corr_matrix.shape), k=1).astype(bool))
-    cols_to_drop_corr = set()
-    for column in upper_tri.columns:
-        highly_correlated_with = upper_tri[column][upper_tri[column] > 0.9].index.tolist()
-        if highly_correlated_with:
-            for correlated_feature in highly_correlated_with:
-                if feature_importances.loc[column, 'importance'] >= feature_importances.loc[correlated_feature, 'importance']:
-                    cols_to_drop_corr.add(correlated_feature)
-                else:
-                    cols_to_drop_corr.add(column)
-    X = X.drop(columns=list(cols_to_drop_corr))
+    # 3. Feature Scaling
+    scaler = StandardScaler()
+    X_scaled = pd.DataFrame(scaler.fit_transform(X), index=X.index, columns=X.columns)
 
-    # 5. Train/Test Split
-    train_size = int(len(X) * 0.9)
-    X_train, X_test = X[:train_size], X[train_size:]
+    # 4. Train/Test Split (Time-series aware)
+    train_size = int(len(X_scaled) * 0.9)
+    X_train, X_test = X_scaled[:train_size], X_scaled[train_size:]
     y_train, y_test = y_mapped[:train_size], y_mapped[train_size:]
 
-    # 6. Model Training with XGBoost
-    print("--- Hyperparameter Tuning for XGBoost (Optuna) ---")
-    best_params = optimize_hyperparameters_xgb(X_train, y_train)
+    print(f"Training set size: {len(X_train)}")
+    print(f"Test set size: {len(X_test)}")
+
+    # 5. Model Training with Hyperparameter Optimization
+    print("\n--- Hyperparameter Tuning for XGBoost (Optuna) ---")
+    best_params = optimize_hyperparameters_xgb(X_train, y_train, n_trials=50)
 
     print("\n--- Training Final XGBoost Model with Best Parameters ---")
-    best_model = xgb.XGBClassifier(objective='binary:logistic', use_label_encoder=False, eval_metric='logloss', random_state=42, **best_params)
-    best_model.fit(X_train, y_train)
+    final_model = xgb.XGBClassifier(
+        objective='multi:softprob',
+        num_class=3,
+        eval_metric='mlogloss',
+        random_state=42,
+        **best_params
+    )
+    final_model.fit(X_train, y_train)
 
-    # 7. SHAP Analysis for XGBoost
-    print("\n--- SHAP Analysis for XGBoost ---")
-    explainer = shap.Explainer(best_model) # shap.Explainer is generic and works for XGB
-    shap_values = explainer(X_test)
-
-    # For binary classification, we can get mean abs shap values for the positive class
-    mean_abs_shap = np.abs(shap_values.values).mean(axis=0)
-    shap_importance_df = pd.DataFrame({'feature': X_train.columns, 'mean_abs_shap_value': mean_abs_shap})
-    shap_importance_df = shap_importance_df.sort_values('mean_abs_shap_value', ascending=False)
-    print("Top 15 Features by Mean Absolute SHAP Value (XGBoost):")
-    print(shap_importance_df.head(15))
-
-    # 8. Final Evaluation
+    # 6. Final Evaluation
     print(f"\n--- Final Evaluation for XGBoost on {symbol} ---")
-    y_pred = best_model.predict(X_test)
-    print(classification_report(y_test, y_pred, target_names=['Down (-1)', 'Up (1)']))
+    y_pred = final_model.predict(X_test)
+    print(classification_report(y_test, y_pred, target_names=['Short (-1)', 'Neutral (0)', 'Long (1)'], zero_division=0.0))
 
-    # 9. Save Model and Features
-    sanitized_symbol = sanitize_symbol(symbol)
-    model_file = os.path.join(MODEL_DIR, f"xgb_classifier_{sanitized_symbol}.json")
-    features_file = os.path.join(MODEL_DIR, f"features_xgb_{sanitized_symbol}.json")
-
-    print(f"Saving XGBoost model for {symbol} to {model_file}")
+    # 7. Save Model, Scaler, and Features
     os.makedirs(MODEL_DIR, exist_ok=True)
-    best_model.save_model(model_file)
+
+    model_file = os.path.join(MODEL_DIR, f"xgb_model_{symbol}_{timeframe}.json")
+    scaler_file = os.path.join(MODEL_DIR, f"scaler_{symbol}_{timeframe}.joblib")
+    features_file = os.path.join(MODEL_DIR, f"features_{symbol}_{timeframe}.json")
+
+    print(f"Saving XGBoost model to {model_file}")
+    final_model.save_model(model_file)
+
+    print(f"Saving scaler to {scaler_file}")
+    joblib.dump(scaler, scaler_file)
 
     feature_list = list(X.columns)
     with open(features_file, 'w') as f:
         json.dump(feature_list, f)
 
-    print(f"Feature list for XGBoost model saved to {features_file}")
+    print(f"Feature list saved to {features_file}")
     print(f"--- XGBoost Training for {symbol} Complete ---")
 
+
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Train XGBoost prediction models.")
-    end_date_default = datetime.now().strftime('%Y-%m-%d')
-    start_date_default = (datetime.now() - timedelta(days=2*365)).strftime('%Y-%m-%d')
-    parser.add_argument("--symbols", nargs='+', default=["BTC/USDT"], help="List of trading symbols to train on.")
-    parser.add_argument("--timeframe", type=str, default="1h", help="Timeframe for candles.")
-    parser.add_argument("--start_date", type=str, default=start_date_default, help="Start date (YYYY-MM-DD).")
-    parser.add_argument("--end_date", type=str, default=end_date_default, help="End date (YYYY-MM-DD).")
+    parser = argparse.ArgumentParser(description="Train XGBoost prediction models from labeled data.")
+    # The --symbols argument now expects the base asset name (e.g., 'BTC', 'ETH')
+    parser.add_argument("--symbols", nargs='+', default=["BTC"], help="List of asset symbols (e.g., BTC ETH) to train on.")
+    parser.add_argument("--timeframe", type=str, default="1h", help="Timeframe for candles (e.g., '1h', '4h').")
+
+    # Removed start_date and end_date as the script now uses the full pre-processed dataset
     args = parser.parse_args()
 
     for symbol in args.symbols:
-        train_xgboost_model(symbol, args.timeframe, args.start_date, args.end_date)
+        train_xgboost_model(symbol=symbol, timeframe=args.timeframe)
