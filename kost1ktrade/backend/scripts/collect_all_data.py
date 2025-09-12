@@ -36,6 +36,15 @@ def main(days_history: int):
         TIMEFRAMES = ['1h', '4h', '1d']
         end_date = datetime.now(UTC)
 
+        # --- Load API Credentials ---
+        api_key = os.getenv("OKX_APIKEY")
+        secret_key = os.getenv("OKX_SECRET")
+        passphrase = os.getenv("OKX_PASSPHRASE")
+
+        if not all([api_key, secret_key, passphrase]):
+            print("FATAL: OKX API credentials (OKX_APIKEY, OKX_SECRET, OKX_PASSPHRASE) are not set in the environment.")
+            sys.exit(1)
+
         # --- Initialize Collectors with DB Session ---
         data_collector = DataCollector(exchange_id='okx', db_session=db)
         macro_collector = MacroDataCollector(db_session=db)
@@ -66,8 +75,8 @@ def main(days_history: int):
             print("Macro data is already up to date.")
 
         print("\n--- Collecting Economic Calendar Events ---")
-        # Using requests library directly, no longer needs data_collector
-        fetch_and_store_economic_calendar()
+        # Calling with manual authentication credentials
+        fetch_and_store_economic_calendar(api_key, secret_key, passphrase)
 
 
         print("\n--- Collecting Fear & Greed Index ---")
