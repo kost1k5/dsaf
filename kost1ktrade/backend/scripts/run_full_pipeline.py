@@ -79,36 +79,52 @@ def run_pipeline_for_asset(symbol: str, timeframe: str):
     """
     Worker function to run the full pipeline for a single asset.
     This function will be executed in a separate process.
+    It redirects its own stdout/stderr to a dedicated log file.
     """
     asset = parse_asset_from_symbol(symbol)
-    print(f"--- Starting full pipeline for asset: {asset} on timeframe: {timeframe} ---")
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    log_file_path = os.path.join(base_dir, f'log_{asset}_{timeframe}.txt')
 
-    # The pipeline for a single asset
-    pipeline_steps = [
-        ("Feature Processing", ["scripts/process_features.py", "--asset", asset, "--timeframe", timeframe]),
-        ("Label Application", ["scripts/apply_labels.py", "--asset", asset, "--timeframe", timeframe]),
-        # Note: train_xgboost_model.py expects '--symbols' but works with a single symbol.
-        ("Model Training", ["scripts/train_xgboost_model.py", "--symbols", asset, "--timeframe", timeframe]),
-        ("Model Evaluation", ["scripts/evaluate_model.py", "--asset", asset, "--timeframe", timeframe]),
-        # Note: run_wfo.py is for classic strategies and is excluded from this ML pipeline.
-        ("Backtesting", ["scripts/run_backtest.py", "--asset", asset, "--timeframe", timeframe]),
-        ("Production Model Creation", ["scripts/create_production_model.py", "--asset", asset, "--timeframe", timeframe]),
-    ]
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    result = f"PENDING: {asset}"
 
-    for i, (step_name, step_command) in enumerate(pipeline_steps):
-        print(f"\n[{asset}] Running Step {i+1}/{len(pipeline_steps)}: {step_name}...")
-        print(f"[{asset}] Running command: python {' '.join(step_command)}")
-        success, output = run_command(step_command, asset=asset)
-        if not success:
-            print(f"---!!! PIPELINE FAILED FOR ASSET: {asset} at step: {step_name} !!!---")
-            print(output) # Print the detailed error message from run_command
-            return f"FAILED: {asset}"
-        # No need for a success print here as the output is streamed
-        print(f"[{asset}] Finished Step {i+1}/{len(pipeline_steps)}: {step_name}.")
+    try:
+        with open(log_file_path, 'w') as log_file:
+            sys.stdout = log_file
+            sys.stderr = log_file
 
+            print(f"--- Starting full pipeline for asset: {asset} on timeframe: {timeframe} ---")
+            print(f"--- Log file for this process: {log_file_path} ---")
 
-    print(f"=== SUCCESSFULLY COMPLETED PIPELINE FOR {asset} ===")
-    return f"SUCCESS: {asset}"
+            pipeline_steps = [
+                ("Feature Processing", ["scripts/process_features.py", "--asset", asset, "--timeframe", timeframe]),
+                ("Label Application", ["scripts/apply_labels.py", "--asset", asset, "--timeframe", timeframe]),
+                ("Model Training", ["scripts/train_xgboost_model.py", "--symbols", asset, "--timeframe", timeframe]),
+                ("Model Evaluation", ["scripts/evaluate_model.py", "--asset", asset, "--timeframe", timeframe]),
+                ("Backtesting", ["scripts/run_backtest.py", "--asset", asset, "--timeframe", timeframe]),
+                ("Production Model Creation", ["scripts/create_production_model.py", "--asset", asset, "--timeframe", timeframe]),
+            ]
+
+            for i, (step_name, step_command) in enumerate(pipeline_steps):
+                print(f"\n[{asset}] Running Step {i+1}/{len(pipeline_steps)}: {step_name}...")
+                print(f"[{asset}] Running command: python {' '.join(step_command)}")
+                success, output = run_command(step_command, asset=asset)
+                if not success:
+                    print(f"---!!! PIPELINE FAILED FOR ASSET: {asset} at step: {step_name} !!!---")
+                    print(output)
+                    result = f"FAILED: {asset}"
+                    return result  # Exit early on failure
+
+            print(f"=== SUCCESSFULLY COMPLETED PIPELINE FOR {asset} ===")
+            result = f"SUCCESS: {asset}"
+
+    finally:
+        # Ensure that stdout and stderr are always restored
+        sys.stdout = original_stdout
+        sys.stderr = original_stderr
+        # The return must happen outside the try/finally block
+        return result
 
 def main():
     """
