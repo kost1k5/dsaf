@@ -4,6 +4,7 @@ import os
 import multiprocessing
 import threading
 from io import StringIO
+import shutil
 
 # Adjust the path to allow imports from the 'src' directory
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -118,9 +119,32 @@ def main():
     print("===  STARTING FULL QUANTITATIVE PIPELINE           ===")
     print("======================================================")
 
+    BASE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
+
+    # --- Data Directory Reset ---
+    print("\n--- Resetting Data Directory ---")
+    DATA_DIR = os.path.join(BASE_DIR, 'data')
+    if os.path.exists(DATA_DIR):
+        print(f"Deleting existing data directory: {DATA_DIR}")
+        try:
+            shutil.rmtree(DATA_DIR)
+            print("-> Successfully removed data directory.")
+        except Exception as e:
+            print(f"---!!! FAILED to delete data directory: {e} !!!---")
+            sys.exit(1)
+
+    print(f"Creating new data directory: {DATA_DIR}")
+    try:
+        os.makedirs(DATA_DIR, exist_ok=True)
+        print("-> Successfully created data directory.")
+    except Exception as e:
+        print(f"---!!! FAILED to create data directory: {e} !!!---")
+        sys.exit(1)
+    print("--- Data directory reset complete ---")
+
+
     # --- Log File Management ---
     print("\n--- Preparing Logs ---")
-    BASE_DIR = os.path.join(os.path.dirname(__file__), '..')
     FULL_LOG_PATH = os.path.join(BASE_DIR, 'full_log.txt')
 
     # Clear the main pipeline log
