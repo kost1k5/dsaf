@@ -19,14 +19,14 @@ def fetch_and_store_economic_calendar(data_collector: DataCollector, countries: 
 
     country_str = ",".join(countries)
 
-    # ccxt requires the path for the implicit API call
+    # Use the generic 'request' method for endpoints not explicitly defined in ccxt
+    path = 'api/v5/public/economic-calendar'
     params = {'country': country_str}
 
     all_events = []
     try:
-        # Use the ccxt implicit method to fetch from the public endpoint
-        # This will automatically handle signing and headers
-        data = data_collector.exchange.publicGetEconomicCalendar(params)
+        # This will automatically handle signing and headers via the collector's ccxt instance
+        data = data_collector.exchange.request(path, 'public', 'GET', params)
 
         # The OKX API nests the actual data inside a 'data' key and another list
         events = data.get('data', [])
