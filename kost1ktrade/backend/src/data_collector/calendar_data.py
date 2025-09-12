@@ -20,7 +20,7 @@ def fetch_and_store_economic_calendar(data_collector: DataCollector, countries: 
     country_str = ",".join(countries)
 
     # Use the generic 'request' method for endpoints not explicitly defined in ccxt
-    path = 'api/v5/public/economic-calendar'
+    path = 'public/economic-calendar'
     params = {'country': country_str}
 
     all_events = []
