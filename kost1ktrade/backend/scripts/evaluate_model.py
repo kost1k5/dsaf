@@ -38,7 +38,7 @@ def calculate_financial_metrics(
 
         # --- Position Sizing (same for long and short) ---
         risk_in_money = capital * s.RISK_PER_TRADE
-        atr_at_entry = row['atr']
+        atr_at_entry = row['ATRr_14']
         if atr_at_entry == 0: continue
 
         stop_loss_distance_price = s.SL_ATR_MULT * atr_at_entry
@@ -124,8 +124,19 @@ def main(asset: str, timeframe: str):
     predictions_path = os.path.join(RESULTS_DIR, f'{asset}_{timeframe}_oos_predictions.parquet')
     try:
         predictions_df = pd.read_parquet(predictions_path)
-    except FileNotFoundError:
-        print(f"Error: OOS predictions file not found at {predictions_path}.")
+
+        # Also load the labeled data to get access to the ATRr_14 feature
+        LABELED_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'labeled')
+        labeled_data_path = os.path.join(LABELED_DATA_DIR, f'{asset}_{timeframe}_labeled.parquet')
+        labeled_df = pd.read_parquet(labeled_data_path)
+
+        # Join the ATR column into the predictions dataframe for financial calculations
+        # We only need the ATRr_14 column and it should align on the timestamp index
+        predictions_df = predictions_df.join(labeled_df[['ATRr_14']])
+        predictions_df.dropna(inplace=True) # Drop rows where join might have failed
+
+    except FileNotFoundError as e:
+        print(f"Error: Could not find a required data file. {e}")
         return
 
     # 2. Find the optimal probability thresholds via Grid Search
