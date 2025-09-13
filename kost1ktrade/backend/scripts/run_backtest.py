@@ -38,6 +38,8 @@ def calculate_sortino_for_optuna(predictions: pd.DataFrame) -> float:
         pnl = 0
 
         # Decide trade direction
+        if trade['atr'] <= 0: continue # Prevent division by zero
+
         if trade['proba_buy'] > threshold:
             position_size = (capital * risk_per_trade) / (trade['atr'] * sl_atr_mult)
             # Original y_true: -1 (Sell), 0 (Hold), 1 (Buy). Mapped y_true: 0, 1, 2.

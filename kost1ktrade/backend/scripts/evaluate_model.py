@@ -80,9 +80,11 @@ def calculate_financial_metrics(
 
     # --- Final Metrics Calculation ---
     if not trades_list:
+        # If no trades were made, return zero for metrics.
+        # The 'capital' at this point is the initial capital as it was never modified.
         return {
             "sharpe_ratio": 0, "profit_factor": 0, "max_drawdown": 0,
-            "win_rate": 0, "total_trades": 0, "final_capital": initial_capital
+            "win_rate": 0, "total_trades": 0, "final_capital": capital
         }
 
     total_trades = len(trades_list)
