@@ -212,7 +212,10 @@ def main():
     # Prepare arguments for starmap
     args_for_starmap = zip(symbols_to_process, repeat(timeframe_to_use))
 
-    with multiprocessing.Pool(processes=num_processes) as pool:
+    # Using maxtasksperchild=1 makes the pool more robust by ensuring each asset
+    # is processed in a fresh worker process. This can prevent hangs caused by
+    # resource leaks or corrupted state in long-running workers.
+    with multiprocessing.Pool(processes=num_processes, maxtasksperchild=1) as pool:
         results = pool.starmap(run_pipeline_for_asset, args_for_starmap)
 
     print("\n--- Step 2: Parallel Processing Finished ---")
