@@ -4,6 +4,31 @@ import os
 import threading
 from io import StringIO
 
+
+class Tee(object):
+    """
+    A file-like object that writes to multiple files at once.
+    This is used to "tee" output to both stdout and a log file.
+    """
+    def __init__(self, *files):
+        self.files = files
+
+    def write(self, obj):
+        for f in self.files:
+            try:
+                f.write(obj)
+                f.flush()
+            except (IOError, ValueError):
+                # Handle cases where a stream might be closed or unavailable
+                pass
+
+    def flush(self):
+        for f in self.files:
+            try:
+                f.flush()
+            except (IOError, ValueError):
+                pass
+
 # Adjust the path to allow imports from the 'src' directory
 # This is crucial for the worker process to find the project's modules.
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -76,8 +101,8 @@ def run_command(command: list, asset: str = "PIPELINE"):
 def run_pipeline_for_asset(symbol: str, timeframe: str):
     """
     Worker function to run the full pipeline for a single asset.
-    This function is executed in a separate process by the main pipeline script.
-    It redirects its own stdout/stderr to a dedicated log file.
+    This function is executed in a separate process.
+    It redirects its own stdout/stderr to a dedicated log file AND the console.
     """
     asset = parse_asset_from_symbol(symbol)
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -86,40 +111,44 @@ def run_pipeline_for_asset(symbol: str, timeframe: str):
     original_stdout = sys.stdout
     original_stderr = sys.stderr
     result = f"PENDING: {asset}"
+    log_file = None
 
     try:
-        with open(log_file_path, 'w') as log_file:
-            sys.stdout = log_file
-            sys.stderr = log_file
+        log_file = open(log_file_path, 'w')
+        # Redirect stdout and stderr to both the original stream and the log file
+        sys.stdout = Tee(original_stdout, log_file)
+        sys.stderr = Tee(original_stderr, log_file)
 
-            print(f"--- Starting full pipeline for asset: {asset} on timeframe: {timeframe} ---")
-            print(f"--- Log file for this process: {log_file_path} ---")
+        print(f"--- Starting full pipeline for asset: {asset} on timeframe: {timeframe} ---")
+        print(f"--- Log file for this process: {log_file_path} ---")
 
-            pipeline_steps = [
-                ("Feature Processing", ["scripts/process_features.py", "--asset", asset, "--timeframe", timeframe]),
-                ("Label Application", ["scripts/apply_labels.py", "--asset", asset, "--timeframe", timeframe]),
-                ("Model Training", ["scripts/train_xgboost_model.py", "--symbols", asset, "--timeframe", timeframe]),
-                ("Model Evaluation", ["scripts/evaluate_model.py", "--asset", asset, "--timeframe", timeframe]),
-                ("Backtesting", ["scripts/run_backtest.py", "--asset", asset, "--timeframe", timeframe]),
-                ("Production Model Creation", ["scripts/create_production_model.py", "--asset", asset, "--timeframe", timeframe]),
-            ]
+        pipeline_steps = [
+            ("Feature Processing", ["scripts/process_features.py", "--asset", asset, "--timeframe", timeframe]),
+            ("Label Application", ["scripts/apply_labels.py", "--asset", asset, "--timeframe", timeframe]),
+            ("Model Training", ["scripts/train_xgboost_model.py", "--symbols", asset, "--timeframe", timeframe]),
+            ("Model Evaluation", ["scripts/evaluate_model.py", "--asset", asset, "--timeframe", timeframe]),
+            ("Backtesting", ["scripts/run_backtest.py", "--asset", asset, "--timeframe", timeframe]),
+            ("Production Model Creation", ["scripts/create_production_model.py", "--asset", asset, "--timeframe", timeframe]),
+        ]
 
-            for i, (step_name, step_command) in enumerate(pipeline_steps):
-                print(f"\n[{asset}] Running Step {i+1}/{len(pipeline_steps)}: {step_name}...")
-                print(f"[{asset}] Running command: python {' '.join(step_command)}")
-                success, output = run_command(step_command, asset=asset)
-                if not success:
-                    print(f"---!!! PIPELINE FAILED FOR ASSET: {asset} at step: {step_name} !!!---")
-                    print(output)
-                    result = f"FAILED: {asset}"
-                    return result  # Exit early on failure
+        for i, (step_name, step_command) in enumerate(pipeline_steps):
+            print(f"\n[{asset}] Running Step {i+1}/{len(pipeline_steps)}: {step_name}...")
+            print(f"[{asset}] Running command: python {' '.join(step_command)}")
+            success, output = run_command(step_command, asset=asset)
+            if not success:
+                print(f"---!!! PIPELINE FAILED FOR ASSET: {asset} at step: {step_name} !!!---")
+                print(output)
+                result = f"FAILED: {asset}"
+                return result  # Exit early on failure
 
-            print(f"=== SUCCESSFULLY COMPLETED PIPELINE FOR {asset} ===")
-            result = f"SUCCESS: {asset}"
+        print(f"=== SUCCESSFULLY COMPLETED PIPELINE FOR {asset} ===")
+        result = f"SUCCESS: {asset}"
 
     finally:
         # Ensure that stdout and stderr are always restored
         sys.stdout = original_stdout
         sys.stderr = original_stderr
+        if log_file:
+            log_file.close()
         # The return must happen outside the try/finally block
         return result
