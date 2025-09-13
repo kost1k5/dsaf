@@ -43,9 +43,9 @@ def generate_signals(dataframe: pd.DataFrame, strategy_type: str = 'advanced') -
     long_trend_condition = df['EMA_fast'] > df['EMA_slow']
     short_trend_condition = df['EMA_fast'] < df['EMA_slow']
 
-    # RSI Trigger Conditions (Crossover logic)
-    rsi_cross_up = (df['RSI'] > rsi_entry_level) & (df['RSI'].shift(1) <= rsi_entry_level)
-    rsi_cross_down = (df['RSI'] < rsi_entry_level) & (df['RSI'].shift(1) >= rsi_entry_level)
+    # RSI Trigger Conditions (State-based logic)
+    rsi_state_long = df['RSI'] > rsi_entry_level
+    rsi_state_short = df['RSI'] < rsi_entry_level
 
     # Volume Confirmation
     volume_confirmation_long = df['OBV'] > df['OBV_SMA']
@@ -57,14 +57,14 @@ def generate_signals(dataframe: pd.DataFrame, strategy_type: str = 'advanced') -
     # --- Combine Conditions for Basic Strategy (Strategy 2) ---
     long_signal_basic = (
         long_trend_condition &
-        rsi_cross_up &
+        rsi_state_long &
         volume_confirmation_long &
         volatility_filter
     )
 
     short_signal_basic = (
         short_trend_condition &
-        rsi_cross_down &
+        rsi_state_short &
         volume_confirmation_short &
         volatility_filter
     )
