@@ -82,9 +82,7 @@ def apply_trade_outcome_labels(df: pd.DataFrame) -> pd.DataFrame:
     # Join labels back and filter for labeled rows
     final_df = df_with_signals.join(labels_df, how='inner')
 
-    # The ML model should not know the signal that triggered the event
-    final_df.drop(columns=['signal'], inplace=True)
-
+    # The 'signal' column is kept intentionally for use in the evaluation script.
     print(f"Finished labeling. {len(final_df)} labeled events created.")
     return final_df
 
