@@ -8,7 +8,7 @@ import sys
 # Adjust the path to allow imports from the 'src' directory
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from src.ml.feature_generator import create_core_features
+from src.ml.feature_generator import create_features
 from src.database.session import SessionLocal
 from src.database.models import Candle, FundingRate, MacroData, FearGreedIndex, NewsHeadline, EconomicCalendarEvent
 from sqlalchemy import func
@@ -121,7 +121,7 @@ def main(asset: str, timeframe: str):
         df_for_features = merged_df.reset_index().rename(columns={'timestamp': 'open_time'})
 
         # 3. Generate features using the new function-based generator
-        features_df = create_core_features(df_for_features)
+        features_df = create_features(df_for_features)
 
         # Set the timestamp back as the index
         features_df.set_index('open_time', inplace=True)

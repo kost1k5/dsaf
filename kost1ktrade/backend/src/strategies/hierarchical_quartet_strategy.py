@@ -34,12 +34,16 @@ class HierarchicalQuartetStrategy(BaseStrategy):
         :param candles_df: A DataFrame with OHLCV data and the 'core quartet' of indicators.
         :return: A DataFrame with a 'signal' column ('BUY', 'SELL', 'HOLD').
         """
-        required_features = ['EMA_200', 'RSI_14', 'OBV', 'close']
+        required_features = ['EMA_200', 'RSI_14', 'OBV', 'close', 'ADX_14']
         if not all(col in candles_df.columns for col in required_features):
             raise ValueError(f"Input DataFrame is missing one of the required features: {required_features}")
 
         df = candles_df.copy()
         df['signal'] = 'HOLD'
+
+        # --- Regime Filter (ADX) ---
+        # ADX > 25 is considered a trending market.
+        is_trending = df['ADX_14'] > 25
 
         # --- Filter 1: Trend Direction ---
         is_uptrend = df['close'] > df['EMA_200']
@@ -58,16 +62,14 @@ class HierarchicalQuartetStrategy(BaseStrategy):
         is_obv_confirm_sell = df['OBV'] < obv_sma
 
         # --- Combine Filters to Generate Signals ---
-        # Buy condition: Uptrend AND RSI pullback AND OBV confirmation
-        buy_conditions = (is_uptrend & is_buy_trigger & is_obv_confirm_buy)
-        df.loc[buy_conditions, 'signal'] = 'BUY'
+        # A signal is only generated if the market is in a trending regime.
+        # Buy condition: Trending AND Uptrend AND RSI pullback AND OBV confirmation
+        buy_conditions = (is_trending & is_uptrend & is_buy_trigger & is_obv_confirm_buy)
 
-        # Sell condition: Downtrend AND RSI rally AND OBV confirmation
-        sell_conditions = (is_downtrend & is_sell_trigger & is_obv_confirm_sell)
-        df.loc[sell_conditions, 'signal'] = 'SELL'
+        # Sell condition: Trending AND Downtrend AND RSI rally AND OBV confirmation
+        sell_conditions = (is_trending & is_downtrend & is_sell_trigger & is_obv_confirm_sell)
 
-        # To prevent signals from firing constantly, we can refine this to only signal on the first bar that meets the condition.
-        # This can be done by checking if the previous bar's condition was not met.
+        # To prevent signals from firing constantly, we only signal on the first bar that meets the condition.
         buy_signals = buy_conditions & ~buy_conditions.shift(1).fillna(False)
         sell_signals = sell_conditions & ~sell_conditions.shift(1).fillna(False)
 
