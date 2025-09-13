@@ -94,7 +94,7 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     feature_cols = [col for col in all_cols if col not in ordered_cols]
     final_cols = ordered_cols + sorted(feature_cols) # Sort features alphabetically for consistency
 
-    df_final = df_feat[[col for col in final_cols if col in df_feat.columns]]
+    df_final = df_feat[[col for col in final_cols if col in df_feat.columns]].copy()
 
     # Drop rows with NaN values resulting from indicator calculations
     df_final.dropna(inplace=True)

@@ -112,7 +112,8 @@ def run_backtest_simulation(
             if strategy_type in ['basic', 'advanced']:
                 enter_trade = True
             elif strategy_type == 'hybrid':
-                if 'y_pred_proba' in df_sim.columns and row['y_pred_proba'] > confidence_threshold:
+                # Check for a valid, non-stale prediction that meets the threshold
+                if pd.notna(row.get('y_pred_proba')) and row['y_pred_proba'] > confidence_threshold:
                     enter_trade = True
 
             if enter_trade:
@@ -213,8 +214,7 @@ def main(asset: str, timeframe: str, strategy: str):
 
             # Join predictions onto the full feature set
             features_df = features_df.join(preds_df[['y_pred_proba']], how='left')
-            # Forward-fill probabilities to carry them until the next signal event
-            features_df['y_pred_proba'].fillna(method='ffill', inplace=True)
+            # DO NOT forward-fill probabilities. They are only valid on the signal candle.
             print("Successfully loaded and merged ML predictions.")
         except FileNotFoundError:
             print(f"ERROR: Predictions file not found for hybrid strategy: '{preds_path}'.")
