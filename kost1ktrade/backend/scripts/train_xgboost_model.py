@@ -53,22 +53,7 @@ FINAL_FEATURE_SET = SPECIALIZED_FEATURES + LAGGED_FEATURES
 def optimize_hyperparameters_xgb(X_train, y_train, n_trials: int, scale_pos_weight: float):
     """
     Performs hyperparameter optimization for a binary XGBoost classifier.
-    Skips optimization and returns defaults if the dataset is too small.
     """
-    MIN_SAMPLES_FOR_OPTUNA = 20
-    if len(X_train) < MIN_SAMPLES_FOR_OPTUNA:
-        print(f"WARNING: Training set size ({len(X_train)}) is less than {MIN_SAMPLES_FOR_OPTUNA}. Skipping Optuna and using default parameters.")
-        return {
-            'n_estimators': 100,
-            'learning_rate': 0.05,
-            'max_depth': 5,
-            'subsample': 0.8,
-            'colsample_bytree': 0.8,
-            'gamma': 0,
-            'lambda': 1,
-            'alpha': 0
-        }
-
     def objective(trial):
         param = {
             'objective': 'binary:logistic',
