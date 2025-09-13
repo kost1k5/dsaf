@@ -32,12 +32,16 @@ from sklearn.metrics import f1_score
 # Add the project root to the python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+from src.core.config import settings
+
 # --- Configuration ---
 MODEL_DIR = os.path.join(os.path.dirname(__file__), '..', 'models', 'production')
 LABELED_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'labeled')
+REPORTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'reports')
+RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
 
 
-def optimize_hyperparameters_xgb(X_train, y_train, n_trials=50):
+def optimize_hyperparameters_xgb(X_train, y_train, n_trials: int):
     """
     Performs hyperparameter optimization for XGBoost using Optuna.
     """
@@ -142,7 +146,7 @@ def train_xgboost_model(symbol: str, timeframe: str):
 
     # 5. Model Training with Hyperparameter Optimization
     print("\n--- Hyperparameter Tuning for XGBoost (Optuna) ---")
-    best_params = optimize_hyperparameters_xgb(X_train, y_train, n_trials=50)
+    best_params = optimize_hyperparameters_xgb(X_train, y_train, n_trials=settings.ML.OPTUNA_TRIALS)
 
     print("\n--- Training Final XGBoost Model with Best Parameters ---")
     final_model = xgb.XGBClassifier(
@@ -157,8 +161,23 @@ def train_xgboost_model(symbol: str, timeframe: str):
 
     # 6. Final Evaluation
     print(f"\n--- Final Evaluation for XGBoost on {symbol} ---")
-    y_pred = final_model.predict(X_test)
-    print(classification_report(y_test, y_pred, target_names=['Short (-1)', 'Neutral (0)', 'Long (1)'], zero_division=0.0))
+    y_pred_mapped = final_model.predict(X_test) # These are 0, 1, 2
+    print(classification_report(y_test, y_pred_mapped, target_names=['Short (-1)', 'Neutral (0)', 'Long (1)'], zero_division=0.0))
+
+    # --- Save OOS Predictions ---
+    # Create a reverse mapper to go from (0, 1, 2) back to (-1, 0, 1) for analysis
+    reverse_mapper = {0: -1, 1: 0, 2: 1}
+
+    oos_predictions_df = pd.DataFrame(index=X_test.index)
+    oos_predictions_df['y_true'] = y_test.map(reverse_mapper)
+    oos_predictions_df['y_pred'] = pd.Series(y_pred_mapped, index=X_test.index).map(reverse_mapper)
+
+    # Save the OOS predictions
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    oos_predictions_path = os.path.join(RESULTS_DIR, f'{symbol}_{timeframe}_oos_predictions.parquet')
+    oos_predictions_df.to_parquet(oos_predictions_path)
+    print(f"Out-of-sample predictions saved to {oos_predictions_path}")
+
 
     # 7. Save Model, Scaler, and Features
     os.makedirs(MODEL_DIR, exist_ok=True)
@@ -173,11 +192,34 @@ def train_xgboost_model(symbol: str, timeframe: str):
     print(f"Saving scaler to {scaler_file}")
     joblib.dump(scaler, scaler_file)
 
+    # --- Feature Importance & Selection ---
+    # Get feature importance from the trained model
+    feature_importances = final_model.feature_importances_
+    importance_df = pd.DataFrame({
+        'feature': X.columns,
+        'importance': feature_importances
+    }).sort_values(by='importance', ascending=False)
+
+    # Select top N features
+    NUM_SELECTED_FEATURES = 20
+    selected_features = importance_df.head(NUM_SELECTED_FEATURES)['feature'].tolist()
+
+    print(f"\nTop {NUM_SELECTED_FEATURES} selected features:")
+    print(importance_df.head(NUM_SELECTED_FEATURES))
+
+    # Save the list of selected features to the .txt file required by the backtester
+    os.makedirs(REPORTS_DIR, exist_ok=True)
+    selected_features_path = os.path.join(REPORTS_DIR, f'{symbol}_{timeframe}_selected_features.txt')
+    with open(selected_features_path, 'w') as f:
+        for feature in selected_features:
+            f.write(f"{feature}\n")
+    print(f"Selected features list saved to {selected_features_path}")
+
+    # Also save the original full feature list to the JSON file for reference
     feature_list = list(X.columns)
     with open(features_file, 'w') as f:
         json.dump(feature_list, f)
-
-    print(f"Feature list saved to {features_file}")
+    print(f"Full feature list saved to {features_file}")
     print(f"--- XGBoost Training for {symbol} Complete ---")
 
 
