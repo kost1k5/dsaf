@@ -130,9 +130,9 @@ def main(asset: str, timeframe: str):
         labeled_data_path = os.path.join(LABELED_DATA_DIR, f'{asset}_{timeframe}_labeled.parquet')
         labeled_df = pd.read_parquet(labeled_data_path)
 
-        # Join the ATR column into the predictions dataframe for financial calculations
-        # We only need the ATRr_14 column and it should align on the timestamp index
-        predictions_df = predictions_df.join(labeled_df[['ATRr_14']])
+        # Join the ATR and close columns into the predictions dataframe for financial calculations
+        # These are needed for the backtesting simulation
+        predictions_df = predictions_df.join(labeled_df[['ATRr_14', 'close']])
         predictions_df.dropna(inplace=True) # Drop rows where join might have failed
 
     except FileNotFoundError as e:
