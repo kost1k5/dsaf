@@ -41,6 +41,7 @@ class TradeManagementSettings(BaseModel):
     CORRELATION_THRESHOLD: float
 
 class MLModelSettings(BaseModel):
+    HYBRID_CONFIDENCE_THRESHOLD: float
     CONFIDENCE_THRESHOLD: float
     ATR_LABEL_THRESHOLD: float
     MIN_TRADES_FOR_EVAL: int
@@ -56,6 +57,19 @@ class EvaluationSettings(BaseModel):
     SLIPPAGE_RATE: float
     TP_ATR_MULT: float
     SL_ATR_MULT: float
+
+class StrategySettings(BaseModel):
+    EMA_FAST: int
+    EMA_SLOW: int
+    RSI_PERIOD: int
+    RSI_ENTRY_LEVEL: int
+    OBV_SMA_PERIOD: int
+    ATR_PERIOD: int
+    ATR_SMA_PERIOD: int
+    ADX_PERIOD: int
+    ADX_TREND_THRESHOLD: int
+    RISK_SL_ATR_MULT: float
+    RISK_TP_ATR_MULT: float
 
 class BacktestStrategySettings(BaseModel):
     TP_ATR_MULT: float
@@ -138,6 +152,7 @@ class Settings(BaseSettings):
     BACKTEST_SLIPPAGE_PCT: float
 
     # --- Nested Settings Models (populated from .env via parent__child syntax) ---
+    STRATEGY: StrategySettings
     RISK: RiskManagementSettings
     TRADE: TradeManagementSettings
     ML: MLModelSettings

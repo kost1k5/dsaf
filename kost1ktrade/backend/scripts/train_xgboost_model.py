@@ -166,7 +166,10 @@ def train_xgboost_model(symbol: str, timeframe: str):
     # 7. Final Evaluation
     print(f"\n--- Final Evaluation for XGBoost on {symbol} ---")
     y_pred = final_model.predict(X_test)
-    print(classification_report(y_test, y_pred, target_names=['Failure (0)', 'Success (1)'], zero_division=0.0))
+    try:
+        print(classification_report(y_test, y_pred, target_names=['Failure (0)', 'Success (1)'], zero_division=0.0))
+    except ValueError as e:
+        print(f"Could not generate classification report. This usually happens when the test set contains only one class. Error: {e}")
 
     # Save OOS predictions with probabilities and original signal direction
     y_pred_proba = final_model.predict_proba(X_test)[:, 1] # Probability of success
