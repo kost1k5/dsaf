@@ -28,7 +28,8 @@ def _calculate_vwap(df: pd.DataFrame) -> pd.Series:
     cum_vol = grouped['volume'].transform('cumsum')
     cum_vol_price = (df['close'] * df['volume']).groupby(df.index.date).transform('cumsum')
 
-    vwap = (cum_vol_price / cum_vol).fillna(0)
+    # Replace 0 with NaN in the denominator to avoid division by zero errors
+    vwap = (cum_vol_price / cum_vol.replace(0, np.nan)).fillna(0)
     return vwap
 
 def create_features(df: pd.DataFrame) -> pd.DataFrame:
@@ -152,7 +153,8 @@ def create_labels(df: pd.DataFrame, look_forward_periods: int = 4, atr_multiplie
     # --- CRITICAL FIX: Calculate ATR percentage correctly ---
     # The ATR from pandas_ta is in raw price units, not percentage.
     # We must normalize it by the current price to compare it with returns.
-    df['atr_pct'] = df[atr_col] / df['close']
+    # Replace 0 with NaN in the denominator to avoid division by zero errors.
+    df['atr_pct'] = (df[atr_col] / df['close'].replace(0, np.nan)).fillna(0)
 
     # Define dynamic thresholds based on volatility
     # Threshold = Multiplier * Normalized ATR

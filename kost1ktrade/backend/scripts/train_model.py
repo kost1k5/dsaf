@@ -55,6 +55,9 @@ def optimize_hyperparameters(X_train, y_train):
             X_train_fold, X_val_fold = X_train.iloc[train_index], X_train.iloc[val_index]
             y_train_fold, y_val_fold = y_train.iloc[train_index], y_train.iloc[val_index]
 
+            if X_val_fold.empty:
+                continue
+
             model = lgb.LGBMClassifier(**param)
             model.fit(X_train_fold, y_train_fold)
             preds = model.predict(X_val_fold)
@@ -158,6 +161,11 @@ def train_model(symbol: str, timeframe: str, start_date: str, end_date: str):
     print(f"Dropping {len(to_drop)} highly correlated features: {to_drop}")
     X_train = X_train.drop(columns=to_drop)
     X_test = X_test.drop(columns=to_drop)
+
+    if X_train.empty:
+        print(f"ERROR: No features remaining after correlation filtering for {symbol}. Skipping training.")
+        return
+
     print("--- Feature Selection Complete ---\n")
 
     # 9. Model Training

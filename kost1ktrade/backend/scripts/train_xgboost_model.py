@@ -74,6 +74,9 @@ def optimize_hyperparameters_xgb(X_train, y_train, n_trials: int):
             X_train_fold, X_val_fold = X_train.iloc[train_index], X_train.iloc[val_index]
             y_train_fold, y_val_fold = y_train.iloc[train_index], y_train.iloc[val_index]
 
+            if X_val_fold.empty:
+                continue
+
             model = xgb.XGBClassifier(**param)
             model.fit(X_train_fold, y_train_fold)
 
@@ -116,6 +119,10 @@ def train_xgboost_model(symbol: str, timeframe: str):
         print("Please run 'process_features.py' and 'apply_labels.py' first.")
         return
 
+    if labeled_df.empty:
+        print(f"ERROR: Labeled data file for {symbol} is empty. Skipping training.")
+        return
+
     # 2. Prepare Data (define features and target)
     # Drop non-feature columns
     cols_to_drop = ['symbol', 'interval', 'open', 'high', 'low', 'close', 'volume', 'event_end_time', 'label']
@@ -123,6 +130,10 @@ def train_xgboost_model(symbol: str, timeframe: str):
 
     # Ensure all feature columns are numeric
     X = X.select_dtypes(include=np.number)
+
+    if X.empty:
+        print(f"ERROR: No numeric features found for {symbol}. Skipping training.")
+        return
 
     y = labeled_df['label'].copy()
 
