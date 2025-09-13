@@ -176,7 +176,8 @@ def train_xgboost_model(symbol: str, timeframe: str):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train XGBoost Confirmation Model.")
-    parser.add_argument("--symbol", type=str, default="BTC", help="Asset symbol (e.g., BTC).")
-    parser.add_argument("--timeframe", type=str, default="4h", help="Timeframe (e.g., '1h', '4h').")
+    parser.add_argument("--symbols", nargs='+', default=["BTC"], help="List of asset symbols (e.g., BTC ETH) to train on.")
+    parser.add_argument("--timeframe", type=str, default="1h", help="Timeframe (e.g., '1h', '4h').")
     args = parser.parse_args()
-    train_xgboost_model(symbol=args.symbol, timeframe=args.timeframe)
+    for symbol in args.symbols:
+        train_xgboost_model(symbol=symbol, timeframe=args.timeframe)
