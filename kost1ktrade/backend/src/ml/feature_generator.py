@@ -56,7 +56,7 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     df_feat['ADX_14'] = talib.ADX(high, low, close)
     df_feat['SMA_20'] = talib.SMA(close, timeperiod=20)
     df_feat['SMA_50'] = talib.SMA(close, timeperiod=50)
-    df_feat['SMA_200'] = talib.SMA(close, timeperiod=200)
+    df_feat['EMA_200'] = talib.EMA(close, timeperiod=200) # (FIX) Changed SMA to EMA for backtester
     df_feat['ATRr_14'] = talib.ATR(high, low, close, timeperiod=14)
     upper, middle, lower = talib.BBANDS(close)
     df_feat['BBU_20_2.0'] = upper
@@ -98,14 +98,15 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     # 1. Normalize price-based indicators by ATR
     df_feat['dist_from_bbm_norm'] = (df_feat['close'] - df_feat['BBM_20_2.0']) / atr
     df_feat['dist_from_vwap_norm'] = (df_feat['close'] - df_feat['VWAP_D']) / atr
-    df_feat['dist_from_sma200_norm'] = (df_feat['close'] - df_feat['SMA_200']) / atr
+    df_feat['dist_from_ema200_norm'] = (df_feat['close'] - df_feat['EMA_200']) / atr # (FIX) Use EMA_200
 
     # 2. Make OBV stationary with .diff()
     df_feat['OBV_diff'] = df_feat['OBV'].diff()
 
     # 3. Drop original, non-stationary columns that have been replaced
+    # (FIX) Keep EMA_200 as it's needed by the backtester's trend filter
     cols_to_drop = [
-        'SMA_20', 'SMA_50', 'SMA_200', 'BBU_20_2.0', 'BBM_20_2.0', 'BBL_20_2.0',
+        'SMA_20', 'SMA_50', 'BBU_20_2.0', 'BBM_20_2.0', 'BBL_20_2.0',
         'VWAP_D', 'OBV'
     ]
     df_feat.drop(columns=cols_to_drop, inplace=True, errors='ignore')
