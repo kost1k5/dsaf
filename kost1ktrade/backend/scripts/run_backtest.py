@@ -1,497 +1,241 @@
+"""
+Hybrid & Rule-Based Backtester
+
+This script runs a vectorized and an event-driven backtest for different trading strategies.
+It is designed to be a pure evaluation script. It DOES NOT train or optimize any models.
+
+Supported Strategies:
+- 'basic': Confluence Strategy 2 (Rules only, no ADX/DMI filter).
+- 'advanced': Confluence Strategy 3 (Rules only, with ADX/DMI filter).
+- 'hybrid': Confluence Strategy 4 (Advanced rules + ML confirmation).
+"""
 import os
 import pandas as pd
 import numpy as np
-import lightgbm as lgb
-import optuna
 import argparse
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import f1_score
-from sklearn.calibration import CalibratedClassifierCV
+import joblib
+import json
 from zoneinfo import ZoneInfo
 
 # Adjust the path to allow imports from the 'src' directory
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.strategies.confluence_engine import generate_signals
+from src.core.config import settings
 
-def calculate_sortino_for_optuna(predictions: pd.DataFrame) -> float:
+def run_backtest_simulation(
+    df: pd.DataFrame,
+    strategy_type: str,
+    initial_capital=10000.0,
+    commission_rate=0.0005,
+    slippage_pct=0.0005
+):
     """
-    A simplified backtest to calculate Sortino ratio for Optuna.
-    Penalizes only for downside volatility.
+    Runs a detailed, event-driven backtest simulation.
     """
-    # For multiclass, we need a strategy to turn predictions into trades.
-    # A simple strategy: Buy on proba_buy > threshold, Sell on proba_sell > threshold.
-    # We'll use a fixed threshold for optimization.
-    threshold = 0.7 # A bit higher to be more selective
-    initial_capital = 10000.0
-    risk_per_trade = 0.01
-    tp_atr_mult = 2.0
-    sl_atr_mult = 1.0
+    print(f"\n--- Running Backtest Simulation for Strategy: '{strategy_type.upper()}' ---")
 
-    capital = initial_capital
-    equity_curve = [initial_capital]
+    # --- Load Strategy Parameters from Settings ---
+    params = settings.STRATEGY
+    ml_params = settings.ML
 
-    for _, trade in predictions.iterrows():
-        if capital <= 0: break
+    sl_atr_mult = params.RISK_SL_ATR_MULT
+    tp_atr_mult = params.RISK_TP_ATR_MULT
+    confidence_threshold = ml_params.HYBRID_CONFIDENCE_THRESHOLD
 
-        position_size = 0
-        pnl = 0
-
-        # Decide trade direction
-        if trade['atr'] <= 0: continue # Prevent division by zero
-
-        if trade['proba_buy'] > threshold:
-            position_size = (capital * risk_per_trade) / (trade['atr'] * sl_atr_mult)
-            # Original y_true: -1 (Sell), 0 (Hold), 1 (Buy). Mapped y_true: 0, 1, 2.
-            # We are buying, so we win if original y_true was 1 (mapped to 2).
-            if trade['y_true'] == 2:
-                pnl = position_size * (trade['atr'] * tp_atr_mult)
-            else:
-                pnl = -position_size * (trade['atr'] * sl_atr_mult)
-        elif trade['proba_sell'] > threshold:
-            position_size = (capital * risk_per_trade) / (trade['atr'] * sl_atr_mult)
-            # We are selling, so we win if original y_true was -1 (mapped to 0).
-            # A win for a short is hitting the lower barrier (TP), defined by sl_atr_mult.
-            if trade['y_true'] == 0:
-                pnl = position_size * (trade['atr'] * sl_atr_mult)
-            else: # A loss for a short is hitting the upper barrier (SL), defined by tp_atr_mult.
-                pnl = -position_size * (trade['atr'] * sl_atr_mult)
-
-        if position_size > 0:
-            capital += pnl
-            equity_curve.append(capital)
-
-    if len(equity_curve) < 10: return -1.0 # Not enough trades
-
-    equity_ser = pd.Series(equity_curve)
-    returns = equity_ser.pct_change().dropna()
-
-    if returns.empty: return -1.0
-
-    # Calculate Sortino Ratio
-    downside_returns = returns[returns < 0]
-    downside_std = downside_returns.std()
-
-    if downside_std > 0:
-        sortino_ratio = returns.mean() / downside_std
-        return sortino_ratio
-    elif returns.mean() > 0:
-        return 100.0 # Great performance, no downside
-    else:
-        return -1.0
-
-
-def objective(trial, X, y, metadata, metric: str):
-    """
-    Objective function for Optuna hyperparameter tuning, optimizing for a selected metric.
-    """
-    # Define the hyperparameter search space
-    params = {
-        'objective': 'multiclass',
-        'num_class': 3,
-        'metric': 'multi_logloss',
-        'verbosity': -1,
-        'boosting_type': 'gbdt',
-        'random_state': 42,
-        'n_estimators': trial.suggest_int('n_estimators', 100, 1000),
-        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
-        'num_leaves': trial.suggest_int('num_leaves', 20, 300),
-        'max_depth': trial.suggest_int('max_depth', 3, 12),
-        'lambda_l1': trial.suggest_float('lambda_l1', 1e-8, 50.0, log=True),
-        'lambda_l2': trial.suggest_float('lambda_l2', 1e-8, 50.0, log=True),
-        'feature_fraction': trial.suggest_float('feature_fraction', 0.4, 1.0),
-        'bagging_fraction': trial.suggest_float('bagging_fraction', 0.4, 1.0),
-        'bagging_freq': trial.suggest_int('bagging_freq', 1, 7),
-    }
-
-    # Create a nested validation set from the training data
-    split_point = int(len(X) * 0.75)
-    X_train_inner, X_val_inner = X.iloc[:split_point], X.iloc[split_point:]
-    y_train_inner, y_val_inner = y.iloc[:split_point], y.iloc[split_point:]
-    metadata_val_inner = metadata.loc[X_val_inner.index]
-
-    if len(X_val_inner) == 0:
-        return 0.0
-
-    model = lgb.LGBMClassifier(**params)
-    model.fit(X_train_inner, y_train_inner)
-
-    y_pred_proba = model.predict_proba(X_val_inner)
-
-    if metric == 'f1':
-        y_pred_class = np.argmax(y_pred_proba, axis=1)
-        return f1_score(y_val_inner, y_pred_class, average='weighted', zero_division=0.0)
-    elif metric == 'sortino':
-        # Combine predictions with metadata for evaluation
-        validation_results = pd.DataFrame({
-            'y_true': y_val_inner.values,
-            'proba_sell': y_pred_proba[:, 0],
-            'proba_hold': y_pred_proba[:, 1],
-            'proba_buy': y_pred_proba[:, 2],
-            'close': metadata_val_inner['close'].values,
-            'atr': metadata_val_inner['atr'].values
-        }, index=X_val_inner.index)
-        return calculate_sortino_for_optuna(validation_results)
-    else:
-        raise ValueError(f"Unsupported metric for optimization: {metric}")
-
-
-def run_walk_forward_validation(X: pd.DataFrame, y: pd.Series, metadata: pd.DataFrame, metric: str, n_splits: int = 5):
-    """
-    Performs walk-forward validation with nested hyperparameter tuning.
-    """
-    print(f"Starting Walk-Forward Validation with {n_splits} splits...")
-    # Set a higher threshold to ensure folds are large enough for calibration
-    MIN_TRAIN_SAMPLES = 200
-
-    tscv = TimeSeriesSplit(n_splits=n_splits)
-
-    out_of_sample_preds = []
-    successful_folds = 0
-
-    for i, (train_index, test_index) in enumerate(tscv.split(X)):
-        print(f"\n--- Processing Fold {i+1}/{n_splits} ---")
-
-        X_train, X_test = X.iloc[train_index], X.iloc[test_index]
-        y_train, y_test = y.iloc[train_index], y.iloc[test_index]
-
-        if len(X_train) < MIN_TRAIN_SAMPLES:
-            print(f"  WARNING: Skipping Fold {i+1}/{n_splits}: Insufficient training data ({len(X_train)} samples < min {MIN_TRAIN_SAMPLES}).")
-            continue
-
-        metadata_train, metadata_test = metadata.loc[X_train.index], metadata.loc[X_test.index]
-
-        print(f"Train size: {len(X_train)}, Test size: {len(X_test)}")
-
-        # --- Nested Hyperparameter Tuning with Optuna ---
-        print(f"Running Optuna hyperparameter search (optimizing for {metric.upper()})...")
-        study = optuna.create_study(direction='maximize')
-        study.optimize(lambda trial: objective(trial, X_train, y_train, metadata_train, metric), n_trials=50)
-
-        best_params = study.best_params
-        best_params['objective'] = 'multiclass'
-        best_params['num_class'] = 3
-
-        print(f"Best params for this fold: {best_params}")
-
-        # --- Final Model Training for this Fold ---
-        print("Training final model for this fold with best params...")
-        base_model = lgb.LGBMClassifier(random_state=42, **best_params)
-
-        # Calibrate the model
-        print("Calibrating model probabilities with CalibratedClassifierCV...")
-        calibrated_model = CalibratedClassifierCV(base_model, method='isotonic', cv=3)
-        calibrated_model.fit(X_train, y_train)
-
-        # --- Prediction on Out-of-Sample (OOS) Data ---
-        y_pred_proba = calibrated_model.predict_proba(X_test)
-
-        # This is the robust fix for the IndexError
-        proba_df = pd.DataFrame(0, index=X_test.index, columns=[0, 1, 2])
-        proba_df[calibrated_model.classes_] = y_pred_proba
-
-        results_df = pd.DataFrame({
-            'timestamp': X_test.index,
-            'y_true': y_test.values,
-            'proba_sell': proba_df[0].values,
-            'proba_hold': proba_df[1].values,
-            'proba_buy': proba_df[2].values,
-            'close': metadata_test['close'].values,
-            'atr': metadata_test['atr'].values,
-            'EMA_200': metadata_test['EMA_200'].values
-        })
-        out_of_sample_preds.append(results_df)
-        successful_folds += 1
-
-    print(f"\nWalk-Forward Validation complete. {successful_folds}/{n_splits} folds were successfully processed.")
-    return pd.concat(out_of_sample_preds) if out_of_sample_preds else pd.DataFrame(), successful_folds
-
-
-def main(asset: str, timeframe: str, metric: str):
-    """
-    Main script to run the full backtest for a given asset.
-    """
-    LABELED_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'labeled')
-    REPORTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'reports')
-    RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-
-    # 1. Load the labeled dataset
-    labeled_path = os.path.join(LABELED_DATA_DIR, f'{asset}_{timeframe}_labeled.parquet')
-    try:
-        df = pd.read_parquet(labeled_path)
-        print(f"[DEBUG] Columns in df on load in backtester: {df.columns.tolist()}")
-    except FileNotFoundError:
-        print(f"Error: Labeled file not found at {labeled_path}.")
-        return
-
-    # 2. Load the selected features
-    features_path = os.path.join(REPORTS_DIR, f'{asset}_{timeframe}_selected_features.txt')
-    try:
-        with open(features_path, 'r') as f:
-            selected_features = [line.strip() for line in f]
-    except FileNotFoundError:
-        print(f"Error: Selected features file not found at {features_path}.")
-        return
-
-    print(f"Loaded {len(selected_features)} selected features for {asset}.")
-
-    # 3. Prepare data for model
-    X = df[selected_features]
-    y = df['label'] + 1
-    # Add EMA_200 to the metadata so it's available for the backtest
-    metadata_cols = ['close', 'ATRr_14', 'EMA_200']
-    # Ensure EMA_200 exists before trying to access it
-    if 'EMA_200' not in df.columns:
-        raise ValueError("EMA_200 not found in the dataset. Please run process_features.py again.")
-    metadata = df[metadata_cols].rename(columns={'ATRr_14': 'atr'})
-
-
-    # 4. Run Walk-Forward Validation
-    n_splits = 5
-    oos_predictions, successful_folds = run_walk_forward_validation(X, y, metadata, metric, n_splits=n_splits)
-
-    if oos_predictions.empty:
-        print("\nBacktest could not be run as no out-of-sample predictions were generated.")
-        return
-
-    # 5. Save the out-of-sample predictions
-    output_path = os.path.join(RESULTS_DIR, f'{asset}_{timeframe}_oos_predictions.parquet')
-    oos_predictions.to_parquet(output_path, index=False)
-    print(f"\nOut-of-sample predictions saved to: {output_path}")
-    print(oos_predictions.head())
-
-    # (A) Run the new detailed backtest for logging and dynamic sizing
-    run_detailed_backtest(oos_predictions, df, asset, timeframe, successful_folds=successful_folds, total_folds=n_splits)
-
-
-def run_detailed_backtest(predictions: pd.DataFrame, full_data: pd.DataFrame, asset: str, timeframe: str, successful_folds: int, total_folds: int, initial_capital=10000.0, max_leverage=10.0, commission_rate=0.001):
-    """
-    Runs a realistic, event-driven backtest simulation with enhanced logic.
-    """
-    print("\n--- Running Realistic Event-Driven Backtest Simulation (with Enhanced Logic) ---")
-    MIN_SUCCESSFUL_FOLDS = 3
-
-    RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
-    os.makedirs(RESULTS_DIR, exist_ok=True)
-    log_path = os.path.join(RESULTS_DIR, f'backtest_log_{asset}_{timeframe}.txt')
-
+    # --- Initialize Backtest State ---
     capital = initial_capital
     equity_curve = [initial_capital]
     trades = []
-    minsk_tz = ZoneInfo("Europe/Minsk")
-
-    # --- Strategy Parameters (from config) ---
-    s = settings.BACKTEST_STRATEGY
-    tp_atr_mult = s.TP_ATR_MULT
-    sl_atr_mult = s.SL_ATR_MULT
-    confidence_threshold = s.CONFIDENCE_THRESHOLD
-    max_holding_period = s.MAX_HOLDING_PERIOD
-    high_confidence_threshold = s.HIGH_CONFIDENCE_THRESHOLD
-    high_risk_pct = s.HIGH_RISK_PCT
-    med_risk_pct = s.MED_RISK_PCT
-    low_risk_pct = s.LOW_RISK_PCT
-    loss_streak_threshold = s.LOSS_STREAK_THRESHOLD
-    trading_pause_duration = pd.Timedelta(hours=s.TRADING_PAUSE_HOURS)
-
-    # --- Backtest State (MODIFIED) ---
     in_position = False
     current_trade = {}
-    consecutive_losses = 0
-    trade_disabled_until = None
 
-    # (Fix) Ensure the predictions DataFrame is indexed by timestamp.
-    if 'timestamp' in predictions.columns and predictions.index.name != 'timestamp':
-        predictions = predictions.set_index('timestamp')
-
-    # (Fix) Merge predictions with full OHLC data for simulation.
-    ohlc_data = full_data[['open', 'high', 'low', 'EMA_200']] # Add EMA_200
-    simulation_df = predictions.join(ohlc_data, how='inner', lsuffix='_pred')
-
-    # (Fix) Remove duplicate timestamps from the combined DataFrame index.
-    simulation_df = simulation_df.loc[~simulation_df.index.duplicated(keep='first')]
-
-    # --- Volatility Filter Prep (NEW) ---
-    simulation_df['atr_sma_100'] = simulation_df['atr'].rolling(window=100).mean()
+    # --- Prepare Data ---
+    # 1. Generate signals for the given strategy type
+    signal_strategy = 'advanced' if strategy_type == 'hybrid' else strategy_type
+    df_sim = generate_signals(df, strategy_type=signal_strategy)
 
     # --- Main Event Loop ---
-    for i in range(len(simulation_df)):
+    for i in range(len(df_sim)):
         if capital <= 0:
             print("  - Backtest ended: Capital reached zero.")
             break
 
-        current_timestamp = simulation_df.index[i]
-        row = simulation_df.iloc[i] # Use iloc for performance
+        row = df_sim.iloc[i]
+        current_timestamp = df_sim.index[i]
 
         # --- Exit Logic ---
         if in_position:
-            entry_idx = simulation_df.index.get_loc(current_trade['entry_time'])
-            current_idx = i
+            exit_price, exit_reason, pnl = None, None, 0
 
-            # Check if the trade has been open for too long
-            if current_idx - entry_idx >= max_holding_period:
-                exit_price = row['close']
-                exit_reason = "Time Stop"
-                pnl = (exit_price - current_trade['entry_price']) * current_trade['position_size_asset']
-                if current_trade['decision'] == 'SELL': pnl = -pnl
-            else:
-                exit_price, exit_reason, pnl = None, None, 0
-                if current_trade['decision'] == 'BUY':
-                    if row['low'] <= current_trade['stop_loss']:
-                        exit_price, exit_reason = current_trade['stop_loss'], "Stop Loss"
-                        pnl = -current_trade['actual_amount_risked']
-                    elif row['high'] >= current_trade['take_profit']:
-                        exit_price, exit_reason = current_trade['take_profit'], "Take Profit"
-                        pnl = current_trade['actual_amount_risked'] * current_trade['reward_to_risk_ratio']
-                elif current_trade['decision'] == 'SELL':
-                    if row['high'] >= current_trade['stop_loss']:
-                        exit_price, exit_reason = current_trade['stop_loss'], "Stop Loss"
-                        pnl = -current_trade['actual_amount_risked']
-                    elif row['low'] <= current_trade['take_profit']:
-                        exit_price, exit_reason = current_trade['take_profit'], "Take Profit"
-                        pnl = current_trade['actual_amount_risked'] * current_trade['reward_to_risk_ratio']
+            # Check for SL/TP hits on the current bar
+            if current_trade['type'] == 'LONG':
+                if row['low'] <= current_trade['stop_loss']:
+                    exit_price, exit_reason = current_trade['stop_loss'], "Stop Loss"
+                elif row['high'] >= current_trade['take_profit']:
+                    exit_price, exit_reason = current_trade['take_profit'], "Take Profit"
+            elif current_trade['type'] == 'SHORT':
+                if row['high'] >= current_trade['stop_loss']:
+                    exit_price, exit_reason = current_trade['stop_loss'], "Stop Loss"
+                elif row['low'] <= current_trade['take_profit']:
+                    exit_price, exit_reason = current_trade['take_profit'], "Take Profit"
 
-            # If an exit condition was met, close the trade
             if exit_reason:
-                commission = current_trade['position_size_usd'] * commission_rate * 2
+                # Calculate PnL
+                if current_trade['type'] == 'LONG':
+                    pnl = (exit_price - current_trade['entry_price']) * current_trade['size_asset']
+                else:
+                    pnl = (current_trade['entry_price'] - exit_price) * current_trade['size_asset']
+
+                commission = (current_trade['size_usd'] * commission_rate) * 2 # Entry and Exit
                 pnl -= commission
                 capital += pnl
                 equity_curve.append(capital)
 
-                # --- Circuit Breaker Logic (NEW) ---
-                if pnl < 0:
-                    consecutive_losses += 1
-                    if consecutive_losses >= loss_streak_threshold:
-                        trade_disabled_until = current_timestamp + trading_pause_duration
-                        print(f"  - INFO: Circuit breaker triggered at {current_timestamp}. Trading paused until {trade_disabled_until}.")
-                else:
-                    consecutive_losses = 0 # Reset on a winning trade
-
-                exit_time_minsk = current_timestamp.tz_localize('UTC').tz_convert(minsk_tz)
                 current_trade.update({
-                    "exit_time_minsk": exit_time_minsk.strftime('%Y-%m-%d %H:%M:%S %Z'),
+                    "exit_time": current_timestamp,
                     "exit_reason": exit_reason,
-                    "exit_price": f"{exit_price:.4f}",
-                    "pnl_usd": f"{pnl:.2f}",
-                    "commission_usd": f"{commission:.2f}",
-                    "capital_after_trade": f"{capital:.2f}"
+                    "exit_price": exit_price,
+                    "pnl_usd": pnl,
+                    "commission_usd": commission,
+                    "capital_after_trade": capital
                 })
                 trades.append(current_trade)
                 in_position = False
                 current_trade = {}
                 continue
 
-        # --- Entry Logic (MODIFIED) ---
-        if not in_position:
-            # --- Filter 1: Circuit Breaker ---
-            if trade_disabled_until and current_timestamp < trade_disabled_until:
-                continue
+        # --- Entry Logic ---
+        if not in_position and row['signal'] != 0:
+            enter_trade = False
+            if strategy_type in ['basic', 'advanced']:
+                enter_trade = True
+            elif strategy_type == 'hybrid':
+                if 'y_pred_proba' in df_sim.columns and row['y_pred_proba'] > confidence_threshold:
+                    enter_trade = True
 
-            # --- Filter 2: Volatility Filter ---
-            atr_sma = row.get('atr_sma_100')
-            if pd.notna(atr_sma) and atr_sma > 0:
-                if row['atr'] < (atr_sma * 0.5) or row['atr'] > (atr_sma * 3.0):
-                    continue
+            if enter_trade:
+                entry_price = row['close'] * (1 + slippage_pct if row['signal'] == 1 else 1 - slippage_pct)
+                atr_at_trade = row['ATR']
+                if pd.isna(atr_at_trade) or atr_at_trade <= 0: continue
 
-            decision = "HOLD"
-            confidence = 0
-            if row['proba_buy'] > row['proba_sell'] and row['proba_buy'] > row['proba_hold']:
-                confidence, decision = row['proba_buy'], "BUY"
-            elif row['proba_sell'] > row['proba_buy'] and row['proba_sell'] > row['proba_hold']:
-                confidence, decision = row['proba_sell'], "SELL"
+                # Position sizing (simplified: risk 1% of capital per trade)
+                risk_per_trade_usd = capital * 0.01
+                sl_distance_price = atr_at_trade * sl_atr_mult
+                size_asset = risk_per_trade_usd / sl_distance_price
+                size_usd = size_asset * entry_price
 
-            if confidence > confidence_threshold:
-                # --- Filter 3: Trend Filter ---
-                ema_200 = row.get('EMA_200')
-                if pd.notna(ema_200):
-                    if (decision == 'BUY' and row['close'] < ema_200) or \
-                       (decision == 'SELL' and row['close'] > ema_200):
-                        continue # Trade against the trend is filtered
+                trade_type = 'LONG' if row['signal'] == 1 else 'SHORT'
 
-                if confidence > high_confidence_threshold: risk_percentage = high_risk_pct
-                elif confidence > 0.7: risk_percentage = med_risk_pct
-                else: risk_percentage = low_risk_pct
-
-                entry_price = row['close']
-                atr_at_trade = row['atr']
-                if atr_at_trade is None or atr_at_trade <= 0: continue
-
-                sl_distance = atr_at_trade * sl_atr_mult
-                tp_distance = atr_at_trade * tp_atr_mult
-                position_size_asset = (capital * risk_percentage) / sl_distance
-                position_size_usd = position_size_asset * entry_price
-                if position_size_usd > capital * max_leverage:
-                    position_size_usd = capital * max_leverage
-                    position_size_asset = position_size_usd / entry_price
-                actual_amount_risked = position_size_asset * sl_distance
+                if trade_type == 'LONG':
+                    stop_loss = entry_price - sl_distance_price
+                    take_profit = entry_price + (atr_at_trade * tp_atr_mult)
+                else: # SHORT
+                    stop_loss = entry_price + sl_distance_price
+                    take_profit = entry_price - (atr_at_trade * tp_atr_mult)
 
                 in_position = True
-                entry_time_minsk = current_timestamp.tz_localize('UTC').tz_convert(minsk_tz)
                 current_trade = {
                     "entry_time": current_timestamp,
-                    "entry_time_minsk": entry_time_minsk.strftime('%Y-%m-%d %H:%M:%S %Z'),
-                    "asset": asset, "timeframe": timeframe, "decision": decision,
-                    "confidence": f"{confidence:.2%}", "risk_percentage": f"{risk_percentage:.3%}",
+                    "type": trade_type,
                     "entry_price": entry_price,
-                    "stop_loss": entry_price - sl_distance if decision == 'BUY' else entry_price + sl_distance,
-                    "take_profit": entry_price + tp_distance if decision == 'BUY' else entry_price - tp_distance,
-                    "position_size_asset": position_size_asset, "position_size_usd": position_size_usd,
-                    "actual_amount_risked": actual_amount_risked,
-                    "actual_amount_risked_usd": f"{actual_amount_risked:.2f}",
-                    "reward_to_risk_ratio": tp_atr_mult / sl_atr_mult
+                    "stop_loss": stop_loss,
+                    "take_profit": take_profit,
+                    "size_asset": size_asset,
+                    "size_usd": size_usd,
+                    "confidence": row.get('y_pred_proba', np.nan)
                 }
 
-    print(f"  - Backtest complete. Final Capital: ${capital:.2f}")
-    print(f"  - Total trades taken: {len(trades)}")
+    # --- Performance Metrics ---
+    print("\n--- Backtest Results ---")
+    total_trades = len(trades)
+    if total_trades == 0:
+        print("No trades were executed.")
+        return
 
-    # Write the last 100 trades to the log file
-    if trades:
-        print(f"  - Writing last 100 trades to {log_path}")
-        with open(log_path, 'w', encoding='utf-8') as f:
-            f.write(f"--- Trade Log for {asset} ({timeframe}) ---\n")
-            f.write(f"--- Final Capital: ${capital:.2f} ---\n")
+    final_capital = equity_curve[-1]
+    total_return_pct = (final_capital / initial_capital - 1) * 100
 
-            # Add the new validity reporting
-            f.write(f"--- (Report based on {successful_folds} out of {total_folds} validation folds) ---\n")
-            if successful_folds < MIN_SUCCESSFUL_FOLDS:
-                f.write("\n" + "="*40 + "\n")
-                f.write("  WARNING: STATISTICALLY INSIGNIFICANT RESULTS\n")
-                f.write(f"  The number of successful validation folds ({successful_folds}) is below the threshold of {MIN_SUCCESSFUL_FOLDS}.\n")
-                f.write("  Interpret these backtest results with caution.\n")
-                f.write("="*40 + "\n")
+    trades_df = pd.DataFrame(trades)
+    wins = trades_df[trades_df['pnl_usd'] > 0]
+    losses = trades_df[trades_df['pnl_usd'] <= 0]
+    win_rate = len(wins) / total_trades if total_trades > 0 else 0
 
-            f.write("\n") # Add a newline before the first trade
+    print(f"Strategy: {strategy_type.upper()}")
+    print(f"Final Capital: ${final_capital:,.2f}")
+    print(f"Total Return: {total_return_pct:.2f}%")
+    print(f"Total Trades: {total_trades}")
+    print(f"Win Rate: {win_rate:.2%}")
+    if not wins.empty: print(f"Average Win: ${wins['pnl_usd'].mean():.2f}")
+    if not losses.empty: print(f"Average Loss: ${losses['pnl_usd'].mean():.2f}")
 
-            log_trades = trades[-100:]
-            for i, trade in enumerate(log_trades):
-                f.write(f"Trade #{len(trades) - len(log_trades) + i + 1}\n")
-                # Format for display
-                trade_to_log = trade.copy()
-                trade_to_log['stop_loss'] = f"{trade['stop_loss']:.4f}"
-                trade_to_log['take_profit'] = f"{trade['take_profit']:.4f}"
-                del trade_to_log['entry_time']
-                del trade_to_log['position_size_asset']
-                del trade_to_log['actual_amount_risked']
-                del trade_to_log['reward_to_risk_ratio']
+    equity_ser = pd.Series(equity_curve, index=pd.to_datetime([t['entry_time'] for t in trades] + [df_sim.index[0]], unit='ms') if trades else [df_sim.index[0]])
+    daily_returns = equity_ser.resample('D').last().pct_change().dropna()
+    sharpe_ratio = (daily_returns.mean() / daily_returns.std()) * np.sqrt(365) if daily_returns.std() > 0 else 0
 
-                for key, value in trade_to_log.items():
-                    f.write(f"  {key.replace('_', ' ').title()}: {value}\n")
-                f.write("-" * 30 + "\n")
-    else:
-        print("  - No trades were taken, log file not written.")
+    print(f"Sharpe Ratio (Annualized): {sharpe_ratio:.2f}")
+
+
+def main(asset: str, timeframe: str, strategy: str):
+    """
+    Main script to orchestrate the backtest.
+    """
+    # --- Define Paths ---
+    PROCESSED_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed')
+    RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
+
+    # 1. Load feature data
+    features_path = os.path.join(PROCESSED_DATA_DIR, f'{asset}_{timeframe}_features.parquet')
+    try:
+        features_df = pd.read_parquet(features_path)
+        if 'open_time' in features_df.columns:
+            features_df['open_time'] = pd.to_datetime(features_df['open_time'])
+            features_df.set_index('open_time', inplace=True)
+        print(f"Loaded feature data for {asset} from {features_path}")
+    except FileNotFoundError:
+        print(f"ERROR: Feature file not found: '{features_path}'. Please run 'process_features.py'.")
+        return
+
+    # 2. If hybrid, load predictions and merge
+    if strategy == 'hybrid':
+        preds_path = os.path.join(RESULTS_DIR, f'{asset}_{timeframe}_oos_predictions.parquet')
+        try:
+            preds_df = pd.read_parquet(preds_path)
+            # The predictions file has 'y_true', 'y_pred_proba' and is indexed by integer.
+            # We need to align it with the features_df index.
+            # Assuming the labeled data was generated from features_df and not shuffled.
+            # The predictions correspond to the filtered, labeled events.
+            # A robust join is needed. Let's assume 'open_time' is in preds_df after reset_index.
+            if 'open_time' in preds_df.columns:
+                 preds_df['open_time'] = pd.to_datetime(preds_df['open_time'])
+                 preds_df.set_index('open_time', inplace=True)
+
+            # Join predictions onto the full feature set
+            features_df = features_df.join(preds_df[['y_pred_proba']], how='left')
+            # Forward-fill probabilities to carry them until the next signal event
+            features_df['y_pred_proba'].fillna(method='ffill', inplace=True)
+            print("Successfully loaded and merged ML predictions.")
+        except FileNotFoundError:
+            print(f"ERROR: Predictions file not found for hybrid strategy: '{preds_path}'.")
+            print("Please run 'train_xgboost_model.py' first.")
+            return
+
+    # 3. Run the simulation
+    run_backtest_simulation(features_df, strategy)
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Walk-Forward Validation Orchestrator")
+    parser = argparse.ArgumentParser(description="Hybrid and Rule-Based Backtester")
     parser.add_argument("--asset", type=str, default="BTC", help="The crypto asset to process.")
-    parser.add_argument("--timeframe", type=str, default="1h", help="The OHLCV timeframe to use.")
+    parser.add_argument("--timeframe", type=str, default="4h", help="The OHLCV timeframe to use.")
     parser.add_argument(
-        "--metric",
+        "--strategy",
         type=str,
-        default="sortino", # (E) Default to financial metric for optimization
-        choices=['f1', 'sortino'],
-        help="The metric to optimize for in Optuna ('f1' or 'sortino'). Default is 'sortino'."
+        default="hybrid",
+        choices=['basic', 'advanced', 'hybrid'],
+        help="The strategy to backtest."
     )
     args = parser.parse_args()
 
-    main(asset=args.asset, timeframe=args.timeframe, metric=args.metric)
+    main(asset=args.asset, timeframe=args.timeframe, strategy=args.strategy)
