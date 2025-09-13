@@ -2,214 +2,45 @@ import pandas as pd
 import numpy as np
 import talib
 
-def _calculate_ao(high, low):
-    """Calculates Awesome Oscillator."""
-    median_price = (high + low) / 2
-    ao = talib.SMA(median_price, timeperiod=5) - talib.SMA(median_price, timeperiod=34)
-    return ao
-
-def _calculate_kc(high, low, close, timeperiod=20, atr_period=10, multiplier=2):
-    """Calculates Keltner Channels."""
-    kc_middle = talib.EMA(close, timeperiod=timeperiod)
-    atr = talib.ATR(high, low, close, timeperiod=atr_period)
-    kc_upper = kc_middle + (atr * multiplier)
-    kc_lower = kc_middle - (atr * multiplier)
-    return kc_upper, kc_middle, kc_lower
-
-def _calculate_vwap(df: pd.DataFrame) -> pd.Series:
-    """Helper to calculate daily VWAP efficiently."""
-    if not isinstance(df.index, pd.DatetimeIndex):
-        print("Warning: VWAP calculation requires a DatetimeIndex. Skipping.")
-        return pd.Series(index=df.index, dtype='float64')
-
-    # Use index.date for grouping if index is datetime
-    grouped = df.groupby(df.index.date)
-
-    cum_vol = grouped['volume'].transform('cumsum')
-    cum_vol_price = (df['close'] * df['volume']).groupby(df.index.date).transform('cumsum')
-
-    # Replace 0 with NaN in the denominator to avoid division by zero errors
-    vwap = (cum_vol_price / cum_vol.replace(0, np.nan)).fillna(0)
-    return vwap
-
-def create_features(df: pd.DataFrame) -> pd.DataFrame:
+def create_core_features(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Enriches the candle DataFrame with a variety of technical indicator features
-    using the TA-Lib library, with methodological improvements.
+    Enriches the candle DataFrame with the 'core quartet' of features for the
+    hierarchical strategy.
     """
-    print("Generating a rich set of TA features (using TA-Lib)...")
+    print("Generating 'core quartet' of features...")
 
     df_feat = df.copy()
-    # Ensure we have a DatetimeIndex for time-based features like VWAP
-    if 'open_time' in df_feat.columns and pd.api.types.is_datetime64_any_dtype(df_feat['open_time']):
-        df_feat.set_index('open_time', inplace=True)
+    # Ensure we have a DatetimeIndex for time-based features
+    if 'open_time' in df_feat.columns and not isinstance(df_feat.index, pd.DatetimeIndex):
+        df_feat.set_index('open_time', inplace=True, drop=False)
 
-    df_feat['log_returns'] = np.log(df_feat['close']).diff()
+    # Ensure the required columns exist
+    required_cols = ['open', 'high', 'low', 'close', 'volume']
+    if not all(col in df_feat.columns for col in required_cols):
+        raise ValueError(f"Input DataFrame is missing one of the required columns: {required_cols}")
 
-    open_p, high, low, close, volume = df_feat['open'].values, df_feat['high'].values, df_feat['low'].values, df_feat['close'].values, df_feat['volume'].values
+    high, low, close, volume = df_feat['high'].values, df_feat['low'].values, df_feat['close'].values, df_feat['volume'].values
 
-    # --- Base Indicators ---
-    df_feat['RSI_14'] = talib.RSI(close)
-    macd, macdsignal, macdhist = talib.MACD(close)
-    df_feat['MACD_12_26_9'] = macd
-    df_feat['MACDs_12_26_9'] = macdsignal
-    df_feat['MACDh_12_26_9'] = macdhist
-    df_feat['ADX_14'] = talib.ADX(high, low, close)
-    df_feat['SMA_20'] = talib.SMA(close, timeperiod=20)
-    df_feat['SMA_50'] = talib.SMA(close, timeperiod=50)
-    df_feat['EMA_200'] = talib.EMA(close, timeperiod=200) # (FIX) Changed SMA to EMA for backtester
-    df_feat['ATRr_14'] = talib.ATR(high, low, close, timeperiod=14)
-    upper, middle, lower = talib.BBANDS(close)
-    df_feat['BBU_20_2.0'] = upper
-    df_feat['BBM_20_2.0'] = middle
-    df_feat['BBL_20_2.0'] = lower
+    # --- Core Quartet Indicators ---
+    df_feat['EMA_200'] = talib.EMA(close, timeperiod=200)
+    df_feat['RSI_14'] = talib.RSI(close, timeperiod=14)
     df_feat['OBV'] = talib.OBV(close, volume)
-    if isinstance(df_feat.index, pd.DatetimeIndex):
-        df_feat['VWAP_D'] = _calculate_vwap(df_feat)
-    else:
-        df_feat['VWAP_D'] = np.nan
+    df_feat['ATR_14'] = talib.ATR(high, low, close, timeperiod=14)
 
-    # --- NEW: Statistical & Market Regime Features ---
-    print("Adding statistical and market regime features...")
-    # Volume Z-Score
-    volume_mean_20 = df_feat['volume'].rolling(window=20).mean()
-    volume_std_20 = df_feat['volume'].rolling(window=20).std()
-    df_feat['volume_z_score_20'] = (df_feat['volume'] - volume_mean_20) / volume_std_20.replace(0, np.nan)
-    # Rolling Skewness and Kurtosis
-    window_30d = 30 * 24 # Assuming 1h timeframe
-    df_feat['rolling_skew_30d'] = df_feat['log_returns'].rolling(window=window_30d).skew()
-    df_feat['rolling_kurt_30d'] = df_feat['log_returns'].rolling(window=window_30d).kurt()
-
-
-    # --- NEW: Cyclical Time-Based Features ---
-    print("Adding cyclical time-based features...")
-    # The index should be datetime at this point due to the fix at the start of the function.
-    if isinstance(df_feat.index, pd.DatetimeIndex):
-        hour = df_feat.index.hour
-        day_of_week = df_feat.index.dayofweek
-        df_feat['hour_sin'] = np.sin(2 * np.pi * hour / 24)
-        df_feat['hour_cos'] = np.cos(2 * np.pi * hour / 24)
-        df_feat['day_of_week_sin'] = np.sin(2 * np.pi * day_of_week / 7)
-        df_feat['day_of_week_cos'] = np.cos(2 * np.pi * day_of_week / 7)
-
-    # --- IMPROVED: Feature Stationarity and Normalization ---
-    print("Normalizing features and ensuring stationarity...")
-    atr = df_feat['ATRr_14'].replace(0, np.nan)
-
-    # 1. Normalize price-based indicators by ATR
-    df_feat['dist_from_bbm_norm'] = (df_feat['close'] - df_feat['BBM_20_2.0']) / atr
-    df_feat['dist_from_vwap_norm'] = (df_feat['close'] - df_feat['VWAP_D']) / atr
-    df_feat['dist_from_ema200_norm'] = (df_feat['close'] - df_feat['EMA_200']) / atr # (FIX) Use EMA_200
-
-    # 2. Make OBV stationary with .diff()
-    df_feat['OBV_diff'] = df_feat['OBV'].diff()
-
-    # 3. Drop original, non-stationary columns that have been replaced
-    # (FIX) Keep EMA_200 as it's needed by the backtester's trend filter
-    cols_to_drop = [
-        'SMA_20', 'SMA_50', 'BBU_20_2.0', 'BBM_20_2.0', 'BBL_20_2.0',
-        'VWAP_D', 'OBV'
+    # Keep original OHLCV and timestamp column for the strategy logic
+    # The 'open_time' column is preserved by the set_index(drop=False) call
+    final_cols = [
+        'open_time', 'open', 'high', 'low', 'close', 'volume',
+        'EMA_200', 'RSI_14', 'OBV', 'ATR_14'
     ]
-    df_feat.drop(columns=cols_to_drop, inplace=True, errors='ignore')
+    df_final = df_feat[final_cols]
 
-    # Add return features for labeling/analysis if needed later
-    for n in [1, 2, 4, 8, 16]:
-        df_feat[f'return_{n}h'] = df_feat['close'].pct_change(n)
+    # Drop rows with NaNs created by the indicators (e.g., the first 200 for EMA200)
+    df_final.dropna(inplace=True)
 
-    # Fill any remaining NaNs with 0 before returning
-    # This is a simple but effective way to ensure models don't get NaN inputs
-    df_feat.fillna(0, inplace=True)
+    print(f"Core feature generation complete. New shape: {df_final.shape}")
 
-    # Reset index to turn 'open_time' back into a column for the calling script
-    df_feat.reset_index(inplace=True)
-
-    print(f"Feature generation complete. New shape: {df_feat.shape}")
-
-    return df_feat
-
-# --- CORRECTED FUNCTION ---
-# Updated default atr_multiplier from 0.1 to a more standard 1.5
-def create_labels(df: pd.DataFrame, look_forward_periods: int = 4, atr_multiplier: float = 1.5) -> pd.DataFrame:
-    """
-    Creates a binary target variable (label) for the classification model,
-    filtering out noisy, sideways movements.
-
-    The label is determined by comparing future returns to a dynamic threshold
-    based on the Average True Range (ATR).
-
-    - Label 1 (Up): If the future return is significantly positive.
-    - Label 0 (Down): If the future return is significantly negative.
-    - Sideways movements are dropped from the dataset.
-    """
-    # Ensure the ATR column from feature generation exists
-    # We look for 'ATRr' (ATR raw) as generated by pandas_ta by default.
-    atr_col = next((col for col in df.columns if 'ATRr' in col), None)
-    if not atr_col:
-        raise ValueError("ATR column (ATRr_*) not found in DataFrame. Please ensure it's generated in `create_features`.")
-
-    # Calculate future returns (percentage change)
-    df['future_return'] = df['close'].pct_change(look_forward_periods).shift(-look_forward_periods)
-
-    # --- CRITICAL FIX: Calculate ATR percentage correctly ---
-    # The ATR from pandas_ta is in raw price units, not percentage.
-    # We must normalize it by the current price to compare it with returns.
-    # Replace 0 with NaN in the denominator to avoid division by zero errors.
-    df['atr_pct'] = (df[atr_col] / df['close'].replace(0, np.nan)).fillna(0)
-
-    # Define dynamic thresholds based on volatility
-    # Threshold = Multiplier * Normalized ATR
-    df['up_threshold'] = atr_multiplier * df['atr_pct']
-    df['down_threshold'] = -atr_multiplier * df['atr_pct']
-    # --------------------------------------------------------
-
-    # Assign labels based on thresholds
-    df['target'] = np.nan
-    df.loc[df['future_return'] > df['up_threshold'], 'target'] = 1  # 1 for Up
-    df.loc[df['future_return'] < df['down_threshold'], 'target'] = -1 # -1 for Down
-
-    # Diagnostic output to understand the labeling process
-    print("\n--- Labeling Diagnostics ---")
-    print(f"ATR Multiplier: {atr_multiplier}")
-    print(f"Look Forward Periods: {look_forward_periods}")
-
-    # Display the average threshold being used
-    avg_threshold = df['up_threshold'].mean()
-    print(f"Average movement threshold required: {avg_threshold*100:.4f}%")
-
-    # Calculate statistics on labeling
-    # Rows considered for labeling (dropping NaNs introduced by feature engineering and future returns)
-    analysis_df = df.dropna(subset=['future_return', 'atr_pct'])
-    total_rows = len(analysis_df)
-    labeled_rows = analysis_df['target'].notna().sum()
-    labeled_percentage = (labeled_rows / total_rows) * 100 if total_rows > 0 else 0
-
-    print(f"\nTotal rows considered: {total_rows}")
-    print(f"Rows labeled (significant movement): {labeled_rows}")
-    print(f"Percentage of data kept: {labeled_percentage:.2f}%")
-
-    if labeled_rows == 0:
-        print("\nWARNING: No labels were generated. This might happen if the atr_multiplier is too high, ")
-        print("or if the market was exceptionally stable during the period. ")
-        print("Showing summary statistics of Future Returns:")
-        print(df['future_return'].describe())
-        print("Showing sample data with thresholds:")
-        print(df[['close', atr_col, 'atr_pct', 'future_return', 'up_threshold']].tail(10))
-
-    # Drop rows that don't meet the significance threshold (sideways movement)
-    labeled_df = df.dropna(subset=['target']).copy()
-
-    if not labeled_df.empty:
-        labeled_df['target'] = labeled_df['target'].astype(int)
-        print("Label Distribution:")
-        print(labeled_df['target'].value_counts(normalize=True))
-
-    print("--- End Labeling Diagnostics ---\n")
-
-    # Clean up temporary columns
-    # Use errors='ignore' in case the df is empty and columns don't exist
-    labeled_df.drop(columns=['future_return', 'up_threshold', 'down_threshold', 'atr_pct'], inplace=True, errors='ignore')
-
-    return labeled_df
+    return df_final
 
 if __name__ == '__main__':
     # Example Usage
@@ -223,12 +54,7 @@ if __name__ == '__main__':
     }
     sample_df = pd.DataFrame(data)
 
-    featured_df = create_features(sample_df.copy())
-    print("\n--- Features Created (pandas_ta) ---")
-    print(featured_df.head())
-    print("\nColumns:", featured_df.columns.tolist())
-
-    labeled_df = create_labels(featured_df.copy())
-    print("\n--- Labels Created ---")
-    if not labeled_df.empty:
-        print(labeled_df[['open_time', 'close', 'target']].head())
+    core_features_df = create_core_features(sample_df.copy())
+    print("\n--- Core Features Created ---")
+    print(core_features_df.head())
+    print("\nColumns:", core_features_df.columns.tolist())
