@@ -92,6 +92,9 @@ def main(asset: str, timeframe: str):
 
     # 1. Load the OOS predictions
     predictions_path = os.path.join(RESULTS_DIR, f'{asset}_{timeframe}_oos_predictions.parquet')
+    if not os.path.exists(predictions_path):
+        print(f"INFO: Predictions file not found at {predictions_path}. Skipping evaluation for {asset}. This is expected if the model could not be trained.")
+        return
     try:
         predictions_df = pd.read_parquet(predictions_path)
         # The labeled file contains the ATR and close price needed for simulation
