@@ -53,7 +53,22 @@ FINAL_FEATURE_SET = SPECIALIZED_FEATURES + LAGGED_FEATURES
 def optimize_hyperparameters_xgb(X_train, y_train, n_trials: int, scale_pos_weight: float):
     """
     Performs hyperparameter optimization for a binary XGBoost classifier.
+    Skips optimization and returns defaults if the dataset is too small.
     """
+    MIN_SAMPLES_FOR_OPTUNA = 20
+    if len(X_train) < MIN_SAMPLES_FOR_OPTUNA:
+        print(f"WARNING: Training set size ({len(X_train)}) is less than {MIN_SAMPLES_FOR_OPTUNA}. Skipping Optuna and using default parameters.")
+        return {
+            'n_estimators': 100,
+            'learning_rate': 0.05,
+            'max_depth': 5,
+            'subsample': 0.8,
+            'colsample_bytree': 0.8,
+            'gamma': 0,
+            'lambda': 1,
+            'alpha': 0
+        }
+
     def objective(trial):
         param = {
             'objective': 'binary:logistic',
@@ -69,24 +84,26 @@ def optimize_hyperparameters_xgb(X_train, y_train, n_trials: int, scale_pos_weig
             'gamma': trial.suggest_float('gamma', 1e-6, 0.5, log=True),
             'lambda': trial.suggest_float('lambda', 1e-6, 1.0, log=True),
             'alpha': trial.suggest_float('alpha', 1e-6, 1.0, log=True),
-            'tree_method': 'hist', # Use 'hist' for faster training
+            'tree_method': 'hist',
             'random_state': 42,
             'n_jobs': -1
         }
-        tscv = TimeSeriesSplit(n_splits=5)
+        # Adaptive number of splits for cross-validation
+        n_splits = max(2, min(5, len(X_train) // 2))
+        tscv = TimeSeriesSplit(n_splits=n_splits)
         scores = []
         for train_index, val_index in tscv.split(X_train):
             X_train_fold, X_val_fold = X_train.iloc[train_index], X_train.iloc[val_index]
             y_train_fold, y_val_fold = y_train.iloc[train_index], y_train.iloc[val_index]
-            if X_val_fold.empty: continue
+            if len(X_val_fold) < 1: continue
             model = xgb.XGBClassifier(**param)
             model.fit(X_train_fold, y_train_fold)
             preds = model.predict(X_val_fold)
             score = f1_score(y_val_fold, preds, average='binary', zero_division=0.0)
             scores.append(score)
-        return np.mean(scores)
+        return np.mean(scores) if scores else 0
 
-    study = optuna.create_study(direction='maximize') # Maximize F1-score
+    study = optuna.create_study(direction='maximize')
     study.optimize(objective, n_trials=n_trials)
     print(f"Best trial for XGBoost: F1-score = {study.best_value}")
     print(f"Best Params: {study.best_params}")
@@ -151,9 +168,17 @@ def train_xgboost_model(symbol: str, timeframe: str):
     y_pred = final_model.predict(X_test)
     print(classification_report(y_test, y_pred, target_names=['Failure (0)', 'Success (1)'], zero_division=0.0))
 
-    # Save OOS predictions with probabilities
+    # Save OOS predictions with probabilities and original signal direction
     y_pred_proba = final_model.predict_proba(X_test)[:, 1] # Probability of success
-    oos_df = pd.DataFrame({'y_true': y_test, 'y_pred_proba': y_pred_proba}, index=y_test.index)
+
+    # Get the original signal direction for the test set
+    signal_test = labeled_df.loc[y_test.index, 'signal']
+
+    oos_df = pd.DataFrame({
+        'y_true': y_test,
+        'y_pred_proba': y_pred_proba,
+        'signal': signal_test
+    }, index=y_test.index)
     os.makedirs(RESULTS_DIR, exist_ok=True)
     oos_path = os.path.join(RESULTS_DIR, f'{symbol}_{timeframe}_oos_predictions.parquet')
     oos_df.to_parquet(oos_path)
