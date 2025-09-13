@@ -123,9 +123,19 @@ def main():
         open(FULL_LOG_PATH, 'w').close()
         print(f"Cleared main log file: {FULL_LOG_PATH}")
 
-    # Remove previous asset-specific indicator logs to prevent stale logs
+    # Remove previous asset-specific logs to prevent stale logs
     for symbol in settings.SYMBOLS:
         asset = parse_asset_from_symbol(symbol)
+        # Remove old worker logs (e.g., log_BTC_1h.txt)
+        worker_log_path = os.path.join(BASE_DIR, f'log_{asset}_{settings.TIMEFRAME}.txt')
+        if os.path.exists(worker_log_path):
+            try:
+                os.remove(worker_log_path)
+                print(f"Removed stale worker log: {os.path.basename(worker_log_path)}")
+            except OSError as e:
+                print(f"Error removing file {worker_log_path}: {e}")
+
+        # Remove old indicator logs
         indicator_log_path = os.path.join(BASE_DIR, f'indicator_log_{asset}.txt')
         if os.path.exists(indicator_log_path):
             try:

@@ -61,7 +61,8 @@ def optimize_hyperparameters_xgb(X_train, y_train, n_trials: int):
             'gamma': trial.suggest_float('gamma', 1e-7, 1.0, log=True),
             'lambda': trial.suggest_float('lambda', 1e-7, 1.0, log=True),  # L2 regularization
             'alpha': trial.suggest_float('alpha', 1e-7, 1.0, log=True),   # L1 regularization
-            'tree_method': 'gpu_hist',  # Use GPU for training
+            'tree_method': 'hist',
+            'device': 'cuda',
             'random_state': 42,
             'n_jobs': -1
         }
@@ -154,7 +155,8 @@ def train_xgboost_model(symbol: str, timeframe: str):
         num_class=3,
         eval_metric='mlogloss',
         random_state=42,
-        tree_method='gpu_hist',  # Use GPU for training final model
+        tree_method='hist',
+        device='cuda',
         **best_params
     )
     final_model.fit(X_train, y_train)
@@ -165,12 +167,21 @@ def train_xgboost_model(symbol: str, timeframe: str):
     print(classification_report(y_test, y_pred_mapped, target_names=['Short (-1)', 'Neutral (0)', 'Long (1)'], zero_division=0.0))
 
     # --- Save OOS Predictions ---
+    # Get prediction probabilities for each class
+    y_pred_proba = final_model.predict_proba(X_test)
+
     # Create a reverse mapper to go from (0, 1, 2) back to (-1, 0, 1) for analysis
     reverse_mapper = {0: -1, 1: 0, 2: 1}
 
     oos_predictions_df = pd.DataFrame(index=X_test.index)
     oos_predictions_df['y_true'] = y_test.map(reverse_mapper)
     oos_predictions_df['y_pred'] = pd.Series(y_pred_mapped, index=X_test.index).map(reverse_mapper)
+
+    # The model's classes_ attribute corresponds to [0, 1, 2], which we mapped to [-1, 0, 1].
+    # So, proba for class 0 is proba_short, class 1 is proba_neutral, class 2 is proba_long.
+    oos_predictions_df['proba_short'] = y_pred_proba[:, 0]
+    oos_predictions_df['proba_neutral'] = y_pred_proba[:, 1]
+    oos_predictions_df['proba_long'] = y_pred_proba[:, 2]
 
     # Save the OOS predictions
     os.makedirs(RESULTS_DIR, exist_ok=True)
