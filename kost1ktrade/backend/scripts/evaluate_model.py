@@ -28,9 +28,9 @@ def calculate_financial_metrics(
         if capital <= 0: break
 
         trade_type = None
-        if row['proba_buy'] > buy_threshold:
+        if row['proba_long'] > buy_threshold:
             trade_type = 'buy'
-        elif row['proba_sell'] > sell_threshold:
+        elif row['proba_short'] > sell_threshold:
             trade_type = 'sell'
 
         if trade_type is None:
@@ -165,9 +165,9 @@ def main(asset: str, timeframe: str):
 
     # Generate class predictions based on the best thresholds
     def get_pred_class(row):
-        if row['proba_buy'] > best_buy_threshold:
+        if row['proba_long'] > best_buy_threshold:
             return 2 # Buy
-        elif row['proba_sell'] > best_sell_threshold:
+        elif row['proba_short'] > best_sell_threshold:
             return 0 # Sell
         else:
             # If neither Buy nor Sell threshold is met, predict Hold.
