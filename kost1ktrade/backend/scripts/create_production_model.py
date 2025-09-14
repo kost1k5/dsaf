@@ -135,10 +135,28 @@ def main(asset: str, timeframe: str):
     labeled_path = os.path.join(LABELED_DATA_DIR, f'{asset}_{timeframe}_labeled.parquet')
     try:
         df = pd.read_parquet(labeled_path)
-        if 'timestamp' in df.columns: df.set_index('timestamp', inplace=True)
-        if not isinstance(df.index, pd.DatetimeIndex): df.index = pd.to_datetime(df.index, utc=True)
+        # The timestamp is in a column named 'index' after being reset in apply_labels.py
+        if 'index' in df.columns:
+            df.set_index('index', inplace=True)
+
+        # Ensure the index is a DatetimeIndex and is timezone-aware (UTC)
+        if not isinstance(df.index, pd.DatetimeIndex):
+            df.index = pd.to_datetime(df.index)
+        if df.index.tz is None:
+            df.index = df.index.tz_localize('UTC')
+        else:
+            df.index = df.index.tz_convert('UTC')
+
     except Exception as e:
         print(f"Error loading data: {e}"); return
+
+    # Ensure event_end_time is also a tz-aware datetime
+    df['event_end_time'] = pd.to_datetime(df['event_end_time'])
+    if df['event_end_time'].dt.tz is None:
+        df['event_end_time'] = df['event_end_time'].dt.tz_localize('UTC')
+    else:
+        df['event_end_time'] = df['event_end_time'].dt.tz_convert('UTC')
+
 
     metadata_cols = ['label', 'event_end_time']
     feature_cols = [col for col in df.columns if col not in metadata_cols]

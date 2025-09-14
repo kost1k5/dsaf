@@ -30,7 +30,7 @@ def load_data_from_db(db: Session, asset: str, timeframe: str) -> pd.DataFrame:
     )
     if main_df.empty:
         raise FileNotFoundError(f"Critical data 'ohlcv' not found for asset {asset}. Cannot proceed.")
-    main_df.index = pd.to_datetime(main_df.index, unit='ms') # Explicitly convert from ms timestamp
+    main_df.index = pd.to_datetime(main_df.index, unit='ms', utc=True) # Explicitly convert from ms timestamp
     main_df.index.name = 'timestamp'
 
     # --- External & Macro Data ---
@@ -42,14 +42,14 @@ def load_data_from_db(db: Session, asset: str, timeframe: str) -> pd.DataFrame:
         db.bind, index_col='funding_time'
     )
     if not funding_rate_df.empty:
-        funding_rate_df.index = pd.to_datetime(funding_rate_df.index) # Ensure datetime index
+        funding_rate_df.index = pd.to_datetime(funding_rate_df.index, utc=True) # Ensure datetime index
         funding_rate_df.index.name = 'timestamp'
         main_df = main_df.join(funding_rate_df[['funding_rate']], how='left')
 
     # Fear & Greed Index
     fng_df = pd.read_sql(db.query(FearGreedIndex).statement, db.bind, index_col='timestamp')
     if not fng_df.empty:
-        fng_df.index = pd.to_datetime(fng_df.index) # Ensure datetime index
+        fng_df.index = pd.to_datetime(fng_df.index, utc=True) # Ensure datetime index
         fng_df.index.name = 'timestamp'
         fng_df = fng_df.rename(columns={'value': 'fng_value'})
         main_df = pd.merge_asof(main_df.sort_index(), fng_df[['fng_value']].sort_index(), left_index=True, right_index=True, direction='backward')
@@ -57,7 +57,7 @@ def load_data_from_db(db: Session, asset: str, timeframe: str) -> pd.DataFrame:
     # Macro Data
     macro_df = pd.read_sql(db.query(MacroData).statement, db.bind, index_col='date')
     if not macro_df.empty:
-        macro_df.index = pd.to_datetime(macro_df.index) # Ensure datetime index
+        macro_df.index = pd.to_datetime(macro_df.index, utc=True) # Ensure datetime index
         macro_df.index.name = 'timestamp'
         main_df = pd.merge_asof(main_df.sort_index(), macro_df.sort_index(), left_index=True, right_index=True, direction='backward')
 
