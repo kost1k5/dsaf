@@ -56,17 +56,17 @@ def apply_trade_outcome_labels(df: pd.DataFrame) -> pd.DataFrame:
 
             if signal_type == 1:  # Long trade
                 if future_row['low'] <= stop_loss_price:
-                    results.append({'index': original_index, 'label': 0})  # SL Hit
+                    results.append({'index': original_index, 'label': 0, 'event_end_time': future_row.name})  # SL Hit
                     outcome_found = True
                 elif future_row['high'] >= take_profit_price:
-                    results.append({'index': original_index, 'label': 1})  # TP Hit
+                    results.append({'index': original_index, 'label': 1, 'event_end_time': future_row.name})  # TP Hit
                     outcome_found = True
             else:  # Short trade
                 if future_row['high'] >= stop_loss_price:
-                    results.append({'index': original_index, 'label': 0})  # SL Hit
+                    results.append({'index': original_index, 'label': 0, 'event_end_time': future_row.name})  # SL Hit
                     outcome_found = True
                 elif future_row['low'] <= take_profit_price:
-                    results.append({'index': original_index, 'label': 1})  # TP Hit
+                    results.append({'index': original_index, 'label': 1, 'event_end_time': future_row.name})  # TP Hit
                     outcome_found = True
 
             if outcome_found:
@@ -79,8 +79,10 @@ def apply_trade_outcome_labels(df: pd.DataFrame) -> pd.DataFrame:
     # Step 3: Create the final labeled DataFrame
     labels_df = pd.DataFrame(results).set_index('index')
 
-    # Join labels back and filter for labeled rows
-    final_df = df_with_signals.join(labels_df, how='inner')
+    # Explicitly merge the labels and event_end_time to ensure they are included
+    final_df = df_with_signals.loc[labels_df.index].copy()
+    final_df['label'] = labels_df['label']
+    final_df['event_end_time'] = labels_df['event_end_time']
 
     # The 'signal' column is kept intentionally for use in the evaluation script.
     print(f"Finished labeling. {len(final_df)} labeled events created.")
