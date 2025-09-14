@@ -32,7 +32,7 @@ def select_features(X: pd.DataFrame, y: pd.Series):
 
     le = LabelEncoder()
     y_encoded = le.fit_transform(y)
-    model = lgb.LGBMClassifier(objective='multiclass', n_estimators=100, random_state=42, n_jobs=-1)
+    model = lgb.LGBMClassifier(objective='binary', n_estimators=100, random_state=42, n_jobs=-1)
     model.fit(X, y_encoded)
 
     explainer = shap.TreeExplainer(model)
@@ -101,7 +101,7 @@ def objective(trial, X_train, y_train, event_end_times, selected_features):
 
     pipeline = Pipeline([
         ('scaler', StandardScaler()),
-        ('model', lgb.LGBMClassifier(objective='multiclass', num_class=3, random_state=42, **params))
+        ('model', lgb.LGBMClassifier(objective='binary', random_state=42, **params))
     ])
 
     X_selected = X_train[selected_features]
@@ -191,7 +191,7 @@ def main(asset: str, timeframe: str):
 
         pipeline = Pipeline([
             ('scaler', StandardScaler()),
-            ('model', lgb.LGBMClassifier(objective='multiclass', num_class=3, random_state=42, **best_params))
+            ('model', lgb.LGBMClassifier(objective='binary', random_state=42, **best_params))
         ])
         y_train_encoded = LabelEncoder().fit_transform(y_train)
         pipeline.fit(X_train[final_selected_features], y_train_encoded)
@@ -222,7 +222,7 @@ def main(asset: str, timeframe: str):
     print("\nTraining final production model on the full dataset...")
     final_pipeline = Pipeline([
         ('scaler', StandardScaler()),
-        ('model', lgb.LGBMClassifier(objective='multiclass', num_class=3, random_state=42, **best_params))
+        ('model', lgb.LGBMClassifier(objective='binary', random_state=42, **best_params))
     ])
     y_full_encoded = LabelEncoder().fit_transform(y_full)
     final_pipeline.fit(X_full[final_selected_features], y_full_encoded)
