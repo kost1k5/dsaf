@@ -8,13 +8,11 @@ def calculate_slope(y):
     Calculates the slope of a regression line for a given series.
     To be used with .apply() on a rolling window.
     """
-    # The rolling window provides the y values. The x values are just a sequence.
     x = np.arange(len(y))
-    # Filter out NaNs if they exist in the window
     valid_mask = ~np.isnan(y)
     y_valid = y[valid_mask]
     x_valid = x[valid_mask]
-    if len(y_valid) < 2:  # Need at least 2 points to define a line
+    if len(y_valid) < 2:
         return np.nan
     slope, _, _, _, _ = linregress(x_valid, y_valid)
     return slope
@@ -22,8 +20,6 @@ def calculate_slope(y):
 def create_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Enriches the candle DataFrame with a comprehensive set of features for the hybrid model.
-    - Basic indicators for the Confluence Strategy.
-    - Specialized features for the ML confirmation layer.
     """
     print("Generating a comprehensive feature set for the Hybrid Model...")
 
@@ -35,11 +31,9 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     if not all(col in df_feat.columns for col in required_cols):
         raise ValueError(f"Input DataFrame is missing one of the required columns: {required_cols}")
 
-    # Use .values for talib functions for performance
     open_p, high, low, close, volume = df_feat['open'].values, df_feat['high'].values, df_feat['low'].values, df_feat['close'].values, df_feat['volume'].astype(float).values
 
-    # --- Task 1.1: Basic Indicators (using strategy parameters) ---
-    # These are the raw signals for the rule-based part of the strategy.
+    # --- Basic Indicators ---
     ema_fast_period = 12
     ema_slow_period = 50
     rsi_period = 14
@@ -56,50 +50,19 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     df_feat['ATR'] = talib.ATR(high, low, close, timeperiod=atr_period)
     df_feat['ATR_SMA'] = talib.SMA(df_feat['ATR'], timeperiod=atr_sma_period)
     df_feat['ADX'] = talib.ADX(high, low, close, timeperiod=adx_period)
-    df_feat['PDI'] = talib.PLUS_DI(high, low, close, timeperiod=adx_period) # +DI
-    df_feat['MDI'] = talib.MINUS_DI(high, low, close, timeperiod=adx_period) # -DI
-
-    # --- Task 1.2: Specialized Features for ML ---
-    # These features are designed to be more stationary and provide richer context for the ML model.
-    print("  - Generating specialized ML features...")
-    df_feat['ema_spread_normalized'] = (df_feat['EMA_fast'] - df_feat['EMA_slow']) / df_feat['close']
-    df_feat['rsi_roc'] = df_feat['RSI'].diff() # Equivalent to RSI(t) - RSI(t-1)
-    df_feat['adx_roc'] = df_feat['ADX'].diff()
-    df_feat['di_spread'] = df_feat['PDI'] - df_feat['MDI']
-    df_feat['atr_ratio'] = df_feat['ATR'] / talib.SMA(df_feat['ATR'], timeperiod=100)
-
-    print("  - Calculating OBV slope (this may take a moment)...")
-    # Use the helper function on a rolling window of OBV values
-    df_feat['obv_slope'] = df_feat['OBV'].rolling(window=20).apply(calculate_slope, raw=True)
-
-    df_feat['price_dist_ema'] = (df_feat['close'] - df_feat['EMA_slow']) / df_feat['EMA_slow']
-
-    # --- Task 1.3: Lagged Features ---
-    print("  - Generating lagged features...")
-    specialized_features = [
-        'ema_spread_normalized', 'rsi_roc', 'adx_roc', 'di_spread',
-        'atr_ratio', 'obv_slope', 'price_dist_ema'
-    ]
-
-    for feature in specialized_features:
-        for lag in [1, 2]:
-            df_feat[f'{feature}_lag_{lag}'] = df_feat[feature].shift(lag)
+    df_feat['PDI'] = talib.PLUS_DI(high, low, close, timeperiod=adx_period)
+    df_feat['MDI'] = talib.MINUS_DI(high, low, close, timeperiod=adx_period)
 
     # --- Final DataFrame ---
-    # Keep all generated columns. Downstream processes will select what they need.
     all_cols = df_feat.columns.tolist()
-
-    # Ensure original OHLCV and open_time are at the beginning
     ordered_cols = required_cols + ['open_time']
     feature_cols = [col for col in all_cols if col not in ordered_cols]
-    final_cols = ordered_cols + sorted(feature_cols) # Sort features alphabetically for consistency
-
+    final_cols = ordered_cols + sorted(feature_cols)
     df_final = df_feat[[col for col in final_cols if col in df_feat.columns]].copy()
 
     # Drop rows with NaN values resulting from indicator calculations
     df_final.dropna(inplace=True)
 
-    # Reset index to turn 'open_time' back into a column for the calling script
     df_final = df_final.reset_index(drop=True)
 
     print(f"Feature generation complete. Final shape: {df_final.shape}")

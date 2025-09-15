@@ -1,17 +1,15 @@
+import os
 from pydantic import BaseModel, Field, computed_field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
+from dotenv import load_dotenv
 
 # --- Nested Models for Organization ---
-# These models define the structure of the settings.
-# By not providing default values here, we make them mandatory.
-# Pydantic will require them to be present in the environment (e.g., the .env file).
-
+# (These are unchanged)
 class DBSettings(BaseModel):
     @property
     def DATABASE_URL(self) -> str:
         """Constructs the full database URL."""
-        import os
         backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         db_path = os.path.join(backend_dir, 'data', 'local_database.db')
         os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -113,9 +111,8 @@ class IndicatorSettings(BaseModel):
 # --- Main Settings Class ---
 
 class Settings(BaseSettings):
+    # Pydantic will now read from the environment, not the file directly.
     model_config = SettingsConfigDict(
-        env_file='.env',
-        env_file_encoding='utf-8',
         extra='ignore',
         case_sensitive=True,
         env_nested_delimiter='__'
@@ -160,5 +157,29 @@ class Settings(BaseSettings):
     EVAL: EvaluationSettings
     BACKTEST_STRATEGY: BacktestStrategySettings
 
-# Instantiate the settings
-settings = Settings()
+# --- Manual .env Loading ---
+
+def load_settings() -> Settings:
+    """
+    Manually loads the .env file and then instantiates the settings model.
+    This provides a robust way to ensure the .env file is loaded correctly.
+    """
+    # Construct the path to the .env file relative to this config file
+    # config.py is in /backend/src/core, so we need to go up three levels to get to /backend
+    config_dir = os.path.dirname(os.path.abspath(__file__))
+    src_dir = os.path.dirname(config_dir)
+    backend_dir = os.path.dirname(src_dir)
+    dotenv_path = os.path.join(backend_dir, '.env')
+
+    if os.path.exists(dotenv_path):
+        # Load the .env file into the environment
+        load_dotenv(dotenv_path=dotenv_path)
+        print(f"Manually loaded .env file from: {dotenv_path}")
+    else:
+        print(f"Warning: .env file not found at {dotenv_path}. Settings will rely on environment variables.")
+
+    # Now, instantiate the Settings class. It will pick up the loaded variables.
+    return Settings()
+
+# Instantiate the settings using the manual loader
+settings = load_settings()

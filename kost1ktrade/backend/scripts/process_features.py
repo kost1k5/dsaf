@@ -30,26 +30,27 @@ def load_data_from_db(db: Session, asset: str, timeframe: str) -> pd.DataFrame:
     )
     if main_df.empty:
         raise FileNotFoundError(f"Critical data 'ohlcv' not found for asset {asset}. Cannot proceed.")
-    main_df.index = pd.to_datetime(main_df.index, unit='ms', utc=True) # Explicitly convert from ms timestamp
+    main_df.index = pd.to_datetime(main_df.index, unit='ms', utc=True)
     main_df.index.name = 'timestamp'
+    main_df.sort_index(inplace=True)
 
     # --- External & Macro Data ---
-    print("  - Loading Funding Rate, Macro, F&G data...")
+    print("  - Loading Macro, F&G data...")
 
-    # Funding Rate
-    funding_rate_df = pd.read_sql(
-        db.query(FundingRate).filter(FundingRate.symbol == symbol).statement,
-        db.bind, index_col='funding_time'
-    )
-    if not funding_rate_df.empty:
-        funding_rate_df.index = pd.to_datetime(funding_rate_df.index, utc=True) # Ensure datetime index
-        funding_rate_df.index.name = 'timestamp'
-        main_df = main_df.join(funding_rate_df[['funding_rate']], how='left')
+    # --- Funding Rate Data (Commented out due to sparse history causing data loss) ---
+    # funding_rate_df = pd.read_sql(
+    #     db.query(FundingRate).filter(FundingRate.symbol == symbol).statement,
+    #     db.bind, index_col='funding_time'
+    # )
+    # if not funding_rate_df.empty:
+    #     funding_rate_df.index = pd.to_datetime(funding_rate_df.index, utc=True)
+    #     funding_rate_df.index.name = 'timestamp'
+    #     main_df = main_df.join(funding_rate_df[['funding_rate']], how='left')
 
     # Fear & Greed Index
     fng_df = pd.read_sql(db.query(FearGreedIndex).statement, db.bind, index_col='timestamp')
     if not fng_df.empty:
-        fng_df.index = pd.to_datetime(fng_df.index, utc=True) # Ensure datetime index
+        fng_df.index = pd.to_datetime(fng_df.index, utc=True)
         fng_df.index.name = 'timestamp'
         fng_df = fng_df.rename(columns={'value': 'fng_value'})
         main_df = pd.merge_asof(main_df.sort_index(), fng_df[['fng_value']].sort_index(), left_index=True, right_index=True, direction='backward')
@@ -57,7 +58,7 @@ def load_data_from_db(db: Session, asset: str, timeframe: str) -> pd.DataFrame:
     # Macro Data
     macro_df = pd.read_sql(db.query(MacroData).statement, db.bind, index_col='date')
     if not macro_df.empty:
-        macro_df.index = pd.to_datetime(macro_df.index, utc=True) # Ensure datetime index
+        macro_df.index = pd.to_datetime(macro_df.index, utc=True)
         macro_df.index.name = 'timestamp'
         main_df = pd.merge_asof(main_df.sort_index(), macro_df.sort_index(), left_index=True, right_index=True, direction='backward')
 
@@ -71,34 +72,26 @@ def load_data_from_db(db: Session, asset: str, timeframe: str) -> pd.DataFrame:
     print("Finished loading and merging raw data from database.")
     return main_df
 
-
 def get_latest_input_timestamp(db: Session, asset: str, timeframe: str) -> datetime:
-    """Gets the most recent timestamp from all input data sources for caching purposes."""
     symbol = f"{asset}/USDT:USDT"
     timestamps = [
         db.query(func.max(Candle.open_time)).filter(Candle.symbol == symbol, Candle.interval == timeframe).scalar(),
-        db.query(func.max(FundingRate.funding_time)).filter(FundingRate.symbol == symbol).scalar(),
+        # db.query(func.max(FundingRate.funding_time)).filter(FundingRate.symbol == symbol).scalar(), # Commented out
         db.query(func.max(MacroData.date)).scalar(),
         db.query(func.max(FearGreedIndex.timestamp)).scalar(),
         db.query(func.max(NewsHeadline.published_at)).scalar(),
-        db.query(func.max(EconomicCalendarEvent.created_at)).scalar() # Use created_at for caching
+        db.query(func.max(EconomicCalendarEvent.created_at)).scalar()
     ]
-    # Filter out None values and find the max
     valid_timestamps = [ts for ts in timestamps if ts is not None]
     return max(valid_timestamps) if valid_timestamps else None
 
-
 def main(asset: str, timeframe: str):
-    """
-    Main orchestration script to generate features for a given asset.
-    """
     PROCESSED_DATA_DIR = os.path.join(os.path.dirname(__file__), '..', 'data', 'processed')
     os.makedirs(PROCESSED_DATA_DIR, exist_ok=True)
     output_path = os.path.join(PROCESSED_DATA_DIR, f'{asset}_{timeframe}_features.parquet')
 
     db: Session = SessionLocal()
     try:
-        # --- Smart Caching Check ---
         latest_input_ts = get_latest_input_timestamp(db, asset, timeframe)
         if os.path.exists(output_path) and latest_input_ts:
             output_mod_time = datetime.fromtimestamp(os.path.getmtime(output_path), tz=timezone.utc)
@@ -108,27 +101,16 @@ def main(asset: str, timeframe: str):
                 print(f"'{output_path}' is already up-to-date. Skipping feature generation.")
                 return
 
-        # 1. Load and merge all data from DB
         merged_df = load_data_from_db(db, asset, timeframe)
 
-        # --- CRITICAL DATA CHECK ---
         if merged_df.empty:
             print(f"CRITICAL ERROR: Input DataFrame for {asset} on timeframe {timeframe} is empty after loading. Halting execution.")
             sys.exit(1)
 
-        # 2. Prepare DataFrame for feature generation
-        # The new feature generator expects 'open_time' as a column
         df_for_features = merged_df.reset_index().rename(columns={'timestamp': 'open_time'})
-
-        # 3. Generate features using the new function-based generator
         features_df = create_features(df_for_features)
-
-        # Set the timestamp back as the index
         features_df.set_index('open_time', inplace=True)
         features_df.index.name = 'timestamp'
-
-        # 4. Save the processed data
-        print(f"[DEBUG] Columns in features_df before saving: {features_df.columns.tolist()}")
         features_df.to_parquet(output_path)
 
         print(f"\nSuccessfully generated {len(features_df.columns)} features for {asset}.")
@@ -139,7 +121,6 @@ def main(asset: str, timeframe: str):
         return
     finally:
         db.close()
-
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Feature Generation Orchestrator")
