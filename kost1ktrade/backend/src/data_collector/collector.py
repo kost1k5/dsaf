@@ -223,6 +223,105 @@ class DataCollector:
 
         raise ExchangeError(f"Failed to fetch funding rates for {symbol} after {retries} retries.")
 
+    def fetch_full_funding_rate_history(self, instrument_family: str, start_date_str: str, end_date_str: str) -> List[dict]:
+        """
+        Fetches the complete funding rate history for a given instrument family over a date range
+        by using the OKX historical market data download endpoint. This is necessary because
+        the standard CCXT `fetchFundingRateHistory` endpoint for OKX is limited to 3 months.
+        :param instrument_family: The instrument family, e.g., 'BTC-USDT'.
+        :param start_date_str: The start date in 'YYYY-MM-DD' format.
+        :param end_date_str: The end date in 'YYYY-MM-DD' format.
+        :return: A list of funding rate data dictionaries, compatible with CCXT format.
+        """
+        print(f"Attempting to download full funding rate history for {instrument_family} from {start_date_str} to {end_date_str}...")
+
+        # Convert dates to milliseconds timestamp
+        try:
+            begin_ms = int(datetime.datetime.strptime(start_date_str, "%Y-%m-%d").timestamp() * 1000)
+            end_ms = int(datetime.datetime.strptime(end_date_str, "%Y-%m-%d").timestamp() * 1000)
+        except ValueError:
+            print("Error: Invalid date format. Please use 'YYYY-MM-DD'.")
+            return []
+
+        # --- 1. Get the list of file URLs from the historical data API ---
+        base_url = "https://www.okx.com/api/v5/public/market-data-history"
+        params = {
+            "module": "funding_rate",
+            "instType": "SWAP",
+            "instFamilyList": instrument_family,
+            "dateAggrType": "daily",
+            "begin": begin_ms,
+            "end": end_ms,
+        }
+
+        try:
+            print("Requesting list of historical data files...")
+            response = requests.get(base_url, params=params)
+            response.raise_for_status()
+            data = response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"Error fetching historical data file list: {e}")
+            return []
+
+        if data.get("code") != "0" or not data.get("data"):
+            print(f"API Error when fetching file list: {data.get('msg', 'No data returned for the specified period.')}")
+            return []
+
+        download_urls = []
+        if data["data"] and data["data"][0].get("details"):
+             for detail in data["data"][0]["details"]:
+                for group in detail.get("groupDetails", []):
+                    download_urls.append(group["url"])
+
+        if not download_urls:
+            print("No downloadable files found for the specified period.")
+            return []
+
+        print(f"Found {len(download_urls)} files. Starting download and processing...")
+
+        # --- 2. Download and process each file ---
+        all_data_frames = []
+        for url in download_urls:
+            try:
+                print(f"  Downloading: {url.split('/')[-1]}")
+                file_response = requests.get(url, stream=True, timeout=60)
+                file_response.raise_for_status()
+
+                with zipfile.ZipFile(io.BytesIO(file_response.content)) as z:
+                    csv_filename = z.namelist()[0]
+                    with z.open(csv_filename) as csv_file:
+                        df = pd.read_csv(csv_file)
+                        all_data_frames.append(df)
+            except Exception as e:
+                print(f"  Failed to download or process file {url}. Error: {e}")
+                continue # Move to the next file
+
+        if not all_data_frames:
+            print("Data processing failed for all files.")
+            return []
+
+        # --- 3. Consolidate and format the data ---
+        full_history_df = pd.concat(all_data_frames, ignore_index=True)
+
+        # Convert to a list of dicts in a format similar to CCXT
+        # This format is: {'symbol', 'timestamp', 'datetime', 'fundingRate', 'info'}
+        ccxt_formatted_data = []
+        for _, row in full_history_df.iterrows():
+            ts = int(row['fundingTime'])
+            ccxt_formatted_data.append({
+                'symbol': f"{instrument_family}-SWAP",
+                'timestamp': ts,
+                'datetime': datetime.datetime.fromtimestamp(ts / 1000, tz=datetime.timezone.utc).isoformat(),
+                'fundingRate': float(row['fundingRate']),
+                'info': row.to_dict() # Keep original data in 'info'
+            })
+
+        # Sort by timestamp ascending
+        ccxt_formatted_data.sort(key=lambda x: x['timestamp'])
+
+        print(f"Successfully processed {len(ccxt_formatted_data)} total funding rate records.")
+        return ccxt_formatted_data
+
 
     def get_latest_funding_rate_timestamp(self, symbol: str) -> int:
         """
