@@ -228,6 +228,7 @@ class DataCollector:
         Fetches the complete funding rate history for a given instrument family over a date range
         by using the OKX historical market data download endpoint. This is necessary because
         the standard CCXT `fetchFundingRateHistory` endpoint for OKX is limited to 3 months.
+        This method handles the 14-day range limit by fetching data in chunks.
         :param instrument_family: The instrument family, e.g., 'BTC-USDT'.
         :param start_date_str: The start date in 'YYYY-MM-DD' format.
         :param end_date_str: The end date in 'YYYY-MM-DD' format.
@@ -235,53 +236,65 @@ class DataCollector:
         """
         print(f"Attempting to download full funding rate history for {instrument_family} from {start_date_str} to {end_date_str}...")
 
-        # Convert dates to milliseconds timestamp
         try:
-            begin_ms = int(datetime.datetime.strptime(start_date_str, "%Y-%m-%d").timestamp() * 1000)
-            end_ms = int(datetime.datetime.strptime(end_date_str, "%Y-%m-%d").timestamp() * 1000)
+            start_date = datetime.datetime.strptime(start_date_str, "%Y-%m-%d")
+            end_date = datetime.datetime.strptime(end_date_str, "%Y-%m-%d")
         except ValueError:
             print("Error: Invalid date format. Please use 'YYYY-MM-DD'.")
             return []
 
-        # --- 1. Get the list of file URLs from the historical data API ---
+        # --- 1. Get the list of file URLs by iterating in 14-day chunks ---
         base_url = "https://www.okx.com/api/v5/public/market-data-history"
-        params = {
-            "module": "funding_rate",
-            "instType": "SWAP",
-            "instFamilyList": instrument_family,
-            "dateAggrType": "daily",
-            "begin": begin_ms,
-            "end": end_ms,
-        }
+        download_urls = set() # Use a set to avoid duplicate URLs
+        current_start = start_date
 
-        try:
-            print("Requesting list of historical data files...")
-            response = requests.get(base_url, params=params)
-            response.raise_for_status()
-            data = response.json()
-        except requests.exceptions.RequestException as e:
-            print(f"Error fetching historical data file list: {e}")
-            return []
+        while current_start <= end_date:
+            chunk_end = current_start + datetime.timedelta(days=13)
+            if chunk_end > end_date:
+                chunk_end = end_date
 
-        if data.get("code") != "0" or not data.get("data"):
-            print(f"API Error when fetching file list: {data.get('msg', 'No data returned for the specified period.')}")
-            return []
+            begin_ms = int(current_start.timestamp() * 1000)
+            end_ms = int(chunk_end.timestamp() * 1000)
 
-        download_urls = []
-        if data["data"] and data["data"][0].get("details"):
-             for detail in data["data"][0]["details"]:
-                for group in detail.get("groupDetails", []):
-                    download_urls.append(group["url"])
+            params = {
+                "module": "3", # 3 = funding_rate
+                "instType": "SWAP",
+                "instFamilyList": instrument_family,
+                "dateAggrType": "daily",
+                "begin": begin_ms,
+                "end": end_ms,
+            }
+
+            try:
+                print(f"Requesting file list for {current_start.strftime('%Y-%m-%d')} to {chunk_end.strftime('%Y-%m-%d')}...")
+                response = requests.get(base_url, params=params, timeout=30)
+                response.raise_for_status()
+                data = response.json()
+
+                if data.get("code") == "0" and data.get("data"):
+                    if data["data"][0].get("details"):
+                        for detail in data["data"][0]["details"]:
+                            for group in detail.get("groupDetails", []):
+                                download_urls.add(group["url"])
+                else:
+                    print(f"API Warning/Error for chunk: {data.get('msg', 'No data returned')}")
+
+            except requests.exceptions.RequestException as e:
+                print(f"Error fetching file list for chunk {current_start.strftime('%Y-%m-%d')}: {e}")
+
+            # Move to the next chunk
+            current_start += datetime.timedelta(days=14)
+            time.sleep(1) # Be polite
 
         if not download_urls:
-            print("No downloadable files found for the specified period.")
+            print("No downloadable files found for the entire period.")
             return []
 
-        print(f"Found {len(download_urls)} files. Starting download and processing...")
+        print(f"Found {len(download_urls)} unique files. Starting download and processing...")
 
         # --- 2. Download and process each file ---
         all_data_frames = []
-        for url in download_urls:
+        for url in sorted(list(download_urls)): # Sort to process chronologically
             try:
                 print(f"  Downloading: {url.split('/')[-1]}")
                 file_response = requests.get(url, stream=True, timeout=60)
@@ -294,7 +307,7 @@ class DataCollector:
                         all_data_frames.append(df)
             except Exception as e:
                 print(f"  Failed to download or process file {url}. Error: {e}")
-                continue # Move to the next file
+                continue
 
         if not all_data_frames:
             print("Data processing failed for all files.")
@@ -302,9 +315,10 @@ class DataCollector:
 
         # --- 3. Consolidate and format the data ---
         full_history_df = pd.concat(all_data_frames, ignore_index=True)
+        full_history_df.drop_duplicates(subset=['fundingTime', 'instId'], keep='first', inplace=True)
+
 
         # Convert to a list of dicts in a format similar to CCXT
-        # This format is: {'symbol', 'timestamp', 'datetime', 'fundingRate', 'info'}
         ccxt_formatted_data = []
         for _, row in full_history_df.iterrows():
             ts = int(row['fundingTime'])
@@ -313,10 +327,9 @@ class DataCollector:
                 'timestamp': ts,
                 'datetime': datetime.datetime.fromtimestamp(ts / 1000, tz=datetime.timezone.utc).isoformat(),
                 'fundingRate': float(row['fundingRate']),
-                'info': row.to_dict() # Keep original data in 'info'
+                'info': row.to_dict()
             })
 
-        # Sort by timestamp ascending
         ccxt_formatted_data.sort(key=lambda x: x['timestamp'])
 
         print(f"Successfully processed {len(ccxt_formatted_data)} total funding rate records.")
