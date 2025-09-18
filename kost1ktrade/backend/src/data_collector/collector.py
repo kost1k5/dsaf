@@ -228,7 +228,7 @@ class DataCollector:
         Fetches the complete funding rate history for a given instrument family over a date range
         by using the OKX historical market data download endpoint. This is necessary because
         the standard CCXT `fetchFundingRateHistory` endpoint for OKX is limited to 3 months.
-        This method handles the 14-day range limit by fetching data in chunks.
+        This method handles the API limitations by fetching data in monthly chunks.
         :param instrument_family: The instrument family, e.g., 'BTC-USDT'.
         :param start_date_str: The start date in 'YYYY-MM-DD' format.
         :param end_date_str: The end date in 'YYYY-MM-DD' format.
@@ -243,16 +243,21 @@ class DataCollector:
             print("Error: Invalid date format. Please use 'YYYY-MM-DD'.")
             return []
 
-        # --- 1. Get the list of file URLs by iterating in 14-day chunks ---
+        # --- 1. Get the list of file URLs by iterating month by month ---
         base_url = "https://www.okx.com/api/v5/public/market-data-history"
         download_urls = set() # Use a set to avoid duplicate URLs
         current_start = start_date
 
         while current_start <= end_date:
-            chunk_end = current_start + datetime.timedelta(days=13)
+            # Set the end of the chunk to the last day of the current month
+            next_month = current_start.replace(day=28) + datetime.timedelta(days=4)
+            chunk_end = next_month - datetime.timedelta(days=next_month.day)
+
             if chunk_end > end_date:
                 chunk_end = end_date
 
+            # Per documentation, timestamps are treated as UTC+8.
+            # We will use simple timestamps and let the server handle timezone conversion.
             begin_ms = int(current_start.timestamp() * 1000)
             end_ms = int(chunk_end.timestamp() * 1000)
 
@@ -260,13 +265,13 @@ class DataCollector:
                 "module": "3", # 3 = funding_rate
                 "instType": "SWAP",
                 "instFamilyList": instrument_family,
-                "dateAggrType": "daily",
+                "dateAggrType": "monthly", # Changed from 'daily' to 'monthly'
                 "begin": begin_ms,
                 "end": end_ms,
             }
 
             try:
-                print(f"Requesting file list for {current_start.strftime('%Y-%m-%d')} to {chunk_end.strftime('%Y-%m-%d')}...")
+                print(f"Requesting file list for {current_start.strftime('%Y-%m')}...")
                 response = requests.get(base_url, params=params, timeout=30)
                 response.raise_for_status()
                 data = response.json()
@@ -276,14 +281,16 @@ class DataCollector:
                         for detail in data["data"][0]["details"]:
                             for group in detail.get("groupDetails", []):
                                 download_urls.add(group["url"])
+                elif data.get("code") == "52000": # Specific code for "No market data found"
+                    print(f"Info: No monthly data file found for {current_start.strftime('%Y-%m')}. This is expected for some periods.")
                 else:
-                    print(f"API Warning/Error for chunk: {data.get('msg', 'No data returned')}")
+                    print(f"API Warning/Error for chunk {current_start.strftime('%Y-%m')}: {data.get('msg', 'No data returned')}")
 
             except requests.exceptions.RequestException as e:
-                print(f"Error fetching file list for chunk {current_start.strftime('%Y-%m-%d')}: {e}")
+                print(f"Error fetching file list for chunk {current_start.strftime('%Y-%m')}: {e}")
 
-            # Move to the next chunk
-            current_start += datetime.timedelta(days=14)
+            # Move to the start of the next month
+            current_start = (chunk_end + datetime.timedelta(days=1)).replace(day=1)
             time.sleep(1) # Be polite
 
         if not download_urls:
