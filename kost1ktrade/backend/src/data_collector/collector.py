@@ -290,8 +290,8 @@ class DataCollector:
             except requests.exceptions.RequestException as e:
                 print(f"Error fetching file list for chunk {current_start.strftime('%Y-%m')}: {e}")
 
-            # Move to the start of the next month
-            current_start = (chunk_end + datetime.timedelta(days=1)).replace(day=1)
+            # Move to the start of the next month robustly
+            current_start = (current_start.replace(day=28) + datetime.timedelta(days=4)).replace(day=1)
             time.sleep(1) # Be polite
 
         if not download_urls:
