@@ -324,6 +324,17 @@ class DataCollector:
         # --- 3. Consolidate and format the data ---
         full_history_df = pd.concat(all_data_frames, ignore_index=True)
         print(f"DEBUG: DataFrame columns are: {full_history_df.columns.tolist()}")
+
+        # (FIX) Rename columns to match the expected format, as CSV headers are different.
+        # CSV: 'instrument_name', 'funding_rate', 'funding_time'
+        # Expected: 'instId', 'fundingRate', 'fundingTime'
+        if not full_history_df.empty:
+            full_history_df.rename(columns={
+                'instrument_name': 'instId',
+                'funding_rate': 'fundingRate',
+                'funding_time': 'fundingTime'
+            }, inplace=True)
+
         full_history_df.drop_duplicates(subset=['fundingTime', 'instId'], keep='first', inplace=True)
 
 
