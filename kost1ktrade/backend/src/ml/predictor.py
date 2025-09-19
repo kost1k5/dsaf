@@ -34,7 +34,7 @@ class Predictor:
         # --- Attempt 1: Load New Production Model ---
         asset = parse_asset_from_symbol(symbol)
         timeframe = settings.TIMEFRAME
-        prod_model_path = os.path.join(PROD_MODEL_DIR, f"prod_model_{asset}_{timeframe}.lgb")
+        prod_model_path = os.path.join(PROD_MODEL_DIR, f"prod_model_{asset}_{timeframe}.joblib") # Corrected extension
         prod_features_path = os.path.join(PROD_MODEL_DIR, f"prod_features_{asset}_{timeframe}.json")
 
         if os.path.exists(prod_model_path) and os.path.exists(prod_features_path):
@@ -50,9 +50,10 @@ class Predictor:
                 # Don't return yet, allow fallback to old model
 
         # --- Attempt 2: Fallback to Old Model ---
-        sanitized_symbol = sanitize_symbol(symbol)
-        old_model_path = os.path.join(OLD_MODEL_DIR, f"lgbm_classifier_{sanitized_symbol}.joblib")
-        old_features_path = os.path.join(OLD_MODEL_DIR, f"features_{sanitized_symbol}.json")
+        sanitized_asset = sanitize_symbol(asset) # Use asset instead of symbol
+        timeframe = settings.TIMEFRAME # Get timeframe from settings
+        old_model_path = os.path.join(OLD_MODEL_DIR, f"lgbm_classifier_{sanitized_asset}_{timeframe}.joblib") # Corrected filename
+        old_features_path = os.path.join(OLD_MODEL_DIR, f"features_{sanitized_asset}_{timeframe}.json") # Corrected filename
 
         if os.path.exists(old_model_path) and os.path.exists(old_features_path):
             print(f"Loading FALLBACK (old) model for symbol '{symbol}' from disk...")
@@ -79,13 +80,14 @@ class Predictor:
         # Check for production model
         asset = parse_asset_from_symbol(symbol)
         timeframe = settings.TIMEFRAME
-        prod_model_path = os.path.join(PROD_MODEL_DIR, f"prod_model_{asset}_{timeframe}.lgb")
+        prod_model_path = os.path.join(PROD_MODEL_DIR, f"prod_model_{asset}_{timeframe}.joblib") # Corrected extension
         if os.path.exists(prod_model_path):
             return True
 
         # Check for old model
-        sanitized_symbol = sanitize_symbol(symbol)
-        old_model_path = os.path.join(OLD_MODEL_DIR, f"lgbm_classifier_{sanitized_symbol}.joblib")
+        sanitized_asset = sanitize_symbol(asset) # Use asset instead of symbol
+        timeframe = settings.TIMEFRAME
+        old_model_path = os.path.join(OLD_MODEL_DIR, f"lgbm_classifier_{sanitized_asset}_{timeframe}.joblib") # Corrected filename
         if os.path.exists(old_model_path):
             return True
 
@@ -103,7 +105,7 @@ class Predictor:
                 return 1 # Return neutral prediction (Hold) if model can't be loaded
 
         try:
-            model = self.models[symbol]
+            model = self.models[symbol] # This is now a Pipeline object
             model_features = self.features[symbol]
 
             # Ensure the DataFrame has the correct columns in the correct order
@@ -111,6 +113,7 @@ class Predictor:
             features_df_ordered = features_df.reindex(columns=model_features, fill_value=0)
 
             # The multiclass model returns probabilities for [Sell, Hold, Buy]
+            # The pipeline handles scaling internally
             prediction_proba = model.predict_proba(features_df_ordered)
 
             # Get the class with the highest probability

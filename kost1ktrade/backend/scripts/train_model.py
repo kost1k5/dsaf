@@ -4,6 +4,7 @@ import lightgbm as lgb
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import classification_report, precision_score, average_precision_score
+from sklearn.pipeline import Pipeline
 import joblib
 import os
 import sys
@@ -30,9 +31,10 @@ def sanitize_symbol(symbol: str) -> str:
 
 def optimize_hyperparameters(X_train, y_train):
     """
-    Performs hyperparameter optimization using Optuna, targeting PR-AUC.
+    Performs hyperparameter optimization using Optuna, targeting PR-AUC,
+    with proper scaling within each CV fold to prevent data leakage.
     """
-    # Calculate scale_pos_weight for handling class imbalance
+    # This function now receives UNSCALED data
     scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum() if (y_train == 1).sum() > 0 else 1
     print(f"Calculated scale_pos_weight for optimization: {scale_pos_weight:.2f}")
 
@@ -62,15 +64,21 @@ def optimize_hyperparameters(X_train, y_train):
             if X_val_fold.empty or y_val_fold.empty:
                 continue
 
+            # --- Scaling within the fold ---
+            scaler = StandardScaler()
+            X_train_fold_scaled = scaler.fit_transform(X_train_fold)
+            X_val_fold_scaled = scaler.transform(X_val_fold)
+            # --- End Scaling ---
+
             model = lgb.LGBMClassifier(**param)
 
-            model.fit(X_train_fold, y_train_fold,
-                      eval_set=[(X_val_fold, y_val_fold)],
+            model.fit(X_train_fold_scaled, y_train_fold,
+                      eval_set=[(X_val_fold_scaled, y_val_fold)],
                       eval_metric='average_precision',
                       callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)])
 
             # Use predict_proba for PR-AUC calculation
-            preds_proba = model.predict_proba(X_val_fold)[:, 1]
+            preds_proba = model.predict_proba(X_val_fold_scaled)[:, 1]
             scores.append(average_precision_score(y_val_fold, preds_proba))
 
         return np.mean(scores) if scores else 0
@@ -90,6 +98,7 @@ def optimize_hyperparameters(X_train, y_train):
 def train_model(asset: str, timeframe: str):
     """
     Loads pre-processed data and a definitive feature list, then tunes and trains a model.
+    This version uses a Pipeline to prevent data leakage during scaling.
     """
     print(f"\n--- Starting Model Training for {asset} on {timeframe} data ---")
 
@@ -116,17 +125,13 @@ def train_model(asset: str, timeframe: str):
 
     # 3. Prepare Data for Model
     labeled_df.set_index('index', inplace=True)
-
     X = labeled_df[selected_features].copy()
     y = labeled_df['label'].copy()
-
     y = y.loc[X.index]
-
     X.replace([np.inf, -np.inf], np.nan, inplace=True)
     X.ffill(inplace=True)
     X.bfill(inplace=True)
     X.fillna(0, inplace=True)
-
     print(f"Data prepared for training. Final feature shape: {X.shape}")
 
     # 4. Train/Test Split
@@ -135,18 +140,12 @@ def train_model(asset: str, timeframe: str):
     y_train, y_test = y.iloc[:train_size], y.iloc[train_size:]
     print(f"Train/Test split complete. Training samples: {len(X_train)}, Test samples: {len(X_test)}")
 
-    # 5. Pre-training Checks and Scaling
+    # 5. Pre-training Checks
     if len(X_train) < settings.ML.MIN_TRAIN_SAMPLES:
         print(f"WARNING: Training data has only {len(X_train)} samples. Skipping training.")
         return
 
-    print("\n--- Scaling Features (StandardScaler) ---")
-    scaler = StandardScaler()
-    X_train = pd.DataFrame(scaler.fit_transform(X_train), index=X_train.index, columns=X_train.columns)
-    X_test = pd.DataFrame(scaler.transform(X_test), index=X_test.index, columns=X_test.columns)
-    print("Features scaled successfully.")
-
-    # 6. Hyperparameter Optimization
+    # 6. Hyperparameter Optimization (on unscaled data)
     print("\n--- Hyperparameter Optimization (Optuna) ---")
     best_params = optimize_hyperparameters(X_train, y_train)
 
@@ -157,32 +156,47 @@ def train_model(asset: str, timeframe: str):
     best_params['scale_pos_weight'] = final_scale_pos_weight
     print(f"Using final scale_pos_weight for training: {final_scale_pos_weight:.2f}")
 
-    # 7. Model Training with Best Parameters
-    print("\n--- Model Training (with optimized parameters) ---")
-    model = lgb.LGBMClassifier(**best_params)
-    model.fit(X_train, y_train)
+    # 7. Model Training with Best Parameters using a Pipeline
+    print("\n--- Model Training (with optimized parameters in a Pipeline) ---")
+    final_pipeline = Pipeline([
+        ('scaler', StandardScaler()),
+        ('model', lgb.LGBMClassifier(**best_params))
+    ])
+    final_pipeline.fit(X_train, y_train)
+    print("Pipeline training complete.")
 
-    # 8. Evaluation
+    # 8. Evaluation and Saving OOS Predictions
     print(f"\n--- Final Evaluation for {asset} ---")
-    y_pred = model.predict(X_test)
+    y_pred = final_pipeline.predict(X_test)
+    y_pred_proba = final_pipeline.predict_proba(X_test)[:, 1]
     print(classification_report(y_test, y_pred, target_names=['Down (0)', 'Up (1)'], zero_division=0))
+
+    # Save OOS predictions for downstream evaluation
+    RESULTS_DIR = os.path.join(os.path.dirname(__file__), '..', 'results')
+    os.makedirs(RESULTS_DIR, exist_ok=True)
+    predictions_df = pd.DataFrame({
+        'y_true': y_test,
+        'y_pred_proba': y_pred_proba
+    }, index=X_test.index)
+    predictions_path = os.path.join(RESULTS_DIR, f'{asset}_{timeframe}_oos_predictions.parquet')
+    predictions_df.to_parquet(predictions_path)
+    print(f"Out-of-sample predictions saved to {predictions_path}")
+
 
     # 9. Save Model and Features
     sanitized_asset = sanitize_symbol(asset)
     model_file = os.path.join(MODEL_DIR, f"lgbm_classifier_{sanitized_asset}_{timeframe}.joblib")
     features_file = os.path.join(MODEL_DIR, f"features_{sanitized_asset}_{timeframe}.json")
-    scaler_file = os.path.join(MODEL_DIR, f"scaler_{sanitized_asset}_{timeframe}.joblib")
 
-    print(f"Saving model for {asset} to {model_file}")
+    print(f"Saving pipeline for {asset} to {model_file}")
     os.makedirs(MODEL_DIR, exist_ok=True)
-    joblib.dump(model, model_file)
-    joblib.dump(scaler, scaler_file)
+    joblib.dump(final_pipeline, model_file) # Save the entire pipeline
 
     with open(features_file, 'w') as f:
         json.dump(selected_features, f)
 
     print(f"Feature list ({len(selected_features)} features) saved to {features_file}")
-    print(f"Scaler saved to {scaler_file}")
+    # The scaler is now part of the pipeline, so no separate scaler file is needed.
     print(f"--- Training for {asset} Complete ---")
 
 if __name__ == "__main__":
