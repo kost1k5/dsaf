@@ -323,6 +323,7 @@ class DataCollector:
 
         # --- 3. Consolidate and format the data ---
         full_history_df = pd.concat(all_data_frames, ignore_index=True)
+        print(f"DEBUG: DataFrame columns are: {full_history_df.columns.tolist()}")
         full_history_df.drop_duplicates(subset=['fundingTime', 'instId'], keep='first', inplace=True)
 
 
