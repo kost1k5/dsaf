@@ -35,7 +35,10 @@ def calculate_financial_metrics(predictions: pd.DataFrame, confidence_threshold:
         if capital <= 0: break
 
         # --- Position Sizing ---
-        risk_in_money = capital * s.RISK_PER_TRADE
+        # BUG FIX: The user's log analysis revealed that s.RISK_PER_TRADE was causing
+        # exponential, incorrect risk calculation. It's likely a misconfigured setting (e.g., 100 instead of 0.01).
+        # As per the user's explicit instruction, we are overriding it with a fixed 1% of current capital.
+        risk_in_money = capital * 0.01
         atr_at_entry = row['ATR']
 
         # --- BUG FIX SAFEGUARD ---
