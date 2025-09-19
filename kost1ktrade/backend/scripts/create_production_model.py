@@ -6,7 +6,7 @@ import optuna
 import joblib
 import json
 import argparse
-from sklearn.metrics import classification_report, precision_score
+from sklearn.metrics import classification_report, precision_score, average_precision_score
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
 from functools import partial
@@ -22,15 +22,17 @@ from src.core.config import settings
 
 def objective(trial, X_train, y_train, event_end_times, selected_features):
     """
-    Objective function for Optuna hyperparameter tuning with refined search space.
+    Objective function for Optuna hyperparameter tuning, targeting PR-AUC,
+    with proper scaling within each CV fold to prevent data leakage.
     """
     # Calculate scale_pos_weight for handling class imbalance within the fold
     scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum() if (y_train == 1).sum() > 0 else 1
 
     params = {
         'objective': 'binary',
-        'metric': 'binary_logloss',
+        'metric': 'average_precision',
         'random_state': 42,
+        'verbosity': -1,
         'n_estimators': trial.suggest_int('n_estimators', 800, 2000),
         'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.05),
         'num_leaves': trial.suggest_int('num_leaves', 20, 150),
@@ -41,10 +43,8 @@ def objective(trial, X_train, y_train, event_end_times, selected_features):
         'scale_pos_weight': scale_pos_weight
     }
 
-    pipeline = Pipeline([
-        ('scaler', StandardScaler()),
-        ('model', lgb.LGBMClassifier(**params))
-    ])
+    # No pipeline here to correctly handle scaling with early stopping
+    model = lgb.LGBMClassifier(**params)
 
     X_selected = X_train[selected_features]
     y_encoded = LabelEncoder().fit_transform(y_train)
@@ -57,18 +57,20 @@ def objective(trial, X_train, y_train, event_end_times, selected_features):
         X_inner_train, X_inner_val = X_selected.iloc[inner_train_idx], X_selected.iloc[inner_val_idx]
         y_inner_train, y_inner_val = y_encoded[inner_train_idx], y_encoded[inner_val_idx]
 
-        # Early stopping with scikit-learn pipeline requires passing params to fit method
-        fit_params = {
-            'model__eval_set': [(pipeline.named_steps['scaler'].transform(X_inner_val), y_inner_val)],
-            'model__callbacks': [lgb.early_stopping(stopping_rounds=50, verbose=False)]
-        }
+        # --- Scaling within the fold ---
+        scaler = StandardScaler()
+        X_inner_train_scaled = scaler.fit_transform(X_inner_train)
+        X_inner_val_scaled = scaler.transform(X_inner_val)
+        # --- End Scaling ---
 
-        pipeline.fit(X_inner_train, y_inner_train, **fit_params)
+        model.fit(X_inner_train_scaled, y_inner_train,
+                  eval_set=[(X_inner_val_scaled, y_inner_val)],
+                  callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)])
 
-        preds = pipeline.predict(X_inner_val)
-        scores.append(precision_score(y_inner_val, preds, average='weighted', zero_division=0.0))
+        preds_proba = model.predict_proba(X_inner_val_scaled)[:, 1]
+        scores.append(average_precision_score(y_inner_val, preds_proba))
 
-    return np.mean(scores) if scores else -1.0
+    return np.mean(scores) if scores else 0.0
 
 def main(asset: str, timeframe: str):
     print(f"\n--- Creating Production Model for {asset} ({timeframe}) ---")
@@ -138,7 +140,7 @@ def main(asset: str, timeframe: str):
         study.optimize(objective_with_data, n_trials=settings.ML.OPTUNA_TRIALS)
 
         best_params = study.best_params
-        print(f"  Best Precision in fold tuning: {study.best_value:.4f}")
+        print(f"  Best PR-AUC in fold tuning: {study.best_value:.4f}")
 
         # Final model for this fold
         final_fold_params = best_params.copy()
