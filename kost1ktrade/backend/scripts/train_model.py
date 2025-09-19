@@ -66,6 +66,10 @@ def optimize_hyperparameters(X_train, y_train):
 
             # --- Scaling within the fold ---
             scaler = StandardScaler()
+            try:
+                scaler.set_output(transform="pandas")
+            except AttributeError:
+                pass # Older scikit-learn versions do not have this
             X_train_fold_scaled = scaler.fit_transform(X_train_fold)
             X_val_fold_scaled = scaler.transform(X_val_fold)
             # --- End Scaling ---
@@ -158,8 +162,16 @@ def train_model(asset: str, timeframe: str):
 
     # 7. Model Training with Best Parameters using a Pipeline
     print("\n--- Model Training (with optimized parameters in a Pipeline) ---")
+
+    # Configure scaler to return pandas DataFrame
+    scaler = StandardScaler()
+    try:
+        scaler.set_output(transform="pandas")
+    except AttributeError:
+        print("Warning: scikit-learn version is too old for set_output. Update to >=1.2 for full feature name support.")
+
     final_pipeline = Pipeline([
-        ('scaler', StandardScaler()),
+        ('scaler', scaler),
         ('model', lgb.LGBMClassifier(**best_params))
     ])
     final_pipeline.fit(X_train, y_train)
