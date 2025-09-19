@@ -177,6 +177,19 @@ def train_model(asset: str, timeframe: str):
     final_pipeline.fit(X_train, y_train)
     print("Pipeline training complete.")
 
+    # 7a. Save Feature Importances
+    print("\n--- Saving Feature Importances ---")
+    model = final_pipeline.named_steps['model']
+    feature_importances = pd.Series(model.feature_importances_, index=X_train.columns)
+    feature_importances = feature_importances.sort_values(ascending=False)
+
+    importance_path = os.path.join(REPORTS_DIR, f'{asset}_{timeframe}_feature_importances.json')
+    feature_importances.to_json(importance_path, indent=4)
+    print(f"Feature importances saved to: {importance_path}")
+    print("Top 10 most important features:")
+    print(feature_importances.head(10))
+
+
     # 8. Evaluation and Saving OOS Predictions
     print(f"\n--- Final Evaluation for {asset} ---")
     y_pred = final_pipeline.predict(X_test)
