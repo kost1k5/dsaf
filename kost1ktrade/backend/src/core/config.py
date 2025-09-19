@@ -57,6 +57,7 @@ class EvaluationSettings(BaseModel):
     SLIPPAGE_RATE: float
     TP_ATR_MULT: float
     SL_ATR_MULT: float
+    OPTIMIZATION_METRIC: str = "sharpe_ratio" # Can be 'sharpe_ratio', 'profit_factor', etc.
 
 class StrategySettings(BaseModel):
     EMA_FAST: int

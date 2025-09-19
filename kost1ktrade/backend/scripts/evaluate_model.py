@@ -119,7 +119,8 @@ def main(asset: str, timeframe: str):
         return
 
     # 2. Find the optimal confidence threshold via Grid Search
-    print("Finding optimal confidence threshold by maximizing Sharpe Ratio...")
+    optimization_metric = settings.EVAL.OPTIMIZATION_METRIC
+    print(f"Finding optimal confidence threshold by maximizing '{optimization_metric}'...")
     thresholds = np.arange(0.50, 0.86, 0.01) # Finer grid for single threshold
     results = []
     for t in thresholds:
@@ -134,12 +135,17 @@ def main(asset: str, timeframe: str):
     if realistic_results_df.empty:
         print(f"CRITICAL: No threshold combination produced the minimum required {min_trades} trades.")
         if not results_df.empty:
-            best_insufficient_row = results_df.sort_values(by='sharpe_ratio', ascending=False).iloc[0]
+            # Still sort by the desired metric even if no combination is valid
+            best_insufficient_row = results_df.sort_values(by=optimization_metric, ascending=False).iloc[0]
             print("Diagnostics: Best result among all combinations (below trade threshold):")
             print(best_insufficient_row)
         return
 
-    best_row = realistic_results_df.loc[realistic_results_df['sharpe_ratio'].idxmax()]
+    if optimization_metric not in realistic_results_df.columns:
+        print(f"CRITICAL: The specified optimization_metric '{optimization_metric}' is not a valid column in the results. Available columns: {realistic_results_df.columns.tolist()}")
+        return
+
+    best_row = realistic_results_df.loc[realistic_results_df[optimization_metric].idxmax()]
     final_metrics = best_row.to_dict()
 
     # 3. Generate and save the final report
