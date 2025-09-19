@@ -29,6 +29,7 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
 
     df_feat = df.copy()
     if 'open_time' in df_feat.columns and not isinstance(df_feat.index, pd.DatetimeIndex):
+        df_feat['open_time'] = pd.to_datetime(df_feat['open_time'])
         df_feat.set_index('open_time', inplace=True, drop=False)
 
     required_cols = ['open', 'high', 'low', 'close', 'volume']
@@ -74,11 +75,35 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
 
     df_feat['price_dist_ema'] = (df_feat['close'] - df_feat['EMA_slow']) / df_feat['EMA_slow']
 
+    # --- NEW FEATURES ---
+    print("  - Generating new features: VWAP, Time Features, Realized Volatility...")
+
+    # VWAP (resets daily)
+    df_feat['typical_price_vol'] = ((df_feat['high'] + df_feat['low'] + df_feat['close']) / 3) * df_feat['volume']
+    df_feat['cum_vol'] = df_feat.groupby(df_feat.index.date)['volume'].cumsum()
+    df_feat['cum_typical_price_vol'] = df_feat.groupby(df_feat.index.date)['typical_price_vol'].cumsum()
+    df_feat['VWAP'] = df_feat['cum_typical_price_vol'] / df_feat['cum_vol']
+    df_feat.drop(['typical_price_vol', 'cum_vol', 'cum_typical_price_vol'], axis=1, inplace=True)
+
+    # Cyclical Time Features
+    df_feat['hour_sin'] = np.sin(2 * np.pi * df_feat.index.hour / 24)
+    df_feat['hour_cos'] = np.cos(2 * np.pi * df_feat.index.hour / 24)
+    df_feat['dayofweek_sin'] = np.sin(2 * np.pi * df_feat.index.dayofweek / 7)
+    df_feat['dayofweek_cos'] = np.cos(2 * np.pi * df_feat.index.dayofweek / 7)
+
+    # Realized Volatility (30-period)
+    df_feat['log_return'] = np.log(df_feat['close'] / df_feat['close'].shift(1))
+    df_feat['realized_volatility'] = df_feat['log_return'].rolling(window=30).std() * np.sqrt(365) # Annualized
+    df_feat.drop('log_return', axis=1, inplace=True)
+    # --- END NEW FEATURES ---
+
+
     # --- Task 1.3: Lagged Features ---
     print("  - Generating lagged features...")
     specialized_features = [
         'ema_spread_normalized', 'rsi_roc', 'adx_roc', 'di_spread',
-        'atr_ratio', 'obv_slope', 'price_dist_ema'
+        'atr_ratio', 'obv_slope', 'price_dist_ema',
+        'VWAP', 'realized_volatility' # Lag VWAP and volatility
     ]
 
     for feature in specialized_features:

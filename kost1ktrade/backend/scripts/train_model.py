@@ -3,7 +3,7 @@ import numpy as np
 import lightgbm as lgb
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import classification_report, precision_score
+from sklearn.metrics import classification_report, precision_score, average_precision_score
 import joblib
 import os
 import sys
@@ -30,23 +30,23 @@ def sanitize_symbol(symbol: str) -> str:
 
 def optimize_hyperparameters(X_train, y_train):
     """
-    Performs hyperparameter optimization using Optuna with refined search space and early stopping.
+    Performs hyperparameter optimization using Optuna, targeting PR-AUC.
     """
     # Calculate scale_pos_weight for handling class imbalance
     scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum() if (y_train == 1).sum() > 0 else 1
-    print(f"Calculated scale_pos_weight: {scale_pos_weight:.2f}")
+    print(f"Calculated scale_pos_weight for optimization: {scale_pos_weight:.2f}")
 
     def objective(trial):
         param = {
             'objective': 'binary',
-            'metric': 'binary_logloss',
+            'metric': 'average_precision',
             'verbosity': -1,
             'boosting_type': 'gbdt',
             'scale_pos_weight': scale_pos_weight,
-            'n_estimators': trial.suggest_int('n_estimators', 800, 2000), # Increased for early stopping
-            'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.05), # Constrained
+            'n_estimators': trial.suggest_int('n_estimators', 800, 2000),
+            'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.05),
             'num_leaves': trial.suggest_int('num_leaves', 20, 150),
-            'max_depth': trial.suggest_int('max_depth', 3, 5), # Constrained
+            'max_depth': trial.suggest_int('max_depth', 3, 5),
             'min_child_samples': trial.suggest_int('min_child_samples', 20, 100),
             'subsample': trial.suggest_float('subsample', 0.6, 1.0),
             'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
@@ -64,23 +64,23 @@ def optimize_hyperparameters(X_train, y_train):
 
             model = lgb.LGBMClassifier(**param)
 
-            # Use early stopping
             model.fit(X_train_fold, y_train_fold,
                       eval_set=[(X_val_fold, y_val_fold)],
-                      eval_metric='logloss',
+                      eval_metric='average_precision',
                       callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)])
 
-            preds = model.predict(X_val_fold)
-            scores.append(precision_score(y_val_fold, preds, zero_division=0))
+            # Use predict_proba for PR-AUC calculation
+            preds_proba = model.predict_proba(X_val_fold)[:, 1]
+            scores.append(average_precision_score(y_val_fold, preds_proba))
 
-        return -1.0 * np.mean(scores) if scores else 0
+        return np.mean(scores) if scores else 0
 
-    study = optuna.create_study(direction='minimize')
+    study = optuna.create_study(direction='maximize') # Maximize PR-AUC
     study.optimize(objective, n_trials=settings.ML.OPTUNA_TRIALS)
 
     print("Best trial:")
     trial = study.best_trial
-    print(f"  Value: {-trial.value}")
+    print(f"  Value (PR-AUC): {trial.value}")
     print("  Params: ")
     for key, value in trial.params.items():
         print(f"    {key}: {value}")
@@ -153,7 +153,9 @@ def train_model(asset: str, timeframe: str):
     best_params['objective'] = 'binary'
     best_params['random_state'] = 42
     # Calculate final scale_pos_weight on the full training set
-    best_params['scale_pos_weight'] = (y_train == 0).sum() / (y_train == 1).sum() if (y_train == 1).sum() > 0 else 1
+    final_scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum() if (y_train == 1).sum() > 0 else 1
+    best_params['scale_pos_weight'] = final_scale_pos_weight
+    print(f"Using final scale_pos_weight for training: {final_scale_pos_weight:.2f}")
 
     # 7. Model Training with Best Parameters
     print("\n--- Model Training (with optimized parameters) ---")
