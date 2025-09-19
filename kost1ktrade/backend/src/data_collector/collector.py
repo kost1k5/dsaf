@@ -30,6 +30,7 @@ class DataCollector:
                 'options': {
                     'defaultType': 'swap',  # Changed from 'spot' to 'swap' for perpetuals
                 },
+                'timeout': 30000,  # 30-second timeout for exchange requests
             })
         except AttributeError:
             raise ValueError(f"Exchange '{exchange_id}' is not supported by ccxt.")
