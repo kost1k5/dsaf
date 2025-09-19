@@ -273,7 +273,7 @@ class DataCollector:
 
             try:
                 print(f"Requesting file list for {current_start.strftime('%Y-%m')}...")
-                response = requests.get(base_url, params=params, timeout=30)
+                response = requests.get(base_url, params=params, timeout=(10, 30)) # (connect, read)
                 response.raise_for_status()
                 data = response.json()
 
@@ -305,7 +305,7 @@ class DataCollector:
         for url in sorted(list(download_urls)): # Sort to process chronologically
             try:
                 print(f"  Downloading: {url.split('/')[-1]}")
-                file_response = requests.get(url, stream=True, timeout=60)
+                file_response = requests.get(url, stream=True, timeout=(10, 60)) # (connect, read)
                 file_response.raise_for_status()
 
                 with zipfile.ZipFile(io.BytesIO(file_response.content)) as z:
