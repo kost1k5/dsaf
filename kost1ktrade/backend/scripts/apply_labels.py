@@ -7,6 +7,7 @@ import argparse
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.core.config import settings
 from src.strategies.confluence_engine import generate_signals
 
 def apply_trade_outcome_labels(df: pd.DataFrame) -> pd.DataFrame:
@@ -18,8 +19,9 @@ def apply_trade_outcome_labels(df: pd.DataFrame) -> pd.DataFrame:
     print("Applying new trade outcome labeling for ML model...")
 
     # --- Parameters ---
-    sl_atr_mult = 2.0
-    tp_atr_mult = 3.0
+    # Using the second take profit level as the primary target for this labeling
+    sl_atr_mult = settings.TRADE.ATR_MULTIPLIER_FOR_SL
+    tp_atr_mult = settings.TRADE.ATR_MULTIPLIER_FOR_TP2
     max_holding_periods = 100
 
     # Step 1: Generate signals

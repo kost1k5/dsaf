@@ -3,7 +3,7 @@ import numpy as np
 import lightgbm as lgb
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import classification_report, f1_score
+from sklearn.metrics import classification_report, f1_score, precision_score
 import joblib
 import os
 import sys
@@ -61,7 +61,7 @@ def optimize_hyperparameters(X_train, y_train):
             model = lgb.LGBMClassifier(**param)
             model.fit(X_train_fold, y_train_fold)
             preds = model.predict(X_val_fold)
-            scores.append(f1_score(y_val_fold, preds))
+            scores.append(precision_score(y_val_fold, preds, zero_division=0))
 
         return -1.0 * np.mean(scores)
 
