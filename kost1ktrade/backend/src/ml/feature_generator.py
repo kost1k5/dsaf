@@ -97,13 +97,49 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     df_feat.drop('log_return', axis=1, inplace=True)
     # --- END NEW FEATURES ---
 
+    # --- PRIORITY 3 FEATURES (User Suggested) ---
+    print("  - Generating user-suggested features (Priority 3)...")
+
+    # 1. Market Structure Features
+    ema_long_period = 200
+    df_feat['EMA_long'] = talib.EMA(close, timeperiod=ema_long_period)
+    df_feat['price_dist_ema_long'] = (df_feat['close'] - df_feat['EMA_long']) / df_feat['EMA_long']
+
+    rolling_window = 200
+    df_feat['high_rolling'] = df_feat['high'].rolling(window=rolling_window).max()
+    df_feat['low_rolling'] = df_feat['low'].rolling(window=rolling_window).min()
+    df_feat['time_since_high'] = df_feat.groupby((df_feat['high'] != df_feat['high_rolling']).cumsum()).cumcount()
+    df_feat['time_since_low'] = df_feat.groupby((df_feat['low'] != df_feat['low_rolling']).cumsum()).cumcount()
+    df_feat.drop(['high_rolling', 'low_rolling'], axis=1, inplace=True)
+
+    # 2. Order Flow Proxy Features
+    # Added a small epsilon to avoid division by zero in flat candles (high == low)
+    epsilon = 1e-10
+    df_feat['buying_pressure'] = (df_feat['high'] - df_feat['close']) / (df_feat['high'] - df_feat['low'] + epsilon)
+    df_feat['selling_pressure'] = (df_feat['close'] - df_feat['low']) / (df_feat['high'] - df_feat['low'] + epsilon)
+    df_feat['volume_weighted_candle'] = df_feat['volume'] * (df_feat['close'] - df_feat['open'])
+
+    # 3. Volatility Regime Features
+    # The user suggested ATR(14)/ATR(100). This is already implemented as 'atr_ratio'.
+    # We will ensure it is calculated correctly.
+    atr_short_period = 14
+    atr_long_period = 100
+    atr_short = talib.ATR(high, low, close, timeperiod=atr_short_period)
+    atr_long = talib.ATR(high, low, close, timeperiod=atr_long_period)
+    df_feat['atr_ratio_14_100'] = atr_short / (atr_long + epsilon)
+    # --- END PRIORITY 3 FEATURES ---
+
 
     # --- Task 1.3: Lagged Features ---
     print("  - Generating lagged features...")
     specialized_features = [
         'ema_spread_normalized', 'rsi_roc', 'adx_roc', 'di_spread',
         'atr_ratio', 'obv_slope', 'price_dist_ema',
-        'VWAP', 'realized_volatility' # Lag VWAP and volatility
+        'VWAP', 'realized_volatility',
+        # Adding the new Priority 3 features to the lag list
+        'price_dist_ema_long', 'time_since_high', 'time_since_low',
+        'buying_pressure', 'selling_pressure', 'volume_weighted_candle',
+        'atr_ratio_14_100'
     ]
 
     for feature in specialized_features:

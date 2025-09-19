@@ -37,7 +37,19 @@ def calculate_financial_metrics(predictions: pd.DataFrame, confidence_threshold:
         # --- Position Sizing ---
         risk_in_money = capital * s.RISK_PER_TRADE
         atr_at_entry = row['ATR']
-        if pd.isna(atr_at_entry) or atr_at_entry <= 0: continue
+
+        # --- BUG FIX SAFEGUARD ---
+        # Prevent division by zero or extremely small ATR leading to massive position sizes.
+        # A very small ATR can indicate stale data or a market freeze.
+        MIN_ATR_AS_PCT_OF_PRICE = 0.0001 # 0.01% of price
+        min_atr_value = row['close'] * MIN_ATR_AS_PCT_OF_PRICE
+
+        if pd.isna(atr_at_entry) or atr_at_entry < min_atr_value:
+            print(f"--- SKIPPING TRADE (Bad ATR) ---")
+            print(f"  Timestamp: {row.name}")
+            print(f"  ATR Value: {atr_at_entry}. Minimum required: {min_atr_value}")
+            print(f"--------------------------------\n")
+            continue
 
         stop_loss_distance_price = s.SL_ATR_MULT * atr_at_entry
         position_size_asset = risk_in_money / stop_loss_distance_price
@@ -58,9 +70,36 @@ def calculate_financial_metrics(predictions: pd.DataFrame, confidence_threshold:
         slippage_cost = position_value_usd * s.SLIPPAGE_RATE
         net_pnl = pnl - entry_commission - exit_commission - slippage_cost
 
+        # --- Sanity Check for Impossible Loss ---
+        if net_pnl < -risk_in_money * 1.1: # Allow for 10% margin for slippage/commission
+            print(f"--- CRITICAL ERROR: IMPOSSIBLE LOSS DETECTED ---")
+            print(f"  Timestamp: {row.name}")
+            print(f"  Intended Risk: ${risk_in_money:,.2f}")
+            print(f"  Actual Net Loss: ${net_pnl:,.2f}")
+            print(f"  This indicates a critical bug in PnL calculation.")
+            print(f"  Halting evaluation.")
+            # You might want to raise an exception here in a real production system
+            # For debugging, we will just stop.
+            return {"sharpe_ratio": -999, "profit_factor": 0, "max_drawdown": 1, "win_rate": 0, "total_trades": len(trades_list), "final_capital": 0}
+
+
         capital += net_pnl
         equity_curve.append(capital)
-        trades_list.append({'net_pnl': net_pnl, 'win': is_win})
+        trades_list.append({'net_pnl': net_pnl, 'win': is_win, 'capital': capital})
+
+        # --- Detailed Logging for Debugging ---
+        print(f"--- TRADE LOG ---")
+        print(f"  Timestamp: {row.name}")
+        print(f"  ATR at Entry: {atr_at_entry:.4f}")
+        print(f"  Position Size (Asset): {position_size_asset:.4f}")
+        print(f"  Position Value (USD): ${position_value_usd:,.2f}")
+        print(f"  Outcome (y_true): {'Win' if is_win else 'Loss'}")
+        print(f"  Gross PnL: ${pnl:,.2f}")
+        print(f"  Commissions + Slippage: ${(entry_commission + exit_commission + slippage_cost):,.2f}")
+        print(f"  Net PnL: ${net_pnl:,.2f}")
+        print(f"  Capital After Trade: ${capital:,.2f}")
+        print(f"-----------------\n")
+
 
     # --- Final Metrics Calculation ---
     if not trades_list:

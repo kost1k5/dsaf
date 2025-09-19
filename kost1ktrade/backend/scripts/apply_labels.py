@@ -20,8 +20,19 @@ def apply_trade_outcome_labels(df: pd.DataFrame) -> pd.DataFrame:
 
     # --- Parameters ---
     # Using the second take profit level as the primary target for this labeling
-    sl_atr_mult = settings.TRADE.ATR_MULTIPLIER_FOR_SL
-    tp_atr_mult = settings.TRADE.ATR_MULTIPLIER_FOR_TP2
+    # sl_atr_mult_orig = settings.TRADE.ATR_MULTIPLIER_FOR_SL
+    # tp_atr_mult_orig = settings.TRADE.ATR_MULTIPLIER_FOR_TP2
+
+    # --- DIAGNOSTIC OVERRIDE ---
+    # The user reported issues with too few trades being generated. This is often due to
+    # an unfavorable risk/reward ratio in the labeling process.
+    # We will temporarily override the settings to test a 1:1.5 Risk/Reward ratio.
+    print("INFO: Overriding label generation parameters for diagnostics.")
+    sl_atr_mult = 1.5
+    tp_atr_mult = 2.25 # 1.5 (SL) * 1.5 (R/R) = 2.25
+    print(f"  - Stop Loss ATR Multiplier: {sl_atr_mult}")
+    print(f"  - Take Profit ATR Multiplier: {tp_atr_mult}")
+
     max_holding_periods = 100
 
     # Step 1: Generate signals
