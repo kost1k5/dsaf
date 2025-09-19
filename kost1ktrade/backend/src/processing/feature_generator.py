@@ -255,7 +255,7 @@ class FeatureGenerator:
         self._log("  - Group: Calculating single-length indicators...")
 
         self._log("    - ATR (length=14)")
-        self.df['ATRr_14'] = talib.ATR(high, low, close, timeperiod=14)
+        self.df['ATR'] = talib.ATR(high, low, close, timeperiod=14)
 
         self._log("    - Bollinger Bands (length=20, stddev=2.0)")
         upper, middle, lower = talib.BBANDS(close, timeperiod=20, nbdevup=2.0, nbdevdn=2.0, matype=0)
@@ -290,6 +290,14 @@ class FeatureGenerator:
             self.df['dist_from_vwap'] = (self.df['close'] / self.df['VWAP_D']) - 1
         else:
             self._log("      - VWAP calculation resulted in empty series. Skipping distance calculation.")
+
+        self._log("    - Rolling VWAP (length=20)")
+        vwap_period = 20  # As seen in .env: INDICATORS__VWAP_PERIOD=20
+        typical_price_x_volume = (self.df['close'] * self.df['volume'])
+        sum_of_pv = typical_price_x_volume.rolling(window=vwap_period).sum()
+        sum_of_vol = self.df['volume'].rolling(window=vwap_period).sum()
+        self.df[f'VWAP_{vwap_period}'] = sum_of_pv / sum_of_vol
+        self.df[f'dist_from_vwap_{vwap_period}'] = (self.df['close'] / self.df[f'VWAP_{vwap_period}']) - 1
 
 
         self._log("    - EMA (length=200)")
@@ -464,6 +472,12 @@ class FeatureGenerator:
                 self._log(f"Warning: Could not parse timeframe '{self.timeframe}' to calculate volatility. Skipping.")
         else:
             self.df['volatility_24h'] = self.df['close'].pct_change().rolling(window=24).std()
+
+        self._log("  - Calculating realized volatility over multiple periods (std of log returns)...")
+        for period in [7, 21, 60]:
+            self.df[f'realized_vol_{period}'] = self.df['log_returns'].rolling(window=period).std()
+        self._log("  - Added realized volatility features.")
+
         return self
 
     def add_lag_features(self):

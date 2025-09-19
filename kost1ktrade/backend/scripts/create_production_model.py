@@ -8,7 +8,7 @@ import joblib
 import json
 import argparse
 import matplotlib.pyplot as plt
-from sklearn.metrics import f1_score, classification_report
+from sklearn.metrics import f1_score, classification_report, precision_score
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
 from functools import partial
@@ -117,7 +117,7 @@ def objective(trial, X_train, y_train, event_end_times, selected_features):
 
         pipeline.fit(X_inner_train, y_inner_train)
         preds = pipeline.predict(X_inner_val)
-        scores.append(f1_score(y_inner_val, preds, average='weighted', zero_division=0.0))
+        scores.append(precision_score(y_inner_val, preds, average='weighted', zero_division=0.0))
 
     return np.mean(scores) if scores else -1.0
 
