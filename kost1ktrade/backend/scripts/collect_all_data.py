@@ -124,42 +124,44 @@ def main(days_history: int):
                     print(f"OHLCV data for {asset} ({tf}) is already up to date.")
                 time.sleep(1)
 
-            # --- Funding Rate Data ---
-            print(f"\n--- Collecting {asset} Funding Rates ---")
+            # --- Funding Rate Data (Full History Method) ---
+            print(f"\n--- Collecting {asset} Funding Rates (Full History Method) ---")
             latest_fr_ms = data_collector.get_latest_funding_rate_timestamp(symbol)
+
+            start_date_obj = end_date - timedelta(days=days_history)
             if latest_fr_ms:
-                since_fr_ms = latest_fr_ms + 1
-                print(f"Found existing funding rate data up to {datetime.fromtimestamp(latest_fr_ms/1000).strftime('%Y-%m-%d %H:%M:%S')}.")
+                # If there's data, start from the day after the last record
+                start_date_obj = datetime.fromtimestamp(latest_fr_ms / 1000, tz=UTC) + timedelta(days=1)
+                print(f"Found existing funding rate data up to {start_date_obj.strftime('%Y-%m-%d')}. Continuing download.")
             else:
-                since_fr_ms = int((end_date - timedelta(days=days_history)).timestamp() * 1000)
-                print(f"No existing funding rate data found. Starting full history download from {datetime.fromtimestamp(since_fr_ms/1000).strftime('%Y-%m-%d %H:%M:%S')}.")
+                print(f"No existing funding rate data found. Starting full history download from {start_date_obj.strftime('%Y-%m-%d')}.")
 
-            if since_fr_ms < int(end_date.timestamp() * 1000):
-                print(f"Fetching funding rate data from {datetime.fromtimestamp(since_fr_ms/1000).strftime('%Y-%m-%d %H:%M:%S')} to now...")
-                all_fr_data = []
-                current_since = since_fr_ms
-                while current_since < int(end_date.timestamp() * 1000):
-                    fr_chunk = data_collector.fetch_funding_rate_history(symbol=symbol, since=current_since, limit=100)
-                    if not fr_chunk:
-                        break # No more data from exchange
+            # The instrument family for the API is like 'BTC-USDT'
+            instrument_family = f"{asset}-USDT"
 
-                    last_ts_in_all_data = all_fr_data[-1]['timestamp'] if all_fr_data else 0
-                    new_data = [d for d in fr_chunk if d['timestamp'] > last_ts_in_all_data]
-                    if not new_data:
-                        break
+            # Ensure we only fetch if the start date is before the end date
+            if start_date_obj < end_date:
+                start_date_str = start_date_obj.strftime('%Y-%m-%d')
+                end_date_str = end_date.strftime('%Y-%m-%d')
+                print(f"Fetching full funding rate history for {instrument_family} from {start_date_str} to {end_date_str}...")
 
-                    all_fr_data.extend(new_data)
-                    current_since = new_data[-1]['timestamp'] + 1
-                    time.sleep(data_collector.exchange.rateLimit / 1000)
+                # Call the new method for fetching full history
+                all_fr_data = data_collector.fetch_full_funding_rate_history(
+                    instrument_family=instrument_family,
+                    start_date_str=start_date_str,
+                    end_date_str=end_date_str
+                )
 
                 if all_fr_data:
+                    # The symbol for the database is like 'BTC/USDT:USDT'
                     count = data_collector.save_funding_rates_to_db(all_fr_data, symbol)
                     summary["crypto_specific"][asset]["Funding Rates"] = count
                     print(f"-> Saved {count} new funding rate entries for {asset}.")
                 else:
-                    print("-> No new data returned from the exchange.")
+                    print("-> No new funding rate data was fetched or processed.")
             else:
                 print(f"Funding rate data for {asset} is already up to date.")
+
             time.sleep(1)
 
         print("\n" + "="*60)
