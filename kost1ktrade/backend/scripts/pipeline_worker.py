@@ -125,6 +125,7 @@ def run_pipeline_for_asset(symbol: str, timeframe: str):
         pipeline_steps = [
             ("Feature Processing", ["scripts/process_features.py", "--asset", asset, "--timeframe", timeframe]),
             ("Label Application", ["scripts/apply_labels.py", "--asset", asset, "--timeframe", timeframe]),
+            ("Feature Selection", ["scripts/select_features.py", "--asset", asset, "--timeframe", timeframe]),
             ("Model Training", ["scripts/train_model.py", "--symbols", asset, "--timeframe", timeframe]),
             ("Model Evaluation", ["scripts/evaluate_model.py", "--asset", asset, "--timeframe", timeframe]),
             ("Backtesting", ["scripts/run_backtest.py", "--asset", asset, "--timeframe", timeframe]),
