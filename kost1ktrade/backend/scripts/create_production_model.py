@@ -183,7 +183,7 @@ def main(asset: str, timeframe: str):
     plt.savefig(shap_plot_path, bbox_inches='tight'); plt.close()
 
     # --- 3. Walk-Forward Validation and Hyperparameter Tuning ---
-    outer_cv = PurgedTimeSeriesSplit(n_splits=5, purge_buffer_days=5, embargo_pct=0.01)
+    outer_cv = PurgedTimeSeriesSplit(n_splits=3, purge_buffer_days=5, embargo_pct=0.01)
     all_reports = []
     successful_folds = 0
 
