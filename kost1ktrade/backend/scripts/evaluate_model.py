@@ -129,7 +129,10 @@ def main(asset: str, timeframe: str):
 
     results_df = pd.DataFrame(results)
 
-    min_trades = settings.ML.MIN_TRADES_FOR_EVAL
+    # Temporarily lower the minimum trade requirement for diagnostic purposes, as per user request.
+    # The original value is settings.ML.MIN_TRADES_FOR_EVAL (30).
+    min_trades = 15
+    print(f"INFO: Temporarily lowered minimum trades requirement to {min_trades} for this evaluation run.")
     realistic_results_df = results_df[results_df['total_trades'] >= min_trades]
 
     if realistic_results_df.empty:
