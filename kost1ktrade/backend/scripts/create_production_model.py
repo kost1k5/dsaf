@@ -10,6 +10,8 @@ from sklearn.metrics import classification_report, precision_score
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
 from functools import partial
+import lightgbm as lgb
+
 
 # Adjust the path to allow imports from the 'src' directory
 import sys
@@ -20,21 +22,28 @@ from src.core.config import settings
 
 def objective(trial, X_train, y_train, event_end_times, selected_features):
     """
-    Objective function for Optuna hyperparameter tuning.
+    Objective function for Optuna hyperparameter tuning with refined search space.
     """
+    # Calculate scale_pos_weight for handling class imbalance within the fold
+    scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum() if (y_train == 1).sum() > 0 else 1
+
     params = {
-        'n_estimators': trial.suggest_int('n_estimators', 200, 1000),
-        'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.1),
+        'objective': 'binary',
+        'metric': 'binary_logloss',
+        'random_state': 42,
+        'n_estimators': trial.suggest_int('n_estimators', 800, 2000),
+        'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.05),
         'num_leaves': trial.suggest_int('num_leaves', 20, 150),
-        'max_depth': trial.suggest_int('max_depth', 5, 15),
+        'max_depth': trial.suggest_int('max_depth', 3, 5),
         'min_child_samples': trial.suggest_int('min_child_samples', 20, 100),
         'subsample': trial.suggest_float('subsample', 0.6, 1.0),
         'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
+        'scale_pos_weight': scale_pos_weight
     }
 
     pipeline = Pipeline([
         ('scaler', StandardScaler()),
-        ('model', lgb.LGBMClassifier(objective='binary', random_state=42, **params))
+        ('model', lgb.LGBMClassifier(**params))
     ])
 
     X_selected = X_train[selected_features]
@@ -48,7 +57,14 @@ def objective(trial, X_train, y_train, event_end_times, selected_features):
         X_inner_train, X_inner_val = X_selected.iloc[inner_train_idx], X_selected.iloc[inner_val_idx]
         y_inner_train, y_inner_val = y_encoded[inner_train_idx], y_encoded[inner_val_idx]
 
-        pipeline.fit(X_inner_train, y_inner_train)
+        # Early stopping with scikit-learn pipeline requires passing params to fit method
+        fit_params = {
+            'model__eval_set': [(pipeline.named_steps['scaler'].transform(X_inner_val), y_inner_val)],
+            'model__callbacks': [lgb.early_stopping(stopping_rounds=50, verbose=False)]
+        }
+
+        pipeline.fit(X_inner_train, y_inner_train, **fit_params)
+
         preds = pipeline.predict(X_inner_val)
         scores.append(precision_score(y_inner_val, preds, average='weighted', zero_division=0.0))
 
@@ -124,9 +140,13 @@ def main(asset: str, timeframe: str):
         best_params = study.best_params
         print(f"  Best Precision in fold tuning: {study.best_value:.4f}")
 
+        # Final model for this fold
+        final_fold_params = best_params.copy()
+        final_fold_params['scale_pos_weight'] = (y_train == 0).sum() / (y_train == 1).sum() if (y_train == 1).sum() > 0 else 1
+
         pipeline = Pipeline([
             ('scaler', StandardScaler()),
-            ('model', lgb.LGBMClassifier(objective='binary', random_state=42, **best_params))
+            ('model', lgb.LGBMClassifier(objective='binary', random_state=42, **final_fold_params))
         ])
         y_train_encoded = LabelEncoder().fit_transform(y_train)
         pipeline.fit(X_train, y_train_encoded)
@@ -153,9 +173,12 @@ def main(asset: str, timeframe: str):
         return
 
     print("\nTraining final production model on the full dataset...")
+    final_prod_params = best_params.copy()
+    final_prod_params['scale_pos_weight'] = (y_full == 0).sum() / (y_full == 1).sum() if (y_full == 1).sum() > 0 else 1
+
     final_pipeline = Pipeline([
         ('scaler', StandardScaler()),
-        ('model', lgb.LGBMClassifier(objective='binary', random_state=42, **best_params))
+        ('model', lgb.LGBMClassifier(objective='binary', random_state=42, **final_prod_params))
     ])
     y_full_encoded = LabelEncoder().fit_transform(y_full)
     final_pipeline.fit(X_full, y_full_encoded)

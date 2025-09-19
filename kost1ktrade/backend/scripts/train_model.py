@@ -10,6 +10,8 @@ import sys
 import argparse
 import json
 import optuna
+import lightgbm as lgb
+
 
 # Add the project root to the python path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -28,19 +30,23 @@ def sanitize_symbol(symbol: str) -> str:
 
 def optimize_hyperparameters(X_train, y_train):
     """
-    Performs hyperparameter optimization using Optuna.
+    Performs hyperparameter optimization using Optuna with refined search space and early stopping.
     """
+    # Calculate scale_pos_weight for handling class imbalance
+    scale_pos_weight = (y_train == 0).sum() / (y_train == 1).sum() if (y_train == 1).sum() > 0 else 1
+    print(f"Calculated scale_pos_weight: {scale_pos_weight:.2f}")
+
     def objective(trial):
         param = {
             'objective': 'binary',
             'metric': 'binary_logloss',
             'verbosity': -1,
             'boosting_type': 'gbdt',
-            'is_unbalance': True,
-            'n_estimators': trial.suggest_int('n_estimators', 100, 1000),
-            'learning_rate': trial.suggest_float('learning_rate', 0.01, 0.3),
-            'num_leaves': trial.suggest_int('num_leaves', 20, 300),
-            'max_depth': trial.suggest_int('max_depth', 3, 12),
+            'scale_pos_weight': scale_pos_weight,
+            'n_estimators': trial.suggest_int('n_estimators', 800, 2000), # Increased for early stopping
+            'learning_rate': trial.suggest_float('learning_rate', 0.005, 0.05), # Constrained
+            'num_leaves': trial.suggest_int('num_leaves', 20, 150),
+            'max_depth': trial.suggest_int('max_depth', 3, 5), # Constrained
             'min_child_samples': trial.suggest_int('min_child_samples', 20, 100),
             'subsample': trial.suggest_float('subsample', 0.6, 1.0),
             'colsample_bytree': trial.suggest_float('colsample_bytree', 0.6, 1.0),
@@ -53,11 +59,17 @@ def optimize_hyperparameters(X_train, y_train):
             X_train_fold, X_val_fold = X_train.iloc[train_index], X_train.iloc[val_index]
             y_train_fold, y_val_fold = y_train.iloc[train_index], y_train.iloc[val_index]
 
-            if X_val_fold.empty:
+            if X_val_fold.empty or y_val_fold.empty:
                 continue
 
             model = lgb.LGBMClassifier(**param)
-            model.fit(X_train_fold, y_train_fold)
+
+            # Use early stopping
+            model.fit(X_train_fold, y_train_fold,
+                      eval_set=[(X_val_fold, y_val_fold)],
+                      eval_metric='logloss',
+                      callbacks=[lgb.early_stopping(stopping_rounds=50, verbose=False)])
+
             preds = model.predict(X_val_fold)
             scores.append(precision_score(y_val_fold, preds, zero_division=0))
 
@@ -105,14 +117,11 @@ def train_model(asset: str, timeframe: str):
     # 3. Prepare Data for Model
     labeled_df.set_index('index', inplace=True)
 
-    # The target variable is 'label'
-    X = labeled_df[selected_features].copy() # Use only selected features
+    X = labeled_df[selected_features].copy()
     y = labeled_df['label'].copy()
 
-    # Align y with X's index
     y = y.loc[X.index]
 
-    # Handle potential infinity and NaN values
     X.replace([np.inf, -np.inf], np.nan, inplace=True)
     X.ffill(inplace=True)
     X.bfill(inplace=True)
@@ -143,7 +152,8 @@ def train_model(asset: str, timeframe: str):
 
     best_params['objective'] = 'binary'
     best_params['random_state'] = 42
-    best_params['is_unbalance'] = True
+    # Calculate final scale_pos_weight on the full training set
+    best_params['scale_pos_weight'] = (y_train == 0).sum() / (y_train == 1).sum() if (y_train == 1).sum() > 0 else 1
 
     # 7. Model Training with Best Parameters
     print("\n--- Model Training (with optimized parameters) ---")
@@ -158,7 +168,6 @@ def train_model(asset: str, timeframe: str):
     # 9. Save Model and Features
     sanitized_asset = sanitize_symbol(asset)
     model_file = os.path.join(MODEL_DIR, f"lgbm_classifier_{sanitized_asset}_{timeframe}.joblib")
-    # This features file now correctly represents the features used in the model
     features_file = os.path.join(MODEL_DIR, f"features_{sanitized_asset}_{timeframe}.json")
     scaler_file = os.path.join(MODEL_DIR, f"scaler_{sanitized_asset}_{timeframe}.joblib")
 
@@ -167,7 +176,6 @@ def train_model(asset: str, timeframe: str):
     joblib.dump(model, model_file)
     joblib.dump(scaler, scaler_file)
 
-    # Save the list of features that the model was actually trained on
     with open(features_file, 'w') as f:
         json.dump(selected_features, f)
 
