@@ -47,7 +47,7 @@ Kost1kTrade — это многофункциональный, событийн�
         ```
     *   Инициализируйте базу данных (создаст все необходимые таблицы):
         ```bash
-        python scripts/create_tables.py
+        pdm run python scripts/create_tables.py
         ```
 
 3.  **Настройте фронтенд:**
@@ -71,7 +71,7 @@ Kost1kTrade — это многофункциональный, событийн�
 cd kost1ktrade/backend
 
 # Запустите главный конвейер
-python scripts/run_full_pipeline.py
+pdm run python scripts/run_full_pipeline.py
 ```
 
 Этот скрипт автоматически выполнит следующие действия:
