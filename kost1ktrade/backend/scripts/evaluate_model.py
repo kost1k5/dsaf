@@ -40,12 +40,13 @@ def calculate_financial_metrics(predictions: pd.DataFrame, confidence_threshold:
         # As per the user's explicit instruction, we are overriding it with a fixed 1% of current capital.
         risk_in_money = capital * 0.01
         atr_at_entry = row['ATR']
+        entry_price = row['close']
 
         # --- BUG FIX SAFEGUARD ---
         # Prevent division by zero or extremely small ATR leading to massive position sizes.
         # A very small ATR can indicate stale data or a market freeze.
         MIN_ATR_AS_PCT_OF_PRICE = 0.0001 # 0.01% of price
-        min_atr_value = row['close'] * MIN_ATR_AS_PCT_OF_PRICE
+        min_atr_value = entry_price * MIN_ATR_AS_PCT_OF_PRICE
 
         if pd.isna(atr_at_entry) or atr_at_entry < min_atr_value:
             print(f"--- SKIPPING TRADE (Bad ATR) ---")
@@ -54,9 +55,29 @@ def calculate_financial_metrics(predictions: pd.DataFrame, confidence_threshold:
             print(f"--------------------------------\n")
             continue
 
-        stop_loss_distance_price = s.SL_ATR_MULT * atr_at_entry
-        position_size_asset = risk_in_money / stop_loss_distance_price
-        position_value_usd = position_size_asset * row['close']
+        # --- Cost-Aware Position Sizing (Priority 1 Fix) ---
+        # Gross loss per unit of asset if SL is hit
+        gross_loss_per_unit = s.SL_ATR_MULT * atr_at_entry
+
+        # Estimate costs per unit of asset for a losing trade
+        # Entry commission + slippage is based on entry price
+        entry_costs_per_unit = entry_price * (s.COMMISSION_RATE + s.SLIPPAGE_RATE)
+        # Exit commission is based on exit price (entry - SL distance)
+        exit_price_on_loss = entry_price - gross_loss_per_unit
+        exit_commission_per_unit = exit_price_on_loss * s.COMMISSION_RATE
+
+        total_costs_per_unit = entry_costs_per_unit + exit_commission_per_unit
+
+        # Total expected loss per unit is the gross loss plus all costs
+        total_loss_per_unit = gross_loss_per_unit + total_costs_per_unit
+
+        # Calculate position size so that the NET loss does not exceed risk_in_money
+        if total_loss_per_unit <= 0: # Should not happen with the ATR guard, but as a final safety net
+            continue
+
+        position_size_asset = risk_in_money / total_loss_per_unit
+        position_value_usd = position_size_asset * entry_price
+        stop_loss_distance_price = gross_loss_per_unit # Renaming for clarity
 
         # --- PnL Calculation ---
         # The 'y_true' column directly tells us the outcome (1 for win, 0 for loss)

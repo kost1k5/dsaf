@@ -94,13 +94,14 @@ def main(days_history: int):
 
         # --- 2. Collect Crypto-Specific Data (Incremental) ---
         for raw_symbol in settings.SYMBOLS:
-            asset = parse_asset_from_symbol(raw_symbol)
-            summary["crypto_specific"][asset] = {}
-            print(f"\n{'='*20} Collecting data for {asset} (from {raw_symbol}) {'='*20}")
-            # Construct the ccxt-compatible symbol for the swap market
-            symbol = f"{asset}/USDT:USDT"
+            try:
+                asset = parse_asset_from_symbol(raw_symbol)
+                summary["crypto_specific"][asset] = {}
+                print(f"\n{'='*20} Collecting data for {asset} (from {raw_symbol}) {'='*20}")
+                # Construct the ccxt-compatible symbol for the swap market
+                symbol = f"{asset}/USDT:USDT"
 
-            # --- OHLCV Data ---
+                # --- OHLCV Data ---
             for tf in TIMEFRAMES:
                 print(f"\n--- Collecting {asset} OHLCV ({tf}) ---")
                 latest_ohlcv_ms = data_collector.get_latest_candle_timestamp(symbol, tf)
@@ -163,6 +164,13 @@ def main(days_history: int):
                 print(f"Funding rate data for {asset} is already up to date.")
 
             time.sleep(1)
+
+            except Exception as e:
+                print(f"\n{'!'*20} ERROR processing symbol {raw_symbol} {'!'*20}")
+                print(f"An unexpected error occurred: {e}")
+                print(f"Skipping this asset and continuing to the next one.")
+                print(f"{'!'*60}\n")
+                continue
 
         print("\n" + "="*60)
         print("=== FINAL DATA COLLECTION SUMMARY" + " "*29 + "===")
