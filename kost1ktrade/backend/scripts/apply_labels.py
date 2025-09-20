@@ -139,8 +139,8 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Trade Outcome Labeling for ML Confirmation Model")
     parser.add_argument("--asset", type=str, default="BTC", help="The crypto asset to process.")
     parser.add_argument("--timeframe", type=str, default="4h", help="The OHLCV timeframe to use.")
-    parser.add_argument("--sl_mult", type=float, default=1.5, help="ATR multiplier for the stop loss.")
-    parser.add_argument("--tp_mult", type=float, default=2.25, help="ATR multiplier for the take profit.")
+    parser.add_argument("--sl_mult", type=float, default=2.5, help="ATR multiplier for the stop loss.")
+    parser.add_argument("--tp_mult", type=float, default=4.0, help="ATR multiplier for the take profit.")
     args = parser.parse_args()
 
     main(asset=args.asset, timeframe=args.timeframe, sl_mult=args.sl_mult, tp_mult=args.tp_mult)
