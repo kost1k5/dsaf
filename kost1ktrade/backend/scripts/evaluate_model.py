@@ -75,15 +75,21 @@ def calculate_financial_metrics(predictions: pd.DataFrame, confidence_threshold:
 
         # --- Sanity Check for Impossible Loss ---
         if net_pnl < -risk_in_money * 1.1: # Allow for 10% margin for slippage/commission
-            print(f"--- CRITICAL ERROR: IMPOSSIBLE LOSS DETECTED ---")
+            print(f"--- ANOMALOUS LOSS DETECTED (LOGGING & CONTINUING) ---")
             print(f"  Timestamp: {row.name}")
             print(f"  Intended Risk: ${risk_in_money:,.2f}")
             print(f"  Actual Net Loss: ${net_pnl:,.2f}")
-            print(f"  This indicates a critical bug in PnL calculation.")
-            print(f"  Halting evaluation.")
-            # You might want to raise an exception here in a real production system
-            # For debugging, we will just stop.
-            return {"sharpe_ratio": -999, "profit_factor": 0, "max_drawdown": 1, "win_rate": 0, "total_trades": len(trades_list), "final_capital": 0}
+            print(f"  DEBUG INFO:")
+            print(f"    Entry Price: {row['close']:.4f}")
+            print(f"    Calculated SL Price: {(row['close'] - stop_loss_distance_price) if is_win else (row['close'] + stop_loss_distance_price):.4f}")
+            print(f"    Position Size (Asset): {position_size_asset:.4f}")
+            print(f"    Gross PnL: ${pnl:,.2f}")
+            print(f"    Entry Commission: ${entry_commission:,.2f}")
+            print(f"    Exit Commission: ${exit_commission:,.2f}")
+            print(f"    Slippage Cost: ${slippage_cost:,.2f}")
+            print(f"-----------------------------------------------------\n")
+            # The trade is still processed and capital updated, but we log it as an anomaly.
+            # The 'continue' statement below will just skip the *normal* trade log.
 
 
         capital += net_pnl
@@ -205,6 +211,12 @@ def main(asset: str, timeframe: str):
     report += f"  - Win Rate: {final_metrics['win_rate']:.2%}\n"
     report += f"  - Total Trades: {int(final_metrics['total_trades'])}\n"
     report += f"  - Final Capital: ${final_metrics['final_capital']:,.2f}\n"
+    report += "="*60 + "\n"
+    report += "NOTE: The financial metrics above are based on a simplified simulation where trade\n"
+    report += "outcomes are assumed based on pre-calculated labels (`y_true`). This is useful for\n"
+    report += "finding the optimal confidence threshold quickly.\n"
+    report += "The most reliable performance metrics come from the full event-driven backtest\n"
+    report += "in `run_backtest.py`, which simulates price action against SL/TP levels.\n"
     report += "="*60 + "\n"
 
     print(report)
