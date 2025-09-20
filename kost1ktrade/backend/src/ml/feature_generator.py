@@ -127,6 +127,13 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
     atr_short = talib.ATR(high, low, close, timeperiod=atr_short_period)
     atr_long = talib.ATR(high, low, close, timeperiod=atr_long_period)
     df_feat['atr_ratio_14_100'] = atr_short / (atr_long + epsilon)
+
+    # New ATR ratio features as requested
+    atr_5 = talib.ATR(high, low, close, timeperiod=5)
+    atr_20 = talib.ATR(high, low, close, timeperiod=20)
+    atr_200 = talib.ATR(high, low, close, timeperiod=200)
+    df_feat['atr_ratio_5_20'] = atr_5 / (atr_20 + epsilon)
+    df_feat['atr_ratio_20_200'] = atr_20 / (atr_200 + epsilon)
     # --- END PRIORITY 3 FEATURES ---
 
 
@@ -139,7 +146,7 @@ def create_features(df: pd.DataFrame) -> pd.DataFrame:
         # Adding the new Priority 3 features to the lag list
         'price_dist_ema_long', 'time_since_high', 'time_since_low',
         'buying_pressure', 'selling_pressure', 'volume_weighted_candle',
-        'atr_ratio_14_100'
+        'atr_ratio_14_100', 'atr_ratio_5_20', 'atr_ratio_20_200'
     ]
 
     for feature in specialized_features:
