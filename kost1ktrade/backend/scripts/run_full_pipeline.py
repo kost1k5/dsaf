@@ -166,7 +166,13 @@ def main():
     print(f"Pipeline will be run on the '{timeframe_to_use}' timeframe for all assets.")
 
     # Use as many processes as there are CPUs, but not more than the number of symbols
-    num_processes = min(multiprocessing.cpu_count(), len(symbols_to_process))
+    # num_processes = min(multiprocessing.cpu_count(), len(symbols_to_process))
+
+    # --- STABILITY FIX ---
+    # The user's environment is running out of memory with parallel processing.
+    # We will force serial execution by setting the number of processes to 1.
+    num_processes = 1
+    print(f"STABILITY FIX: Forcing serial execution with {num_processes} process to conserve memory.")
     print(f"Initializing a pool of {num_processes} processes to handle {len(symbols_to_process)} assets.")
 
     # Prepare arguments for starmap
