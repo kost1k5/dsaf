@@ -57,7 +57,6 @@ class EvaluationSettings(BaseModel):
     SLIPPAGE_RATE: float
     TP_ATR_MULT: float
     SL_ATR_MULT: float
-    OPTIMIZATION_METRIC: str = "sharpe_ratio" # Can be 'sharpe_ratio', 'profit_factor', etc.
 
 class StrategySettings(BaseModel):
     EMA_FAST: int
@@ -160,6 +159,20 @@ class Settings(BaseSettings):
     INDICATORS: IndicatorSettings
     EVAL: EvaluationSettings
     BACKTEST_STRATEGY: BacktestStrategySettings
+    MASTER_CONTROLLER: "MasterControllerSettings"
+    BOT_CONTROLLER: "BotControllerSettings"
+
+class MasterControllerSettings(BaseModel):
+    CHECK_INTERVAL_SECONDS: int = 3600
+    ADX_TREND_THRESHOLD: int = 25
+    ADX_RANGE_THRESHOLD: int = 20
+    BOT_STOP_WAIT_SECONDS: int = 10
+
+class BotControllerSettings(BaseModel):
+    CANDLE_LIMIT: int = 200
+    MIN_CAPITAL_FOR_TRADE: int = 10
+    MIN_ORDER_SIZE_USD: int = 5
+    LOOP_SLEEP_SECONDS: int = 3600
 
 # Instantiate the settings
 settings = Settings()

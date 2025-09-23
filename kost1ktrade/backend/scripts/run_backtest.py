@@ -171,7 +171,7 @@ def run_backtest_simulation(
     if not wins.empty: print(f"Average Win: ${wins['pnl_usd'].mean():.2f}")
     if not losses.empty: print(f"Average Loss: ${losses['pnl_usd'].mean():.2f}")
 
-    equity_ser = pd.Series(equity_curve, index=pd.to_datetime([t['entry_time'] for t in trades] + [df_sim.index[0]]) if trades else [df_sim.index[0]])
+    equity_ser = pd.Series(equity_curve, index=pd.to_datetime([t['entry_time'] for t in trades] + [df_sim.index[0]], unit='ms') if trades else [df_sim.index[0]])
     daily_returns = equity_ser.resample('D').last().pct_change().dropna()
     sharpe_ratio = (daily_returns.mean() / daily_returns.std()) * np.sqrt(365) if daily_returns.std() > 0 else 0
 

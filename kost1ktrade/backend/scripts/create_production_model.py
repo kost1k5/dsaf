@@ -8,7 +8,6 @@ import json
 import argparse
 from sklearn.metrics import classification_report, precision_score, average_precision_score
 from sklearn.preprocessing import LabelEncoder, StandardScaler
-from sklearn.model_selection import TimeSeriesSplit
 from sklearn.pipeline import Pipeline
 from functools import partial
 import lightgbm as lgb
@@ -18,9 +17,10 @@ import lightgbm as lgb
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from src.ml.validation import PurgedTimeSeriesSplit
 from src.core.config import settings
 
-def objective(trial, X_train, y_train, selected_features):
+def objective(trial, X_train, y_train, event_end_times, selected_features):
     """
     Objective function for Optuna hyperparameter tuning, targeting PR-AUC,
     with proper scaling within each CV fold to prevent data leakage.
@@ -49,9 +49,9 @@ def objective(trial, X_train, y_train, selected_features):
     X_selected = X_train[selected_features]
     y_encoded = LabelEncoder().fit_transform(y_train)
 
-    inner_cv = TimeSeriesSplit(n_splits=3)
+    inner_cv = PurgedTimeSeriesSplit(n_splits=3, purge_buffer_days=5, embargo_pct=0.01)
     scores = []
-    for inner_train_idx, inner_val_idx in inner_cv.split(X_selected):
+    for inner_train_idx, inner_val_idx in inner_cv.split(X_selected, y_encoded, event_end_times=event_end_times.loc[X_selected.index]):
         if len(inner_train_idx) == 0 or len(inner_val_idx) == 0: continue
 
         X_inner_train, X_inner_val = X_selected.iloc[inner_train_idx], X_selected.iloc[inner_val_idx]
@@ -59,10 +59,6 @@ def objective(trial, X_train, y_train, selected_features):
 
         # --- Scaling within the fold ---
         scaler = StandardScaler()
-        try:
-            scaler.set_output(transform="pandas")
-        except AttributeError:
-            pass # Older scikit-learn versions do not have this
         X_inner_train_scaled = scaler.fit_transform(X_inner_train)
         X_inner_val_scaled = scaler.transform(X_inner_val)
         # --- End Scaling ---
@@ -106,22 +102,30 @@ def main(asset: str, timeframe: str):
     print(f"Successfully loaded {len(final_selected_features)} selected features.")
 
     # --- 3. Prepare Data for Model ---
+    df['event_end_time'] = pd.to_datetime(df['event_end_time'])
+    if df['event_end_time'].dt.tz is None:
+        df['event_end_time'] = df['event_end_time'].dt.tz_localize('UTC')
+    else:
+        df['event_end_time'] = df['event_end_time'].dt.tz_convert('UTC')
+
     X_full = df[final_selected_features].copy()
     y_full = df['label'].copy()
+    event_end_times_full = df['event_end_time'].copy()
 
     X_full.replace([np.inf, -np.inf], np.nan, inplace=True)
     X_full.ffill(inplace=True)
     X_full.fillna(0, inplace=True)
     y_full = y_full.loc[X_full.index]
+    event_end_times_full = event_end_times_full.loc[X_full.index]
 
     # --- 4. Walk-Forward Validation and Hyperparameter Tuning ---
-    outer_cv = TimeSeriesSplit(n_splits=3)
+    outer_cv = PurgedTimeSeriesSplit(n_splits=3, purge_buffer_days=5, embargo_pct=0.01)
     all_reports = []
     successful_folds = 0
     best_params = {}
 
     print("\n--- Starting Walk-Forward Validation with Hyperparameter Tuning ---")
-    for fold, (train_idx, test_idx) in enumerate(outer_cv.split(X_full)):
+    for fold, (train_idx, test_idx) in enumerate(outer_cv.split(X_full, y_full, event_end_times_full)):
         print(f"\n--- Processing Fold {fold+1}/{outer_cv.get_n_splits()} for {asset} ---")
         X_train, X_test = X_full.iloc[train_idx], X_full.iloc[test_idx]
         y_train, y_test = y_full.iloc[train_idx], y_full.iloc[test_idx]
@@ -131,7 +135,7 @@ def main(asset: str, timeframe: str):
             continue
 
         print("  [Hyperparameter Tuning] Running Optuna study for this fold...")
-        objective_with_data = partial(objective, X_train=X_train, y_train=y_train, selected_features=final_selected_features)
+        objective_with_data = partial(objective, X_train=X_train, y_train=y_train, event_end_times=event_end_times_full, selected_features=final_selected_features)
         study = optuna.create_study(direction='maximize')
         study.optimize(objective_with_data, n_trials=settings.ML.OPTUNA_TRIALS)
 
@@ -142,14 +146,8 @@ def main(asset: str, timeframe: str):
         final_fold_params = best_params.copy()
         final_fold_params['scale_pos_weight'] = (y_train == 0).sum() / (y_train == 1).sum() if (y_train == 1).sum() > 0 else 1
 
-        scaler = StandardScaler()
-        try:
-            scaler.set_output(transform="pandas")
-        except AttributeError:
-            pass
-
         pipeline = Pipeline([
-            ('scaler', scaler),
+            ('scaler', StandardScaler()),
             ('model', lgb.LGBMClassifier(objective='binary', random_state=42, **final_fold_params))
         ])
         y_train_encoded = LabelEncoder().fit_transform(y_train)
@@ -180,14 +178,8 @@ def main(asset: str, timeframe: str):
     final_prod_params = best_params.copy()
     final_prod_params['scale_pos_weight'] = (y_full == 0).sum() / (y_full == 1).sum() if (y_full == 1).sum() > 0 else 1
 
-    scaler = StandardScaler()
-    try:
-        scaler.set_output(transform="pandas")
-    except AttributeError:
-        print("Warning: scikit-learn version is too old for set_output. Update to >=1.2 for full feature name support.")
-
     final_pipeline = Pipeline([
-        ('scaler', scaler),
+        ('scaler', StandardScaler()),
         ('model', lgb.LGBMClassifier(objective='binary', random_state=42, **final_prod_params))
     ])
     y_full_encoded = LabelEncoder().fit_transform(y_full)

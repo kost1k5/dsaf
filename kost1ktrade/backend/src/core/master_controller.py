@@ -12,8 +12,8 @@ from src.core.bot_controller import start_bot_loop, stop_bot_loop
 STRATEGY_PARAMS_FILE = 'strategy_params.json'
 COMMANDER_SYMBOL = settings.COMMANDER_SYMBOL
 ADX_PERIOD = 14
-ADX_TREND_THRESHOLD = 25
-ADX_RANGE_THRESHOLD = 20
+ADX_TREND_THRESHOLD = settings.MASTER_CONTROLLER.ADX_TREND_THRESHOLD
+ADX_RANGE_THRESHOLD = settings.MASTER_CONTROLLER.ADX_RANGE_THRESHOLD
 
 def load_strategy_params():
     """Loads strategy parameters from the JSON file."""
@@ -42,7 +42,7 @@ def master_trading_loop():
         bot_state.master_bot_mode = "stopped"
         return
 
-    check_interval_seconds = 3600 # Check market state every hour
+    check_interval_seconds = settings.MASTER_CONTROLLER.CHECK_INTERVAL_SECONDS
 
     while not bot_state.master_bot_stop_event.is_set():
         try:
@@ -92,9 +92,11 @@ def master_trading_loop():
             if runnable_strategies:
                 # There are suitable strategies for the current regime
                 if not is_bot_running:
-                    # No bot is running, so start one
-                    new_strategy_name = random.choice(runnable_strategies)
-                    print(f"No bot running. Starting a suitable strategy: '{new_strategy_name}'")
+                    # No bot is running, so start one. Select the highest priority strategy.
+                    runnable_params = {name: all_strategies[name] for name in runnable_strategies}
+                    new_strategy_name = max(runnable_params, key=lambda k: runnable_params[k].get('priority', 0))
+
+                    print(f"No bot running. Starting highest priority strategy: '{new_strategy_name}'")
                     params = all_strategies.get(new_strategy_name, {})
                     start_bot_loop(
                         mode=bot_state.master_bot_target_mode,
@@ -106,10 +108,12 @@ def master_trading_loop():
                     # The current bot is unsuitable for the new regime. Switch it.
                     print(f"Current strategy '{current_bot_strategy}' is unsuitable for '{market_regime}' regime.")
                     stop_bot_loop()
-                    time.sleep(10) # Give the bot time to stop gracefully
+                    time.sleep(settings.MASTER_CONTROLLER.BOT_STOP_WAIT_SECONDS) # Give the bot time to stop gracefully
 
-                    new_strategy_name = random.choice(runnable_strategies)
-                    print(f"Switching to a suitable strategy: '{new_strategy_name}'")
+                    runnable_params = {name: all_strategies[name] for name in runnable_strategies}
+                    new_strategy_name = max(runnable_params, key=lambda k: runnable_params[k].get('priority', 0))
+
+                    print(f"Switching to highest priority strategy: '{new_strategy_name}'")
                     params = all_strategies.get(new_strategy_name, {})
                     start_bot_loop(
                         mode=bot_state.master_bot_target_mode,
