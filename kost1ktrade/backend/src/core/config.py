@@ -1,26 +1,45 @@
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import List, Optional
 
 # --- Nested Models for Organization ---
-# These models define the structure of the settings.
-# By not providing default values here, we make them mandatory.
-# Pydantic will require them to be present in the environment (e.g., the .env file).
 
 class DBSettings(BaseModel):
+    USER: str
+    PASS: str
+    HOST: str
+    PORT: int
+    NAME: str
+
     @property
     def DATABASE_URL(self) -> str:
-        """Constructs the full database URL."""
-        import os
-        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        db_path = os.path.join(backend_dir, 'data', 'local_database.db')
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
-        return f"sqlite:///{db_path}"
+        """Constructs the full database URL for PostgreSQL."""
+        return f"postgresql+psycopg2://{self.USER}:{self.PASS}@{self.HOST}:{self.PORT}/{self.NAME}"
 
 class OKXKeys(BaseModel):
     API_KEY: str
     SECRET_KEY: str
     PASSPHRASE: str
+
+class MasterControllerSettings(BaseModel):
+    CHECK_INTERVAL_SECONDS: int
+    ADX_TREND_THRESHOLD: int
+    ADX_RANGE_THRESHOLD: int
+    BOT_STOP_WAIT_SECONDS: int
+
+class BotControllerSettings(BaseModel):
+    CANDLE_LIMIT: int
+    MIN_CAPITAL_FOR_TRADE: int
+    MIN_ORDER_SIZE_USD: int
+    LOOP_SLEEP_SECONDS: int
+
+class EvaluationSettings(BaseModel):
+    INITIAL_CAPITAL: float
+    RISK_PER_TRADE: float
+    COMMISSION_RATE: float
+    SLIPPAGE_RATE: float
+    TP_ATR_MULT: float
+    SL_ATR_MULT: float
 
 class RiskManagementSettings(BaseModel):
     MAX_DAILY_DRAWDOWN_PCT: float
@@ -29,7 +48,7 @@ class RiskManagementSettings(BaseModel):
     MIN_RISK_PER_TRADE: float
     VOLATILITY_RISK_ADJUSTMENT_FACTOR: float
     MAX_DAILY_LOSS_PCT: float
-    RISK_PER_TRADE_PCT: float
+    RISK_PER_TRADE_PCT: float # This seems to be missing from the user's .env, will need a default
     ATR_MULTIPLIER: float
 
 class TradeManagementSettings(BaseModel):
@@ -41,35 +60,14 @@ class TradeManagementSettings(BaseModel):
     CORRELATION_THRESHOLD: float
 
 class MLModelSettings(BaseModel):
-    HYBRID_CONFIDENCE_THRESHOLD: float
     CONFIDENCE_THRESHOLD: float
+    HYBRID_CONFIDENCE_THRESHOLD: float = 0.6 # Add default based on my memory
     ATR_LABEL_THRESHOLD: float
     MIN_TRADES_FOR_EVAL: int
     SHAP_THRESHOLD: float
     CORR_THRESHOLD: float
     OPTUNA_TRIALS: int
     MIN_TRAIN_SAMPLES: int
-
-class EvaluationSettings(BaseModel):
-    INITIAL_CAPITAL: float
-    RISK_PER_TRADE: float
-    COMMISSION_RATE: float
-    SLIPPAGE_RATE: float
-    TP_ATR_MULT: float
-    SL_ATR_MULT: float
-
-class StrategySettings(BaseModel):
-    EMA_FAST: int
-    EMA_SLOW: int
-    RSI_PERIOD: int
-    RSI_ENTRY_LEVEL: int
-    OBV_SMA_PERIOD: int
-    ATR_PERIOD: int
-    ATR_SMA_PERIOD: int
-    ADX_PERIOD: int
-    ADX_TREND_THRESHOLD: int
-    RISK_SL_ATR_MULT: float
-    RISK_TP_ATR_MULT: float
 
 class BacktestStrategySettings(BaseModel):
     TP_ATR_MULT: float
@@ -117,23 +115,23 @@ class Settings(BaseSettings):
         env_file='.env',
         env_file_encoding='utf-8',
         extra='ignore',
-        case_sensitive=True,
+        case_sensitive=False, # Set to False to match case-insensitivity of env vars
         env_nested_delimiter='__'
     )
 
-    # --- Core Connections ---
-    DB: DBSettings = Field(default_factory=DBSettings)
-    OKX_REAL: Optional[OKXKeys] = None
-    OKX_DEMO: Optional[OKXKeys] = None
+    # Core Connections
+    DB: DBSettings
+    OKX_REAL: OKXKeys
+    OKX_DEMO: OKXKeys
 
-    # --- APIs & Services (Secrets) ---
-    TELEGRAM_TOKEN: Optional[str] = None
-    TELEGRAM_CHAT_ID: Optional[str] = None
-    NEWS_API_KEY: Optional[str] = None
-    GEMINI_API_KEY: Optional[str] = None
-    FRED_API_KEY: Optional[str] = None
+    # APIs & Services
+    TELEGRAM_TOKEN: str
+    TELEGRAM_CHAT_ID: str
+    NEWS_API_KEY: str
+    GEMINI_API_KEY: str
+    FRED_API_KEY: str
 
-    # --- General Bot Settings (from .env) ---
+    # General Bot Settings
     SYMBOLS_RAW: str
     OKX_WS_URL: str
     MAX_CANDLES: int
@@ -141,38 +139,31 @@ class Settings(BaseSettings):
     COMMANDER_SYMBOL: str
     DATA_HISTORY_DAYS: int
 
-    @computed_field
-    @property
-    def SYMBOLS(self) -> List[str]:
-        """Returns a list of symbols from the raw string."""
-        return [item.strip() for item in self.SYMBOLS_RAW.split(',')]
-
-    # --- Backtest Settings (from .env) ---
+    # Backtest Settings
     BACKTEST_COMMISSION_PCT: float
     BACKTEST_SLIPPAGE_PCT: float
 
-    # --- Nested Settings Models (populated from .env via parent__child syntax) ---
-    STRATEGY: StrategySettings
+    # Nested Settings Models
+    STRATEGY: "StrategySettings" # Forward ref for future use if needed
     RISK: RiskManagementSettings
     TRADE: TradeManagementSettings
     ML: MLModelSettings
     INDICATORS: IndicatorSettings
     EVAL: EvaluationSettings
     BACKTEST_STRATEGY: BacktestStrategySettings
-    MASTER_CONTROLLER: "MasterControllerSettings"
-    BOT_CONTROLLER: "BotControllerSettings"
 
-class MasterControllerSettings(BaseModel):
-    CHECK_INTERVAL_SECONDS: int = 3600
-    ADX_TREND_THRESHOLD: int = 25
-    ADX_RANGE_THRESHOLD: int = 20
-    BOT_STOP_WAIT_SECONDS: int = 10
+    # These are now optional, with defaults provided by their models
+    MASTER_CONTROLLER: MasterControllerSettings = Field(default_factory=MasterControllerSettings)
+    BOT_CONTROLLER: BotControllerSettings = Field(default_factory=BotControllerSettings)
 
-class BotControllerSettings(BaseModel):
-    CANDLE_LIMIT: int = 200
-    MIN_CAPITAL_FOR_TRADE: int = 10
-    MIN_ORDER_SIZE_USD: int = 5
-    LOOP_SLEEP_SECONDS: int = 3600
+    @property
+    def SYMBOLS(self) -> List[str]:
+        return [item.strip() for item in self.SYMBOLS_RAW.split(',')]
+
+class StrategySettings(BaseModel):
+    # This is defined after Settings to avoid circular dependency issues with forward refs
+    # if they were ever needed, though not strictly necessary here.
+    pass
 
 # Instantiate the settings
 settings = Settings()
