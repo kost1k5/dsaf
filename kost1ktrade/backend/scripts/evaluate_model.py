@@ -35,49 +35,13 @@ def calculate_financial_metrics(predictions: pd.DataFrame, confidence_threshold:
         if capital <= 0: break
 
         # --- Position Sizing ---
-        # BUG FIX: The user's log analysis revealed that s.RISK_PER_TRADE was causing
-        # exponential, incorrect risk calculation. It's likely a misconfigured setting (e.g., 100 instead of 0.01).
-        # As per the user's explicit instruction, we are overriding it with a fixed 1% of current capital.
-        risk_in_money = capital * 0.01
+        risk_in_money = capital * s.RISK_PER_TRADE
         atr_at_entry = row['ATR']
-        entry_price = row['close']
+        if pd.isna(atr_at_entry) or atr_at_entry <= 0: continue
 
-        # --- BUG FIX SAFEGUARD ---
-        # Prevent division by zero or extremely small ATR leading to massive position sizes.
-        # A very small ATR can indicate stale data or a market freeze.
-        MIN_ATR_AS_PCT_OF_PRICE = 0.0001 # 0.01% of price
-        min_atr_value = entry_price * MIN_ATR_AS_PCT_OF_PRICE
-
-        if pd.isna(atr_at_entry) or atr_at_entry < min_atr_value:
-            print(f"--- SKIPPING TRADE (Bad ATR) ---")
-            print(f"  Timestamp: {row.name}")
-            print(f"  ATR Value: {atr_at_entry}. Minimum required: {min_atr_value}")
-            print(f"--------------------------------\n")
-            continue
-
-        # --- Cost-Aware Position Sizing (Priority 1 Fix) ---
-        # Gross loss per unit of asset if SL is hit
-        gross_loss_per_unit = s.SL_ATR_MULT * atr_at_entry
-
-        # Estimate costs per unit of asset for a losing trade
-        # Entry commission + slippage is based on entry price
-        entry_costs_per_unit = entry_price * (s.COMMISSION_RATE + s.SLIPPAGE_RATE)
-        # Exit commission is based on exit price (entry - SL distance)
-        exit_price_on_loss = entry_price - gross_loss_per_unit
-        exit_commission_per_unit = exit_price_on_loss * s.COMMISSION_RATE
-
-        total_costs_per_unit = entry_costs_per_unit + exit_commission_per_unit
-
-        # Total expected loss per unit is the gross loss plus all costs
-        total_loss_per_unit = gross_loss_per_unit + total_costs_per_unit
-
-        # Calculate position size so that the NET loss does not exceed risk_in_money
-        if total_loss_per_unit <= 0: # Should not happen with the ATR guard, but as a final safety net
-            continue
-
-        position_size_asset = risk_in_money / total_loss_per_unit
-        position_value_usd = position_size_asset * entry_price
-        stop_loss_distance_price = gross_loss_per_unit # Renaming for clarity
+        stop_loss_distance_price = s.SL_ATR_MULT * atr_at_entry
+        position_size_asset = risk_in_money / stop_loss_distance_price
+        position_value_usd = position_size_asset * row['close']
 
         # --- PnL Calculation ---
         # The 'y_true' column directly tells us the outcome (1 for win, 0 for loss)
@@ -94,42 +58,9 @@ def calculate_financial_metrics(predictions: pd.DataFrame, confidence_threshold:
         slippage_cost = position_value_usd * s.SLIPPAGE_RATE
         net_pnl = pnl - entry_commission - exit_commission - slippage_cost
 
-        # --- Sanity Check for Impossible Loss ---
-        if net_pnl < -risk_in_money * 1.1: # Allow for 10% margin for slippage/commission
-            print(f"--- ANOMALOUS LOSS DETECTED (LOGGING & CONTINUING) ---")
-            print(f"  Timestamp: {row.name}")
-            print(f"  Intended Risk: ${risk_in_money:,.2f}")
-            print(f"  Actual Net Loss: ${net_pnl:,.2f}")
-            print(f"  DEBUG INFO:")
-            print(f"    Entry Price: {row['close']:.4f}")
-            print(f"    Calculated SL Price: {(row['close'] - stop_loss_distance_price) if is_win else (row['close'] + stop_loss_distance_price):.4f}")
-            print(f"    Position Size (Asset): {position_size_asset:.4f}")
-            print(f"    Gross PnL: ${pnl:,.2f}")
-            print(f"    Entry Commission: ${entry_commission:,.2f}")
-            print(f"    Exit Commission: ${exit_commission:,.2f}")
-            print(f"    Slippage Cost: ${slippage_cost:,.2f}")
-            print(f"-----------------------------------------------------\n")
-            # The trade is still processed and capital updated, but we log it as an anomaly.
-            # The 'continue' statement below will just skip the *normal* trade log.
-
-
         capital += net_pnl
         equity_curve.append(capital)
-        trades_list.append({'net_pnl': net_pnl, 'win': is_win, 'capital': capital})
-
-        # --- Detailed Logging for Debugging ---
-        print(f"--- TRADE LOG ---")
-        print(f"  Timestamp: {row.name}")
-        print(f"  ATR at Entry: {atr_at_entry:.4f}")
-        print(f"  Position Size (Asset): {position_size_asset:.4f}")
-        print(f"  Position Value (USD): ${position_value_usd:,.2f}")
-        print(f"  Outcome (y_true): {'Win' if is_win else 'Loss'}")
-        print(f"  Gross PnL: ${pnl:,.2f}")
-        print(f"  Commissions + Slippage: ${(entry_commission + exit_commission + slippage_cost):,.2f}")
-        print(f"  Net PnL: ${net_pnl:,.2f}")
-        print(f"  Capital After Trade: ${capital:,.2f}")
-        print(f"-----------------\n")
-
+        trades_list.append({'net_pnl': net_pnl, 'win': is_win})
 
     # --- Final Metrics Calculation ---
     if not trades_list:
@@ -188,8 +119,7 @@ def main(asset: str, timeframe: str):
         return
 
     # 2. Find the optimal confidence threshold via Grid Search
-    optimization_metric = settings.EVAL.OPTIMIZATION_METRIC
-    print(f"Finding optimal confidence threshold by maximizing '{optimization_metric}'...")
+    print("Finding optimal confidence threshold by maximizing Sharpe Ratio...")
     thresholds = np.arange(0.50, 0.86, 0.01) # Finer grid for single threshold
     results = []
     for t in thresholds:
@@ -198,26 +128,18 @@ def main(asset: str, timeframe: str):
 
     results_df = pd.DataFrame(results)
 
-    # Temporarily lower the minimum trade requirement for diagnostic purposes, as per user request.
-    # The original value is settings.ML.MIN_TRADES_FOR_EVAL (30).
-    min_trades = 15
-    print(f"INFO: Temporarily lowered minimum trades requirement to {min_trades} for this evaluation run.")
+    min_trades = settings.ML.MIN_TRADES_FOR_EVAL
     realistic_results_df = results_df[results_df['total_trades'] >= min_trades]
 
     if realistic_results_df.empty:
         print(f"CRITICAL: No threshold combination produced the minimum required {min_trades} trades.")
         if not results_df.empty:
-            # Still sort by the desired metric even if no combination is valid
-            best_insufficient_row = results_df.sort_values(by=optimization_metric, ascending=False).iloc[0]
+            best_insufficient_row = results_df.sort_values(by='sharpe_ratio', ascending=False).iloc[0]
             print("Diagnostics: Best result among all combinations (below trade threshold):")
             print(best_insufficient_row)
         return
 
-    if optimization_metric not in realistic_results_df.columns:
-        print(f"CRITICAL: The specified optimization_metric '{optimization_metric}' is not a valid column in the results. Available columns: {realistic_results_df.columns.tolist()}")
-        return
-
-    best_row = realistic_results_df.loc[realistic_results_df[optimization_metric].idxmax()]
+    best_row = realistic_results_df.loc[realistic_results_df['sharpe_ratio'].idxmax()]
     final_metrics = best_row.to_dict()
 
     # 3. Generate and save the final report
@@ -232,12 +154,6 @@ def main(asset: str, timeframe: str):
     report += f"  - Win Rate: {final_metrics['win_rate']:.2%}\n"
     report += f"  - Total Trades: {int(final_metrics['total_trades'])}\n"
     report += f"  - Final Capital: ${final_metrics['final_capital']:,.2f}\n"
-    report += "="*60 + "\n"
-    report += "NOTE: The financial metrics above are based on a simplified simulation where trade\n"
-    report += "outcomes are assumed based on pre-calculated labels (`y_true`). This is useful for\n"
-    report += "finding the optimal confidence threshold quickly.\n"
-    report += "The most reliable performance metrics come from the full event-driven backtest\n"
-    report += "in `run_backtest.py`, which simulates price action against SL/TP levels.\n"
     report += "="*60 + "\n"
 
     print(report)

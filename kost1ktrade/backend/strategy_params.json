@@ -1,23 +1,27 @@
 {
     "rsi": {
         "type": "range",
+        "priority": 1,
         "rsi_period": 14,
         "oversold_threshold": 30,
         "overbought_threshold": 70
     },
     "sma_crossover": {
         "type": "trend",
+        "priority": 1,
         "short_window": 20,
         "long_window": 100
     },
     "macd": {
         "type": "trend",
+        "priority": 1,
         "fast_period": 12,
         "slow_period": 26,
         "signal_period": 9
     },
     "stochastic": {
         "type": "range",
+        "priority": 1,
         "k_period": 14,
         "d_period": 3,
         "oversold_threshold": 20,
@@ -25,38 +29,44 @@
     },
     "awesome_oscillator": {
         "type": "trend",
+        "priority": 1,
         "fast_period": 5,
         "slow_period": 34
     },
     "parabolic_sar": {
         "type": "trend",
+        "priority": 1,
         "acceleration": 0.02,
         "maximum": 0.2
     },
     "keltner_channels": {
         "type": "trend",
+        "priority": 1,
         "length": 20,
         "multiplier": 2,
         "atr_length": 14
     },
     "ichimoku": {
         "type": "trend",
+        "priority": 1,
         "tenkan_period": 9,
         "kijun_period": 26,
         "senkou_b_period": 52
     },
     "bollinger_bands": {
         "type": "range",
+        "priority": 1,
         "bb_period": 20,
         "bb_std_dev": 2
     },
     "rsi_macd_hybrid": {
         "type": "range",
+        "priority": 1,
         "rsi_period": 14,
         "oversold_threshold": 30,
         "overbought_threshold": 70,
         "fast_period": 12,
         "slow_period": 26,
         "signal_period": 9
-}
+    }
 }

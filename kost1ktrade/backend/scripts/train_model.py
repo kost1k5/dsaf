@@ -66,10 +66,6 @@ def optimize_hyperparameters(X_train, y_train):
 
             # --- Scaling within the fold ---
             scaler = StandardScaler()
-            try:
-                scaler.set_output(transform="pandas")
-            except AttributeError:
-                pass # Older scikit-learn versions do not have this
             X_train_fold_scaled = scaler.fit_transform(X_train_fold)
             X_val_fold_scaled = scaler.transform(X_val_fold)
             # --- End Scaling ---
@@ -162,33 +158,12 @@ def train_model(asset: str, timeframe: str):
 
     # 7. Model Training with Best Parameters using a Pipeline
     print("\n--- Model Training (with optimized parameters in a Pipeline) ---")
-
-    # Configure scaler to return pandas DataFrame
-    scaler = StandardScaler()
-    try:
-        scaler.set_output(transform="pandas")
-    except AttributeError:
-        print("Warning: scikit-learn version is too old for set_output. Update to >=1.2 for full feature name support.")
-
     final_pipeline = Pipeline([
-        ('scaler', scaler),
+        ('scaler', StandardScaler()),
         ('model', lgb.LGBMClassifier(**best_params))
     ])
     final_pipeline.fit(X_train, y_train)
     print("Pipeline training complete.")
-
-    # 7a. Save Feature Importances
-    print("\n--- Saving Feature Importances ---")
-    model = final_pipeline.named_steps['model']
-    feature_importances = pd.Series(model.feature_importances_, index=X_train.columns)
-    feature_importances = feature_importances.sort_values(ascending=False)
-
-    importance_path = os.path.join(REPORTS_DIR, f'{asset}_{timeframe}_feature_importances.json')
-    feature_importances.to_json(importance_path, indent=4)
-    print(f"Feature importances saved to: {importance_path}")
-    print("Top 10 most important features:")
-    print(feature_importances.head(10))
-
 
     # 8. Evaluation and Saving OOS Predictions
     print(f"\n--- Final Evaluation for {asset} ---")

@@ -72,19 +72,30 @@ class TradingEngine:
             print(f"An error occurred while fetching balance: {e}")
             return None
             
-    def create_order(self, symbol: str, order_type: str, side: str, amount: float, price: float = None):
+    def create_order(self, symbol: str, order_type: str, side: str, amount: float, price: float = None, sl_price: float = None, tp_price: float = None):
         """
-        Creates a new order on the exchange.
+        Creates a new order on the exchange, with optional stop-loss and take-profit.
         :param symbol: The trading symbol (e.g., 'BTC/USD').
         :param order_type: 'market' or 'limit'.
         :param side: 'buy' or 'sell'.
         :param amount: The quantity of the asset to trade.
         :param price: The price for a limit order.
+        :param sl_price: The stop-loss price.
+        :param tp_price: The take-profit price.
         :return: The order object from the exchange or None if an error occurs.
         """
         try:
-            print(f"Creating {side} {order_type} order for {amount} {symbol} with price {price}...")
+            print(f"Creating {side} {order_type} order for {amount} {symbol}...")
             params = {'tdMode': 'cross'}
+
+            # Add SL/TP parameters for OKX specifically
+            if sl_price is not None:
+                params['slOrdPx'] = str(sl_price) # OKX requires prices as strings
+                print(f"  - With Stop-Loss at: {sl_price}")
+            if tp_price is not None:
+                params['tpOrdPx'] = str(tp_price)
+                print(f"  - With Take-Profit at: {tp_price}")
+
             order = self.exchange.create_order(symbol, order_type, side, amount, price, params)
             print("Order created successfully:")
             print(order)
